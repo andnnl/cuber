@@ -25,7 +25,7 @@ const PRESET_PALETTES: { [key: string]: PaletteType } = {
     F: "#00A020",
     B: "#0D47A1",
   },
-  "黄底": {
+  "白底": {
     R: "#FF6D00",
     L: "#B71C1C",
     U: "#FFD600",
