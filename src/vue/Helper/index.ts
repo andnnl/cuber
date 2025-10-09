@@ -76,6 +76,11 @@ export default class Helper extends Vue {
 
   solver: Solver = new Solver();
 
+  // 解法类型
+  solveTypes = ['底层十字', '第一组F2L', 'OLL解法', 'PLL解法'];
+  solveType = '底层十字';
+  solutionSteps: string[] = [];
+
   width = 0;
   height = 0;
   size = 0;
@@ -259,5 +264,151 @@ export default class Helper extends Vue {
     const search = "mode=player&data=" + string;
     const link = window.location.origin + window.location.pathname + "?" + search;
     window.open(link);
+  }
+
+  // 生成解法
+  async generateSolution(): Promise<void> {
+    try {
+      // 显示加载状态
+      this.solution = "正在计算解法...";
+      this.solutionSteps = [];
+      
+      // 打印当前魔方状态
+      const currentState = this.world.cube.serialize();
+      console.log("[Helper] 当前魔方状态: " + currentState);
+      
+      // 根据选择的解法类型生成对应的公式
+      switch (this.solveType) {
+        case '底层十字':
+          // 异步调用solveCross方法
+          this.solutionSteps = await this.solveCrossAsync();
+          break;
+        case '第一组F2L':
+          this.solutionSteps = this.solver.solveF2L();
+          break;
+        case 'OLL解法':
+          this.solutionSteps = this.solver.solveOLL();
+          break;
+        case 'PLL解法':
+          this.solutionSteps = this.solver.solvePLL();
+          break;
+        default:
+          this.solutionSteps = [];
+      }
+
+      console.log("[Helper] 解法步骤: ", this.solutionSteps);
+
+      // 处理解法显示
+      if (this.solutionSteps.length > 0) {
+        // 检查是否是多个解法（包含"解法1:", "解法2:"等标识）
+        if (this.solutionSteps[0].startsWith('解法')) {
+          // 多个解法，下拉框显示所有解法，文本框显示第一个解法的内容
+          console.log("[Helper] 处理多个解法");
+          const match = this.solutionSteps[0].match(/^解法\d+: (.*)$/);
+          if (match && match[1]) {
+            this.solution = match[1].trim();
+          } else {
+            this.solution = this.solutionSteps[0];
+          }
+        } else {
+          // 单个解法，文本框显示解法内容
+          console.log("[Helper] 处理单个解法");
+          this.solution = this.solutionSteps[0];
+          // 如果是"已完成底层十字"这样的提示信息，清空solutionSteps避免在下拉框中显示
+          if (this.solutionSteps[0] === '已完成底层十字') {
+            console.log("[Helper] 已完成底层十字，清空solutionSteps");
+            this.solutionSteps = [];
+          }
+        }
+      } else {
+        // 没有解法的情况
+        console.log("[Helper] 没有解法");
+        if (!this.solution || this.solution === "正在计算解法...") {
+          this.solution = "无法生成解法";
+        }
+      }
+      
+      console.log("[Helper] 最终显示的解法: ", this.solution);
+      console.log("[Helper] 下拉框中的解法步骤: ", this.solutionSteps);
+    } catch (error) {
+      console.error("[Helper] 生成解法出错: ", error);
+      this.solution = '生成解法失败: ' + error.message;
+      this.solutionSteps = [];
+    }
+  }
+
+  // 异步调用solveCross方法
+  private solveCrossAsync(): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      try {
+        // 使用setTimeout将计算放到下一个事件循环中执行，避免阻塞UI
+        setTimeout(() => {
+          try {
+            // 获取魔方当前状态
+            const state = this.world.cube.serialize();
+            console.log("[Helper] 调用solveCross方法，传入魔方状态: " + state);
+            
+            // 调用solveCross方法，获取最多5个解法，每个解法不超过8步
+            const crossSolutions = this.solver.solveCross(state, 5, 8);
+            
+            // 打印返回的解法
+            console.log("[Helper] solveCross返回的解法: ", crossSolutions);
+            
+            // 处理返回的解法
+            if (crossSolutions.length > 0 && !crossSolutions[0].startsWith('error')) {
+              // 修复：确保正确处理解法
+              if (crossSolutions.length === 1 && crossSolutions[0] !== '') {
+                // 单个解法，不解开步骤，作为一个完整解法返回
+                console.log("[Helper] 单个解法: ", crossSolutions[0]);
+                resolve([crossSolutions[0]]);
+              } else if (crossSolutions.length === 1 && crossSolutions[0] === '') {
+                // 空解法表示已经完成十字
+                console.log("[Helper] 已完成底层十字");
+                resolve(['已完成底层十字']);
+              } else {
+                // 有多个解法，每个解法作为一个元素
+                const formattedSolutions = crossSolutions.map((sol, index) => `解法${index + 1}: ${sol}`);
+                console.log("[Helper] 多个解法: ", formattedSolutions);
+                resolve(formattedSolutions);
+              }
+            } else if (crossSolutions.length > 0 && crossSolutions[0].startsWith('error')) {
+              // 错误情况
+              console.log("[Helper] 解法错误: ", crossSolutions[0]);
+              this.solution = crossSolutions[0];
+              resolve([]);
+            } else {
+              // 没有找到解法
+              console.log("[Helper] 未找到解法");
+              resolve([]);
+              this.solution = 'error: 无法生成底层十字解法';
+            }
+          } catch (error) {
+            console.error("[Helper] solveCross方法执行出错: ", error);
+            this.solution = 'error: solveCross方法执行出错: ' + error.message;
+            reject(error);
+          }
+        }, 0);
+      } catch (error) {
+        console.error("[Helper] 异步调用出错: ", error);
+        this.solution = 'error: 异步调用出错: ' + error.message;
+        reject(error);
+      }
+    });
+  }
+
+  // 选择步骤
+  selectStep(step: string): void {
+    console.log("[Helper] 选择步骤: ", step);
+    // 检查是否包含解法标识（如"解法1: "）
+    const match = step.match(/^解法\d+: (.*)$/);
+    if (match && match[1]) {
+      // 提取实际步骤
+      console.log("[Helper] 提取解法内容: ", match[1]);
+      this.solution = match[1].trim();
+    } else {
+      // 对于不包含解法标识的项，直接使用完整内容
+      console.log("[Helper] 直接使用解法内容: ", step);
+      this.solution = step.trim();
+    }
   }
 }

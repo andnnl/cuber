@@ -1,5 +1,5 @@
 import Vue from "vue";
-import { Component, Provide, Ref } from "vue-property-decorator";
+import { Component, Provide, Ref, Watch } from "vue-property-decorator";
 
 import Viewport from "../Viewport";
 import Setting from "../Setting";
@@ -8,6 +8,7 @@ import { PaletteData, PreferanceData } from "../../data";
 import { TwistAction, TwistNode } from "../../cuber/twister";
 import Cubelet from "../../cuber/cubelet";
 import Rubic from "./rubic";
+import Solver from "../../solver/Solver";
 
 class KeyHandle {
   width = 2;
@@ -195,6 +196,15 @@ export default class Playground extends Vue {
 
   data: PlaygroundData = new PlaygroundData();
 
+  // 求解器实例
+  solver: Solver = new Solver();
+
+  // 解法类型
+  solveTypes = ["",'底层十字', '第一组F2L', 'OLL解法', 'PLL解法'];
+  solveType = '';
+  solutionSteps: string[] = [];
+  solution = "";
+
   width = 0;
   height = 0;
   size = 0;
@@ -227,6 +237,8 @@ export default class Playground extends Vue {
     this.$nextTick(() => {
       this.preferance.refresh();
       this.palette.refresh();
+      // 页面加载后生成初始解法
+      // this.generateSolution();
     });
     this.world.callbacks.push(() => {
       this.callback();
@@ -311,6 +323,12 @@ export default class Playground extends Vue {
     // 未初始化
     if (this.data.scene === "*") {
       this.scramble();
+      // 页面加载完成后自动触发底层十字解法
+      // setTimeout(() => {
+      //   console.log('[Playground] 自动触发底层十字解法');
+      //   this.solveType = '底层十字';
+      //   this.generateSolution();
+      // }, 2000);
       return;
     }
     const order = this.data.order;
@@ -417,5 +435,82 @@ export default class Playground extends Vue {
     this.data.save();
     this.load();
     this.adjust();
+  }
+
+  // 生成解法
+  generateSolution(): void {
+    try {
+      // 根据选择的解法类型生成对应的公式
+      switch (this.solveType) {
+        case '底层十字':
+          // 获取魔方当前状态
+          const state = this.world.cube.serialize();
+          console.warn('[Playground] 开始生成底层十字解法，状态:', state);
+          // 确保solver实例已创建
+          if (!this.solver) {
+            console.warn('[Playground] Solver实例不存在');
+            this.solution = 'error: Solver实例不存在';
+            this.solutionSteps = [];
+            break;
+          }
+          // 调用solveCross方法，获取最多3个解法，每个解法不超过6步（优化参数以避免卡死）
+          const startTime = Date.now();
+          let crossSolutions;
+          try {
+            crossSolutions = this.solver.solveCross(state, 5, 10);
+            const elapsed = Date.now() - startTime;
+            console.warn('[Playground] 底层十字解法生成完成，耗时:', elapsed, 'ms，结果:', crossSolutions);
+          } catch (solveError) {
+            console.error('[Playground] 生成底层十字解法时出错:', solveError);
+            this.solution = 'error: 生成底层十字解法时出错: ' + solveError.message;
+            this.solutionSteps = [];
+            break;
+          }
+          // 处理返回的解法
+          if (crossSolutions && crossSolutions.length > 0 && !crossSolutions[0].startsWith('error')) {
+            // 如果只有一个解法，直接使用
+            if (crossSolutions.length === 1) {
+              this.solutionSteps = crossSolutions[0].split(' ');
+            } else {
+              // 有多个解法，合并为一个数组，每个解法作为一个元素
+              this.solutionSteps = crossSolutions.map((sol, index) => `解法${index + 1}: ${sol}`);
+            }
+          } else {
+            this.solutionSteps = [];
+            this.solution = 'error: 无法生成底层十字解法，结果: ' + JSON.stringify(crossSolutions);
+          }
+          break;
+        case '第一组F2L':
+          this.solutionSteps = this.solver.solveF2L();
+          break;
+        case 'OLL解法':
+          this.solutionSteps = this.solver.solveOLL();
+          break;
+        case 'PLL解法':
+          this.solutionSteps = this.solver.solvePLL();
+          break;
+        default:
+          this.solutionSteps = [];
+      }
+
+      // 将所有步骤合并为一个字符串显示在textarea中
+      this.solution = this.solutionSteps.join(' ');
+    } catch (error) {
+      this.solution = '生成解法失败: ' + error.message;
+      this.solutionSteps = [];
+    }
+  }
+
+  // 选择步骤
+  selectStep(step: string): void {
+    // 检查是否包含解法标识（如"解法1: "）
+    const match = step.match(/^解法\d+: (.*)$/);
+    if (match && match[1]) {
+      // 提取实际步骤
+      this.solution = match[1];
+    } else {
+      // 如果是普通步骤，直接使用
+      this.solution = step;
+    }
   }
 }

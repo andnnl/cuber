@@ -47,14 +47,31 @@
         <div :style="{'font-size':size * 0.4+'px','padding-top':size/8+'px'}">
           解法:
         </div>
+        <v-select
+          v-model="solveType"
+          :items="solveTypes"
+          :style="{'font-size':size/3.5+'px','margin-top':size/10+'px'}"
+          dense
+          outlined
+          @change="generateSolution"
+        ></v-select>
       </v-card-title>
       <v-card-actions>
         <v-layout row wrap style="margin: 0%;">
           <v-flex xs12 d-flex>
             <v-textarea id="copy" :style="{'font-size':size / 3 + 'px', 'line-height':size / 2 + 'px'}" solo flat
-              outlined hide-details v-model="solution">
+              outlined hide-details v-model="solution" :rows="3" auto-grow>
             </v-textarea>
           </v-flex>
+          <!-- <v-flex xs12 d-flex v-if="solutionSteps.length > 0">
+            <v-list :style="{'font-size':size/3.5+'px','max-height':size*3+'px','overflow-y':'auto'}">
+              <v-list-item v-for="(step, index) in solutionSteps" :key="index" @click="selectStep(step)">
+                <v-list-item-content>
+                  <v-list-item-title>{{ step }}</v-list-item-title>
+                </v-list-item-content>
+              </v-list-item>
+            </v-list>
+          </v-flex> -->
           <v-flex xs6 d-flex>
             <v-btn block text @click="play" :height="size * 0.8" :disabled="solution.startsWith('error')">
               <div :style="{'font-size':size/3+'px'}">播放</div>

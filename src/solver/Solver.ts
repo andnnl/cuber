@@ -247,14 +247,14 @@ export default class Solver {
       CoordCube.GetPruning(
         CoordCube.EPermCCombPPrun,
         p2edge * CoordCube.N_COMB +
-          CoordCube.CCombPConj[CubieCube.Perm2CombP[p2corn] & 0xff][CubieCube.SymMultInv[p2esym][p2csym]]
+        CoordCube.CCombPConj[CubieCube.Perm2CombP[p2corn] & 0xff][CubieCube.SymMultInv[p2esym][p2csym]]
       ),
       CoordCube.GetPruning(
         CoordCube.EPermCCombPPrun,
         (p2edgei >> 4) * CoordCube.N_COMB +
-          CoordCube.CCombPConj[CubieCube.Perm2CombP[p2corni >> 4] & 0xff][
-            CubieCube.SymMultInv[p2edgei & 0xf][p2corni & 0xf]
-          ]
+        CoordCube.CCombPConj[CubieCube.Perm2CombP[p2corni >> 4] & 0xff][
+        CubieCube.SymMultInv[p2edgei & 0xf][p2corni & 0xf]
+        ]
       )
     );
     const maxDep2 = Math.min(Solver.MAX_DEPTH2, this.sol - this.length1);
@@ -351,7 +351,7 @@ export default class Solver {
       let prun = CoordCube.GetPruning(
         CoordCube.EPermCCombPPrun,
         (edgei >> 4) * CoordCube.N_COMB +
-          CoordCube.CCombPConj[CubieCube.Perm2CombP[corni >> 4] & 0xff][CubieCube.SymMultInv[edgei & 0xf][corni & 0xf]]
+        CoordCube.CCombPConj[CubieCube.Perm2CombP[corni >> 4] & 0xff][CubieCube.SymMultInv[edgei & 0xf][corni & 0xf]]
       );
       if (prun > maxl + 1) {
         break;
@@ -363,7 +363,7 @@ export default class Solver {
         CoordCube.GetPruning(
           CoordCube.EPermCCombPPrun,
           edgex * CoordCube.N_COMB +
-            CoordCube.CCombPConj[CubieCube.Perm2CombP[cornx] & 0xff][CubieCube.SymMultInv[esymx][csymx]]
+          CoordCube.CCombPConj[CubieCube.Perm2CombP[cornx] & 0xff][CubieCube.SymMultInv[esymx][csymx]]
         ),
         CoordCube.GetPruning(CoordCube.MCPermPrun, cornx * CoordCube.N_MPERM + CoordCube.MPermConj[midx][csymx])
       );
@@ -378,5 +378,342 @@ export default class Solver {
       }
     }
     return -1;
+  }
+
+  /**
+   * Solves the cross (bottom face edges) of the cube
+   * @param facelets The cube state as a string of facelets
+   * @param maxSolutions Maximum number of solutions to return (default: 5)
+   * @param maxDepth Maximum number of moves per solution (default: 8)
+   * @returns Array of solution strings, each solution is a space-separated list of moves
+   */
+  solveCross(facelets: string, maxSolutions: number = 5, maxDepth: number = 8): string[] {
+    const valid = this.cc.deserialize(facelets);
+    if (!valid) {
+      return ["error: invalid cube"];
+    }
+    const verify = this.cc.verify();
+    if (verify.length > 0) {
+      return ["error: " + verify];
+    }
+
+    // 打印初始魔方状态
+    console.log("[底层十字求解] 初始魔方状态: " + facelets);
+
+    const solutions: string[] = [];
+    // 使用更高效的Set存储已访问状态
+    const visited = new Set<string>();
+    const initialCube = new CubieCube();
+    initialCube.copy(this.cc);
+    const initialKey = this.getCrossKey(initialCube);
+    visited.add(initialKey);
+
+    // 检查初始状态是否已经完成十字
+    if (this.isCrossSolved(initialCube)) {
+      console.log("[底层十字求解] 初始状态已完成底层十字");
+      solutions.push(''); // 空解法
+      return solutions;
+    }
+
+    // 限制最大深度为8
+    maxDepth = Math.min(maxDepth, 8);
+    const maxIterations = 1000000; // 降低迭代上限以提高响应速度
+
+    // 使用队列实现广度优先搜索
+    const queue: { cube: CubieCube, moves: number[], depth: number }[] = [];
+    queue.push({ cube: initialCube, moves: [], depth: 0 });
+
+    let iterations = 0;
+    while (queue.length > 0 && solutions.length < maxSolutions && iterations < maxIterations) {
+      iterations++;
+      const { cube, moves, depth } = queue.shift()!;
+
+      // 增加日志输出频率，每1000次迭代输出一次
+      if (iterations % 1000 === 0) {
+        console.log(`[底层十字求解] 迭代次数: ${iterations}, 当前深度: ${depth}, 已找到解法数: ${solutions.length}`);
+      }
+
+      // 检查是否完成十字
+      if (this.isCrossSolved(cube)) {
+        let solution = "";
+        for (const move of moves) {
+          // 修复：使用正确的MOVE2STR映射
+          if (move >= 0 && move < Util.MOVE2STR.length) {
+            solution += Util.MOVE2STR[move].trim() + " ";
+          }
+        }
+        solutions.push(solution.trim());
+        console.log(`[底层十字求解] 找到解法: ${solution.trim()}, 当前深度: ${depth}`);
+        console.log(`[底层十字求解] 解法步骤数组: [${moves.join(', ')}]`);
+        
+        // 验证解法是否正确
+        if (solution.trim() !== '') {
+          this.verifySolution(facelets, solution.trim());
+        }
+        
+        // 找到解后继续搜索同层的其他解
+        continue;
+      }
+
+      // 如果达到最大深度则剪枝
+      if (depth >= maxDepth) {
+        continue;
+      }
+
+      // 尝试所有可能的移动
+      for (let m = 0; m < 18; m++) {
+        // 跳过与上一步相同轴的移动以减少冗余
+        if (moves.length > 0) {
+          const lastAxis = Math.floor(moves[moves.length - 1] / 3);
+          const currentAxis = Math.floor(m / 3);
+          if (lastAxis === currentAxis) {
+            continue;
+          }
+          // 还要跳过与上两步相同的轴（避免冗余）
+          if (moves.length > 1) {
+            const secondLastAxis = Math.floor(moves[moves.length - 2] / 3);
+            if (secondLastAxis === currentAxis) {
+              continue;
+            }
+          }
+        }
+
+        const newCube = new CubieCube();
+        // 执行移动 - 修复：正确应用移动
+        CubieCube.CornMult(cube, CubieCube.MoveCube[m], newCube);
+        CubieCube.EdgeMult(cube, CubieCube.MoveCube[m], newCube);
+        
+        // 使用更高效的键值生成方法
+        const newCubeKey = this.getCrossKey(newCube);
+
+        // 检查是否已访问过
+        if (!visited.has(newCubeKey)) {
+          visited.add(newCubeKey);
+          // 将新状态加入队列
+          queue.push({ cube: newCube, moves: [...moves, m], depth: depth + 1 });
+        }
+      }
+    }
+
+    console.log(`[底层十字求解] 搜索完成, 总迭代次数: ${iterations}, 找到解法数: ${solutions.length}`);
+    return solutions;
+  }
+
+  /**
+   * 生成用于比较的十字状态键值，只考虑底层十字相关块的位置和方向
+   * 这样可以大大减少状态空间，提高搜索效率
+   */
+  private getCrossKey(cube: CubieCube): string {
+    // 只关注底层四个边块的位置和方向
+    let key = "";
+    
+    // 检查四个底面边块的位置和方向
+    // 使用ea数组，每个元素包含位置和方向信息
+    // 位置信息：右移1位得到位置，方向信息：最低位表示方向
+    const crossEdges = [4, 5, 6, 7]; // 底面边块的索引 (DF, DL, DB, DR)
+    for (const edge of crossEdges) {
+      const edgeInfo = cube.ea[edge];
+      const position = edgeInfo >> 1;  // 获取位置
+      const orientation = edgeInfo & 1;  // 获取方向
+      key += position + "," + orientation + ";";
+    }
+    
+    return key;
+  }
+
+  /**
+   * 验证解法是否正确
+   * @param initialFacelets 初始魔方状态
+   * @param solution 解法步骤
+   */
+  private verifySolution(initialFacelets: string, solution: string): void {
+    // 创建一个临时的魔方来验证解法
+    const cube = new CubieCube();
+    cube.deserialize(initialFacelets);
+    
+    // 将解法字符串转换为移动数组
+    const moves = solution.split(' ').filter(move => move.length > 0);
+    console.log(`[解法验证] 初始状态: ${initialFacelets}`);
+    
+    // 应用每个移动
+    for (const moveStr of moves) {
+      let moveIndex = -1;
+      for (let i = 0; i < Util.MOVE2STR.length; i++) {
+        // 需要处理空格问题，MOVE2STR中的元素可能有空格
+        const cleanMove = Util.MOVE2STR[i].trim();
+        if (cleanMove === moveStr) {
+          moveIndex = i;
+          break;
+        }
+      }
+      
+      if (moveIndex !== -1) {
+        const newCube = new CubieCube();
+        // 修复：正确应用移动
+        CubieCube.CornMult(cube, CubieCube.MoveCube[moveIndex], newCube);
+        CubieCube.EdgeMult(cube, CubieCube.MoveCube[moveIndex], newCube);
+        cube.copy(newCube);
+      } else {
+        console.log(`[解法验证] 无法找到移动 ${moveStr} 的索引`);
+      }
+    }
+    
+    const finalState = cube.serialize();
+    console.log(`[解法验证] 应用解法后的状态: ${finalState}`);
+    
+    // 检查是否完成底层十字
+    if (this.isCrossSolved(cube)) {
+      console.log(`[解法验证] 解法正确，已完成底层十字`);
+    } else {
+      console.log(`[解法验证] 解法错误，未完成底层十字`);
+      // 以二维平面方式打印最终状态
+      cube.printCube(finalState);
+    }
+  }
+
+  /**
+   * 占位方法：求解第一组F2L
+   * @param facelets 魔方状态字符串
+   * @returns 解法步骤数组
+   */
+  solveF2L(facelets: string = ''): string[] {
+    return ['error: 方法未实现'];
+  }
+
+  /**
+   * 占位方法：求解OLL
+   * @param facelets 魔方状态字符串
+   * @returns 解法步骤数组
+   */
+  solveOLL(facelets: string = ''): string[] {
+    return ['error: 方法未实现'];
+  }
+
+  /**
+   * 占位方法：求解PLL
+   * @param facelets 魔方状态字符串
+   * @returns 解法步骤数组
+   */
+  solvePLL(facelets: string = ''): string[] {
+    return ['error: 方法未实现'];
+  }
+
+  /**
+   * Checks if the cross (bottom face edges) is solved
+   * @param cube The current cube state
+   * @param crossFace The face where the cross should be (default: 'D' for down face)
+   * @returns True if cross is solved, false otherwise
+   */
+  private isCrossSolved(cube: CubieCube, crossFace: string = 'D'): boolean {
+    // 确认十字面的中心块颜色
+    const faceIndices: { [key: string]: number } = { 'U': 0, 'R': 1, 'F': 2, 'D': 3, 'L': 4, 'B': 5 };
+    const crossFaceIndex = faceIndices[crossFace] || 3; // 默认D面
+    const centerPosition = crossFaceIndex * 9 + 4;
+    const facelets = cube.serialize();
+    const crossFaceCenter = facelets[centerPosition];
+
+    if (!crossFaceCenter) {
+      // console.error(`[十字判断] 无效的十字面: ${crossFace}`);
+      return false;
+    }
+
+    // 打印当前魔方状态和中心块颜色
+    // console.log(`[十字判断] 十字面: ${crossFace}, 中心块位置: ${centerPosition}, 中心块颜色: ${crossFaceCenter}`);
+    // 以二维平面方式打印魔方
+    //cube.printCube(facelets);
+    // 根据十字面确定需要检查的边缘块
+    let crossEdges: number[];
+    switch (crossFace) {
+      case 'D': // 底面
+        crossEdges = [4, 5, 6, 7]; // DF, DL, DB, DR edges
+        break;
+      case 'U': // 顶面
+        crossEdges = [0, 1, 2, 3]; // UF, UL, UB, UR edges
+        break;
+      case 'F': // 前面
+        crossEdges = [0, 4, 8, 11]; // UF, DF, FR, FL edges
+        break;
+      case 'B': // 后面
+        crossEdges = [2, 6, 9, 10]; // UB, DB, BR, BL edges
+        break;
+      case 'R': // 右面
+        crossEdges = [1, 5, 9, 11]; // UR, DR, BR, FR edges
+        break;
+      case 'L': // 左面
+        crossEdges = [3, 7, 8, 10]; // UL, DL, FL, BL edges
+        break;
+      default:
+        crossEdges = [4, 5, 6, 7]; // 默认底面
+        break;
+    }
+
+    // console.log(`[十字判断] 需要检查的边缘块: ${crossEdges.join(', ')}`);
+
+    for (const edge of crossEdges) {
+      // 获取边缘块的位置和方向
+      const edgeVal = cube.ea[edge];
+      const edgePos = edgeVal >> 1; // 右移一位获取位置
+      const edgeOri = edgeVal & 1; // 取最低位获取方向
+
+      // 打印当前边缘块的信息
+      // console.log(`[十字判断] 边缘块 ${edge}: 位置=${edgePos}, 方向=${edgeOri}`);
+
+      // 检查边缘块是否在正确的位置（对于底层十字，边缘块应该在底层）
+      // 对于底层十字，我们检查的是边缘块是否在底层的正确位置
+      const isOnBottomLayer = edgePos >= 4 && edgePos <= 7;
+      if (!isOnBottomLayer) {
+        // console.log(`[十字判断] 边缘块 ${edge} 不在底层 (位置: ${edgePos})`);
+        return false;
+      }
+
+      // 检查边缘块的方向是否正确
+      if (edgeOri !== 0) {
+        // console.log(`[十字判断] 边缘块 ${edge} 方向不正确 (方向: ${edgeOri})`);
+        return false;
+      }
+
+      // 检查边缘块的颜色是否与十字面中心块颜色匹配
+      // 获取边缘块的两个面色彩位置
+      const edgeFacelets = Util.EdgeFacelet[edgePos]; // 使用edgePos而不是edge
+      let crossFaceletPos = -1;
+      let adjacentFaceletPos = -1;
+      // 找到属于十字面的面色彩位置和相邻面的面色彩位置
+      for (const pos of edgeFacelets) {
+        const faceIndex = Math.floor(pos / 9);
+        if (faceIndex === crossFaceIndex) {
+          crossFaceletPos = pos;
+        } else {
+          adjacentFaceletPos = pos;
+        }
+      }
+
+      if (crossFaceletPos === -1 || adjacentFaceletPos === -1) {
+        // console.log(`[十字判断] 边缘块 ${edge} 面块位置不完整`);
+        return false; // 边缘块面块位置不完整
+      }
+
+      const edgeCrossColor = facelets[crossFaceletPos];
+      // console.log(`[十字判断] 边缘块 ${edge} 的十字面颜色: ${edgeCrossColor}, 期望颜色: ${crossFaceCenter}`);
+      if (edgeCrossColor !== crossFaceCenter) {
+        // console.log(`[十字判断] 边缘块 ${edge} 十字面颜色不匹配 (实际: ${edgeCrossColor}, 期望: ${crossFaceCenter})`);
+        return false;
+      }
+
+      // 检查边缘块的相邻面颜色是否与对应中心块颜色匹配
+      const adjacentFaceIndex = Math.floor(adjacentFaceletPos / 9);
+      const adjacentCenterPos = adjacentFaceIndex * 9 + 4;
+      const adjacentFaceCenter = facelets[adjacentCenterPos];
+      const edgeAdjacentColor = facelets[adjacentFaceletPos];
+      // console.log(`[十字判断] 边缘块 ${edge} 的相邻面颜色: ${edgeAdjacentColor}, 对应中心块颜色: ${adjacentFaceCenter}`);
+      if (edgeAdjacentColor !== adjacentFaceCenter) {
+        // console.log(`[十字判断] 边缘块 ${edge} 相邻面颜色不匹配 (实际: ${edgeAdjacentColor}, 期望: ${adjacentFaceCenter})`);
+        return false;
+      }
+    }
+    console.log(`[十字判断] 当前魔方状态: ${facelets}`);
+    console.log(`[十字判断] 底层十字已完成`);
+    // 以二维平面方式打印魔方
+    cube.printCube(facelets);
+    return true;
   }
 }

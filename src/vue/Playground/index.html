@@ -10,6 +10,7 @@
       :style="{height:size+'px', 'margin-bottom': size * 1.5 + 'px'}" :ripple="false" v-show="key.length > 0">
       <div :style="{'font-size':(size * 0.5)+'px'}">{{key}}</div>
     </v-btn>
+
     <v-container fluid grid-list-md text-xs-center
       :style="{width:Math.min(size * 8, width) + 'px', height:size * 1.5 + 'px'}"
       style="padding: 0%; touch-action: none;">
@@ -89,6 +90,31 @@
           <v-textarea :style="{'font-size':size / 3 + 'px', 'line-height':size / 2 + 'px'}" rows="4" no-resize solo flat
             outlined hide-details readonly v-model="data.scene">
           </v-textarea>
+        </v-card-text>
+        <v-card-title style="text-transform: none;">
+          <div :style="{'font-size':size * 0.4+'px'}">
+            解法类型:
+          </div>
+        </v-card-title>
+        <v-card-text style="text-transform: none; padding-bottom: 0%;">
+          <v-select
+            v-model="solveType"
+            :items="solveTypes"
+            :style="{'font-size':size/3.5+'px', 'width': '100%'}"
+            dense
+            outlined
+            @change="generateSolution"
+          ></v-select>
+          <v-textarea :style="{'font-size':size / 3 + 'px', 'line-height':size / 2 + 'px', 'height': size * 0.5 + 'px', 'margin-top': size * 0.2 + 'px'}" solo flat
+            outlined hide-details v-model="solution">
+          </v-textarea>
+          <!-- <v-list :style="{'font-size':size/3.5+'px','max-height':size*1.5+'px','overflow-y':'auto', 'margin-top': size * 0.2 + 'px'}">
+            <v-list-item v-for="(step, index) in solutionSteps" :key="index" @click="selectStep(step)">
+              <v-list-item-content>
+                <v-list-item-title>{{ step }}</v-list-item-title>
+              </v-list-item-content>
+            </v-list-item>
+          </v-list> -->
         </v-card-text>
         <v-card-title style="text-transform: none;">
           <div :style="{'font-size':size * 0.4+'px'}">

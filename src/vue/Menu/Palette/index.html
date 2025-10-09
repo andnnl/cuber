@@ -1,6 +1,20 @@
 <v-bottom-sheet v-model="show" overlay-opacity="0" v-resize="resize">
   <v-card text style="margin: auto; touch-action: none; user-select: none;">
     <v-container fluid grid-list-md text-xs-center :style="{width:Math.min(width, height * 0.6) + 'px'}">
+      <!-- 预设配色下拉框 -->
+      <v-layout row wrap justify-center align-center :style="{'min-height': size + 'px', 'padding-top': size * 0.2 + 'px'}">
+        <v-flex xs12 style="text-align: center;">
+          <v-select
+            v-model="selectedPreset"
+            :items="presets"
+            label="预设配色"
+            dense
+            solo
+            @change="applyPreset(selectedPreset)"
+            :style="{'font-size': size * 0.35 + 'px', 'width': '80%', 'margin': '0 auto'}"
+          ></v-select>
+        </v-flex>
+      </v-layout>
       <v-layout row wrap :style="{'padding-bottom':size * 0.2 + 'px'}">
         <v-flex v-for="(item, index) in colors" :key="index" xs3 :style="{padding:size * 0.06 + 'px'}"
           v-show="index!=='Gray'">
