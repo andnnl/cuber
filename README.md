@@ -1,8 +1,10 @@
 # [魔方栈](https://huazhechen.gitee.io/cuber)
 
+
 - 优美而强大的网页魔方
 
 - 地址: <https://huazhechen.gitee.io/cuber>
+- 地址: <https://andnnl.github.io/cuber/dist>
 
   <img width="120px" src="https://gitee.com/huazhechen/cuber/raw/master/resource/icon.png"  alt="icon"/>
 
@@ -15,7 +17,7 @@
 # 运行
   npm run watch
 # 功能介绍
-
+## 新增功能，可选白底配色，十字求解
 ## 物理键盘
 
 <table class="table" id="vrckey" style="display: inline-block;">
