@@ -16,6 +16,8 @@
   > email: <37705123@qq.com>
 # 运行
   npm run watch
+# 推送
+  git push github HEAD:v2
 # 功能介绍
 ## 新增功能，可选白底配色，十字求解
 ## 物理键盘
