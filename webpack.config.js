@@ -3,6 +3,7 @@ const path = require("path");
 const { CleanWebpackPlugin } = require("clean-webpack-plugin");
 const TerserPlugin = require("terser-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const CopyWebpackPlugin = require("copy-webpack-plugin");
 
 module.exports = (env, argv) => ({
   entry: {
@@ -29,14 +30,19 @@ module.exports = (env, argv) => ({
         loader: "text-loader",
       },
       {
-        test: /.(png|woff(2)?|eot|ttf)(\?[a-z0-9=\.]+)?$/,
+        test: /\.(png|woff(2)?|eot|ttf)(\?[a-z0-9=\.]+)?$/,
         type: "asset/inline",
+      },
+      {
+        test: /\.wasm$/,
+        type: "javascript/auto",
       },
     ],
   },
   resolve: {
     alias: {
       vue$: "vue/dist/vue.esm.js",
+      '/cube_cross_solve.js': path.resolve(__dirname, './public/cube_cross_solve.js'),
     },
     extensions: ["*", ".js", ".ts", ".json"],
   },
@@ -69,6 +75,12 @@ module.exports = (env, argv) => ({
     }),
     new CleanWebpackPlugin({
       dry: argv.mode !== "production",
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: "public/cube_cross_solve.js", to: "cube_cross_solve.js" },
+        { from: "public/cube_cross_solve_bg.wasm", to: "cube_cross_solve_bg.wasm" },
+      ],
     }),
   ],
 });

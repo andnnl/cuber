@@ -9,6 +9,8 @@ import { TwistAction, TwistNode } from "../../cuber/twister";
 import Cubelet from "../../cuber/cubelet";
 import Rubic from "./rubic";
 import Solver from "../../solver/Solver";
+import * as WasmSolver from "../../wasm/WasmSolver";
+import { indexedDBStorage } from "../../util/IndexedDBStorage";
 
 class KeyHandle {
   width = 2;
@@ -234,16 +236,63 @@ export default class Playground extends Vue {
   mounted(): void {
     this.load();
     this.$nextTick(this.resize);
-    this.$nextTick(() => {
+    this.$nextTick(async () => {
       this.preferance.refresh();
       this.palette.refresh();
       // 页面加载后生成初始解法
       // this.generateSolution();
+      
+      // 初始化 WASM 求解器
+      try {
+        await WasmSolver.initWasm();
+        console.log('[Playground] WASM 求解器初始化成功');
+        
+        // 初始化 IndexedDB
+        await indexedDBStorage.init();
+        
+        // 检查是否已缓存搜索表
+        const cachedTable = await indexedDBStorage.loadTable();
+        if (cachedTable) {
+          try {
+            await WasmSolver.loadTableFromBytes(cachedTable);
+            console.log('[Playground] 从 IndexedDB 加载搜索表成功');
+          } catch (error) {
+            console.error('[Playground] 从 IndexedDB 加载搜索表失败:', error);
+            // 缓存加载失败，生成新的搜索表
+            await this.generateWasmTable();
+          }
+        } else {
+          // 没有缓存，生成新的搜索表
+          await this.generateWasmTable();
+        }
+      } catch (error) {
+        console.error('[Playground] WASM 求解器初始化失败:', error);
+        // WASM 初始化失败，继续使用原始求解器
+      }
     });
     this.world.callbacks.push(() => {
       this.callback();
     });
     this.loop();
+  }
+
+  async generateWasmTable(): Promise<void> {
+    try {
+      console.log('[Playground] 开始生成 WASM 搜索表...');
+      await WasmSolver.generateTable(8);
+      console.log('[Playground] WASM 搜索表生成成功');
+      
+      // 使用 IndexedDB 缓存搜索表
+      try {
+        const tableBytes = await WasmSolver.getTableBytes();
+        await indexedDBStorage.saveTable(tableBytes);
+        console.log('[Playground] 搜索表已缓存到 IndexedDB');
+      } catch (error) {
+        console.error('[Playground] 缓存搜索表到 IndexedDB 失败:', error);
+      }
+    } catch (error) {
+      console.error('[Playground] 生成 WASM 搜索表失败:', error);
+    }
   }
 
   get score(): string {
@@ -438,7 +487,7 @@ export default class Playground extends Vue {
   }
 
   // 生成解法
-  generateSolution(): void {
+  async generateSolution(): Promise<void> {
     try {
       // 根据选择的解法类型生成对应的公式
       switch (this.solveType) {
@@ -453,11 +502,11 @@ export default class Playground extends Vue {
             this.solutionSteps = [];
             break;
           }
-          // 调用solveCross方法，获取最多3个解法，每个解法不超过6步（优化参数以避免卡死）
+          // 调用solveCross方法，获取最多5个解法，每个解法不超过8步
           const startTime = Date.now();
           let crossSolutions;
           try {
-            crossSolutions = this.solver.solveCross(state, 5, 10);
+            crossSolutions = await this.solver.solveCross(state, 5, 8);
             const elapsed = Date.now() - startTime;
             console.warn('[Playground] 底层十字解法生成完成，耗时:', elapsed, 'ms，结果:', crossSolutions);
           } catch (solveError) {
@@ -467,13 +516,37 @@ export default class Playground extends Vue {
             break;
           }
           // 处理返回的解法
-          if (crossSolutions && crossSolutions.length > 0 && !crossSolutions[0].startsWith('error')) {
-            // 如果只有一个解法，直接使用
-            if (crossSolutions.length === 1) {
-              this.solutionSteps = crossSolutions[0].split(' ');
+          if (crossSolutions && crossSolutions.length > 0) {
+            const firstSolution = crossSolutions[0];
+            
+            // 检查第一个解法是否为字符串
+            if (typeof firstSolution === 'string' && firstSolution.startsWith('error')) {
+              // 错误情况
+              this.solutionSteps = [];
+              this.solution = 'error: 无法生成底层十字解法，结果: ' + JSON.stringify(crossSolutions);
+            } else if (typeof firstSolution === 'string' && firstSolution === '') {
+              // 空解法表示已经完成十字
+              this.solutionSteps = ['已完成底层十字'];
+              this.solution = '已完成底层十字';
             } else {
-              // 有多个解法，合并为一个数组，每个解法作为一个元素
-              this.solutionSteps = crossSolutions.map((sol, index) => `解法${index + 1}: ${sol}`);
+              // 正常解法，将所有解法转换为字符串并格式化，每个解法作为一行
+              this.solutionSteps = crossSolutions.map((sol: any, index: number) => {
+                let solutionStr = '';
+                if (typeof sol === 'string') {
+                  solutionStr = sol;
+                } else if (Array.isArray(sol)) {
+                  // 如果是数组，用空格连接
+                  solutionStr = (sol as string[]).join(' ');
+                } else {
+                  solutionStr = JSON.stringify(sol);
+                }
+                return `解法${index + 1}: ${solutionStr}`;
+              });
+              const joinedSolution = this.solutionSteps.join('\n');
+              console.warn('[Playground] 生成底层十字解法，最终结果:', joinedSolution);
+              console.warn('[Playground] 解法长度:', joinedSolution.length);
+              console.warn('[Playground] 解法字符代码:', Array.from(joinedSolution).map(c => `${c}(${c.charCodeAt(0)})`).join(''));
+              this.solution = joinedSolution;
             }
           } else {
             this.solutionSteps = [];

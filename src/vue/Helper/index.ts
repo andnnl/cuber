@@ -302,14 +302,14 @@ export default class Helper extends Vue {
       if (this.solutionSteps.length > 0) {
         // 检查是否是多个解法（包含"解法1:", "解法2:"等标识）
         if (this.solutionSteps[0].startsWith('解法')) {
-          // 多个解法，下拉框显示所有解法，文本框显示第一个解法的内容
+          // 多个解法，所有解法用换行符连接显示在文本框中
           console.log("[Helper] 处理多个解法");
-          const match = this.solutionSteps[0].match(/^解法\d+: (.*)$/);
-          if (match && match[1]) {
-            this.solution = match[1].trim();
-          } else {
-            this.solution = this.solutionSteps[0];
-          }
+          console.log("[Helper] solutionSteps 内容: ", this.solutionSteps);
+          const joinedSolution = this.solutionSteps.join('\n');
+          console.log("[Helper] join 后的解法: ", joinedSolution);
+          console.log("[Helper] join 后的解法长度: ", joinedSolution.length);
+          console.log("[Helper] join 后的解法字符代码: ", Array.from(joinedSolution).map(c => c.charCodeAt(0)));
+          this.solution = joinedSolution;
         } else {
           // 单个解法，文本框显示解法内容
           console.log("[Helper] 处理单个解法");
@@ -338,62 +338,64 @@ export default class Helper extends Vue {
   }
 
   // 异步调用solveCross方法
-  private solveCrossAsync(): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      try {
-        // 使用setTimeout将计算放到下一个事件循环中执行，避免阻塞UI
-        setTimeout(() => {
-          try {
-            // 获取魔方当前状态
-            const state = this.world.cube.serialize();
-            console.log("[Helper] 调用solveCross方法，传入魔方状态: " + state);
-            
-            // 调用solveCross方法，获取最多5个解法，每个解法不超过8步
-            const crossSolutions = this.solver.solveCross(state, 5, 8);
-            
-            // 打印返回的解法
-            console.log("[Helper] solveCross返回的解法: ", crossSolutions);
-            
-            // 处理返回的解法
-            if (crossSolutions.length > 0 && !crossSolutions[0].startsWith('error')) {
-              // 修复：确保正确处理解法
-              if (crossSolutions.length === 1 && crossSolutions[0] !== '') {
-                // 单个解法，不解开步骤，作为一个完整解法返回
-                console.log("[Helper] 单个解法: ", crossSolutions[0]);
-                resolve([crossSolutions[0]]);
-              } else if (crossSolutions.length === 1 && crossSolutions[0] === '') {
-                // 空解法表示已经完成十字
-                console.log("[Helper] 已完成底层十字");
-                resolve(['已完成底层十字']);
+  private async solveCrossAsync(): Promise<string[]> {
+    try {
+      // 获取魔方当前状态
+      const state = this.world.cube.serialize();
+      console.log("[Helper] 调用solveCross方法，传入魔方状态: " + state);
+      
+      // 调用solveCross方法，获取最多5个解法，每个解法不超过8步
+      const crossSolutions = await this.solver.solveCross(state, 5, 8);
+      
+      // 打印返回的解法
+      console.log("[Helper] solveCross返回的解法: ", crossSolutions);
+      console.log("[Helper] 解法类型: ", typeof crossSolutions);
+      console.log("[Helper] 解法长度: ", crossSolutions.length);
+      
+      // 处理返回的解法
+      if (crossSolutions && crossSolutions.length > 0) {
+        const firstSolution = crossSolutions[0];
+        console.log("[Helper] 第一个解法: ", firstSolution);
+        console.log("[Helper] 第一个解法类型: ", typeof firstSolution);
+        
+        // 检查第一个解法是否为字符串
+        if (typeof firstSolution === 'string' && firstSolution.startsWith('error')) {
+          // 错误情况
+          console.log("[Helper] 解法错误: ", firstSolution);
+          this.solution = firstSolution;
+          return [];
+        } else if (typeof firstSolution === 'string' && firstSolution === '') {
+          // 空解法表示已经完成十字
+          console.log("[Helper] 已完成底层十字");
+          return ['已完成底层十字'];
+        } else {
+            // 正常解法，将所有解法转换为字符串并格式化
+            const formattedSolutions = crossSolutions.map((sol: any, index: number) => {
+              let solutionStr = '';
+              if (typeof sol === 'string') {
+                solutionStr = sol;
+              } else if (Array.isArray(sol)) {
+                // 如果是数组，用空格连接
+                solutionStr = (sol as string[]).join(' ');
               } else {
-                // 有多个解法，每个解法作为一个元素
-                const formattedSolutions = crossSolutions.map((sol, index) => `解法${index + 1}: ${sol}`);
-                console.log("[Helper] 多个解法: ", formattedSolutions);
-                resolve(formattedSolutions);
+                solutionStr = JSON.stringify(sol);
               }
-            } else if (crossSolutions.length > 0 && crossSolutions[0].startsWith('error')) {
-              // 错误情况
-              console.log("[Helper] 解法错误: ", crossSolutions[0]);
-              this.solution = crossSolutions[0];
-              resolve([]);
-            } else {
-              // 没有找到解法
-              console.log("[Helper] 未找到解法");
-              resolve([]);
-              this.solution = 'error: 无法生成底层十字解法';
-            }
-          } catch (error) {
-            console.error("[Helper] solveCross方法执行出错: ", error);
-            this.solution = 'error: solveCross方法执行出错: ' + error.message;
-            reject(error);
+              return `解法${index + 1}: ${solutionStr}\n`;
+            });
+            console.log("[Helper] 格式化后的解法: ", formattedSolutions);
+            return formattedSolutions;
           }
-        }, 0);
-      } catch (error) {
-        console.error("[Helper] 异步调用出错: ", error);
-        this.solution = 'error: 异步调用出错: ' + error.message;
-        reject(error);
+      } else {
+        // 没有找到解法
+        console.log("[Helper] 未找到解法");
+        this.solution = 'error: 无法生成底层十字解法';
+        return [];
       }
-    });
+    } catch (error) {
+      console.error("[Helper] solveCross方法执行出错: ", error);
+      this.solution = 'error: solveCross方法执行出错: ' + error.message;
+      throw error;
+    }
   }
 
   // 选择步骤

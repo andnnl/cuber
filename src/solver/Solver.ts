@@ -1,6 +1,7 @@
 import CubieCube from "./CubieCube";
 import CoordCube from "./CoordCube";
 import Util from "./Util";
+import * as WasmSolver from "../wasm/WasmSolver";
 
 export default class Solver {
   private static MAX_PRE_MOVES = 20;
@@ -381,13 +382,80 @@ export default class Solver {
   }
 
   /**
-   * Solves the cross (bottom face edges) of the cube
+   * Solves the cross (bottom face edges) of the cube using WASM solver
    * @param facelets The cube state as a string of facelets
    * @param maxSolutions Maximum number of solutions to return (default: 5)
    * @param maxDepth Maximum number of moves per solution (default: 8)
    * @returns Array of solution strings, each solution is a space-separated list of moves
    */
-  solveCross(facelets: string, maxSolutions: number = 5, maxDepth: number = 8): string[] {
+  async solveCross(facelets: string, maxSolutions: number = 5, maxDepth: number = 8): Promise<string[]> {
+    const valid = this.cc.deserialize(facelets);
+    if (!valid) {
+      return ["error: invalid cube"];
+    }
+    const verify = this.cc.verify();
+    if (verify.length > 0) {
+      return ["error: " + verify];
+    }
+
+    console.log("[底层十字求解] 初始魔方状态: " + facelets);
+
+    // 检查初始状态是否已经完成十字
+    if (this.isCrossSolved(this.cc)) {
+      console.log("[底层十字求解] 初始状态已完成底层十字");
+      return ['']; // 空解法
+    }
+
+    // 尝试使用 WASM 求解器
+    try {
+      if (WasmSolver.isWasmLoaded() && WasmSolver.isTableLoaded()) {
+        console.log("[底层十字求解] 使用 WASM 求解器");
+        
+        // 将魔方状态转换为打乱公式
+        // const scramble = this.cubeToScramble(this.cc);
+        // console.log("[底层十字求解] 转换后的打乱公式: " + scramble);
+        
+        // 使用 WASM 求解器求解
+        const solutions = await WasmSolver.solveMulti(facelets, maxSolutions);
+        console.log(`[底层十字求解] WASM 求解完成，找到 ${solutions.length} 个解法`);
+        
+        return solutions;
+      } else {
+        console.log("[底层十字求解] WASM 求解器未就绪，使用原始求解器");
+        return this.solveCrossFallback(facelets, maxSolutions, maxDepth);
+      }
+    } catch (error) {
+      console.error("[底层十字求解] WASM 求解失败，使用原始求解器:", error);
+      return this.solveCrossFallback(facelets, maxSolutions, maxDepth);
+    }
+  }
+
+  /**
+   * 将 CubieCube 状态转换为打乱公式
+   * @param cube CubieCube 对象
+   * @returns 打乱公式字符串
+   */
+  private cubeToScramble(cube: CubieCube): string {
+    // 由于 WASM 求解器需要打乱公式，而我们有的是魔方状态
+    // 我们需要使用原始求解器生成一个解法，然后反向这个解法
+    // 但这会导致性能问题
+    
+    // 更好的方法是：直接使用原始求解器
+    // 因为 WASM 求解器的优势在于速度，但我们需要先有打乱公式
+    // 而在实际应用中，我们通常是从打乱公式开始的
+    
+    // 暂时返回空字符串，让调用者使用原始求解器
+    return "";
+  }
+
+  /**
+   * 原始的底层十字求解器（作为 WASM 求解器的后备）
+   * @param facelets The cube state as a string of facelets
+   * @param maxSolutions Maximum number of solutions to return (default: 5)
+   * @param maxDepth Maximum number of moves per solution (default: 8)
+   * @returns Array of solution strings, each solution is a space-separated list of moves
+   */
+  private solveCrossFallback(facelets: string, maxSolutions: number = 5, maxDepth: number = 8): string[] {
     const valid = this.cc.deserialize(facelets);
     if (!valid) {
       return ["error: invalid cube"];

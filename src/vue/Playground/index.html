@@ -111,8 +111,8 @@
               <div :style="{'font-size':size/3+'px'}">PLL解法</div>
             </v-btn>
           </v-flex>
-          <v-textarea :style="{'font-size':size / 3 + 'px', 'line-height':size / 2 + 'px', 'height': size * 0.5 + 'px', 'margin-top': size * 0.2 + 'px'}" solo flat
-            outlined hide-details v-model="solution">
+          <v-textarea :style="{'font-size':size / 3 + 'px', 'line-height':size / 2 + 'px', 'height': size * 2 + 'px', 'margin-top': size * 0.2 + 'px', 'white-space': 'pre-wrap'}" solo flat
+            outlined hide-details v-model="solution" rows="10">
           </v-textarea>
           <!-- <v-list :style="{'font-size':size/3.5+'px','max-height':size*1.5+'px','overflow-y':'auto', 'margin-top': size * 0.2 + 'px'}">
             <v-list-item v-for="(step, index) in solutionSteps" :key="index" @click="selectStep(step)">
