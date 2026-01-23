@@ -1,0 +1,15 @@
+{
+  "name": "cube_cross_solve",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "cube_cross_solve_bg.wasm",
+    "cube_cross_solve.js",
+    "cube_cross_solve.d.ts"
+  ],
+  "main": "cube_cross_solve.js",
+  "types": "cube_cross_solve.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
