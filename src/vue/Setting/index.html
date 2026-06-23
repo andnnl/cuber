@@ -35,6 +35,11 @@
               @click="tap('director')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">movie</v-icon>
             </v-btn>
+            <v-btn :color="mode == 'f2l'?'primary':''" depressed
+              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1;"
+              @click="tap('f2l')" :style="{height: size + 'px'}">
+              <v-icon :size="size * 0.8">fitness_center</v-icon>
+            </v-btn>
           </v-flex>
         </v-layout>
         <v-layout row wrap style="padding-bottom: 5%;">

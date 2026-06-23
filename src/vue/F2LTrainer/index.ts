@@ -1,12 +1,14 @@
-import { Component, Inject, Vue } from "vue-property-decorator";
+import { Component, Vue } from "vue-property-decorator";
 import World from "../../cuber/world";
 import { F2L_SLOTS } from "../../cuber/f2l";
 import { PieceTracker, PieceDiff } from "./tracker";
 import { highlightPiece } from "./highlight";
 
-@Component
+@Component({
+  template: require("./index.html"),
+})
 export default class F2LTrainer extends Vue {
-  @Inject("world") world!: World;
+  world: World = new World();
 
   private slot: any = F2L_SLOTS[0];
   private caseIndex = 0;
@@ -17,11 +19,23 @@ export default class F2LTrainer extends Vue {
   private currentScramble = "";
   private state: "idle" | "scramble" | "playing" | "highlighting" = "idle";
 
+  provide() {
+    return {
+      world: this.world,
+    };
+  }
+
   mounted() {
-    this.algs = (require("../Algs/algs.json") as any[])
-      .find((g) => g.name === "F2L")
-      .cases.slice();
-    this.randomCase();
+    try {
+      const data = require("../Algs/algs.json");
+      const group = (Array.isArray(data) ? data : []).find((g: any) => g.name === "F2L");
+      this.algs = group && group.cases ? group.cases.slice() : [];
+      if (this.algs.length > 0) {
+        this.randomCase();
+      }
+    } catch (e) {
+      console.error("[F2LTrainer] load algs.json failed", e);
+    }
   }
 
   get slotOptions() {
@@ -99,4 +113,6 @@ export default class F2LTrainer extends Vue {
       .join(" ");
     return inverted;
   }
+
+  onResize() {}
 }
