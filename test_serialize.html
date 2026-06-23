@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>TS主版本 serialize() 测试教程</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+    h1 { color: #333; }
+    h2 { color: #666; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
+    pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
+    .step { margin: 20px 0; padding: 15px; background: #e8f4f8; border-radius: 5px; }
+    .warning { background: #fff3cd; padding: 10px; border-radius: 5px; border: 1px solid #ffc107; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 5px; }
+    button:hover { background: #45a049; }
+  </style>
+</head>
+<body>
+  <h1>TS主版本 Cube.serialize() 测试教程</h1>
+  
+  <div class="warning">
+    <strong>注意:</strong> TS主版本依赖 Three.js + Vue，不能直接在简单 HTML 中运行。
+    需要通过 Vue 应用的浏览器控制台来测试。
+  </div>
+  
+  <h2>测试步骤</h2>
+  
+  <div class="step">
+    <h3>步骤 1: 启动开发服务器</h3>
+    <pre>cd /dd/workspace_trae/cuber
+NODE_OPTIONS=--openssl-legacy-provider npm run watch</pre>
+    <p>等待编译完成，浏览器打开: <code>http://localhost:8080</code></p>
+  </div>
+  
+  <div class="step">
+    <h3>步骤 2: 打开浏览器控制台</h3>
+    <p>按 <code>F12</code> 或右键 → 检查 → Console</p>
+  </div>
+  
+  <div class="step">
+    <h3>步骤 3: 在控制台执行</h3>
+    <pre>// 获取 Vue 应用实例
+const app = document.querySelector('#app').__vue__;
+
+// 获取 world 对象
+const world = app.$children[0].world;
+
+// 获取 cube 对象
+const cube = world.cube;
+
+// 应用操作（如 R）
+cube.twister.setup('R');
+
+// 输出状态字符串
+console.log(cube.serialize());</pre>
+  </div>
+  
+  <h2>一键测试脚本</h2>
+  <p>复制以下脚本到控制台，自动运行测试：</p>
+  
+  <pre id="testScript">// TS主版本 serialize() 测试脚本
+(function() {
+  const app = document.querySelector('#app').__vue__;
+  if (!app) {
+    console.error('错误: Vue 应用未加载');
+    return;
+  }
+  
+  const world = app.$children[0].world;
+  const cube = world.cube;
+  
+  console.log('=== TS主版本 serialize() 测试 ===');
+  
+  const tests = [
+    { moves: '', label: '还原状态' },
+    { moves: 'R', label: 'R 转动' },
+    { moves: 'R R\'', label: 'R R\' = 还原' },
+    { moves: 'R2 R2', label: 'R2 R2 = 还原' },
+  ];
+  
+  const expected = {
+    '': 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB',
+    'R': 'UUFUUFUURRRRRRRDRRFFFFFDFFBDDRDDBDDBLLLLLLLLLUBBUBBUBB',
+  };
+  
+  for (const test of tests) {
+    cube.twister.setup(test.moves);
+    const state = cube.serialize();
+    const exp = expected[test.moves];
+    const pass = exp ? (state === exp) : 'N/A';
+    
+    console.log(`${test.label}: ${state}`);
+    if (exp && pass !== true) {
+      console.log(`  期望: ${exp}`);
+      console.log(`  结果: ${pass ? 'PASS' : 'FAIL'}`);
+    }
+  }
+})();</pre>
+  
+  <button onclick="copyScript()">复制脚本到剪贴板</button>
+  
+  <h2>对比 verify CLI</h2>
+  <p>在终端运行 CLI 测试：</p>
+  <pre>cd /dd/workspace_trae/cuber
+npm run verify apply "R"
+# 输出: 状态: UUFUUFUURRRRRRRDRRFFFFFDFFBDDRDDBDDBLLLLLLLLLUBBUBBUBB</pre>
+  
+  <p>对比两者输出的状态字符串是否一致。</p>
+  
+  <h2>说明</h2>
+  <p><strong>TS主版本 serialize() 输出顺序:</strong> URFDLB (U→R→F→D→L→B)</p>
+  <p><strong>verify CLI 输出顺序:</strong> 同样 URFDLB</p>
+  <p>两者应该输出相同的状态字符串。</p>
+  
+  <script>
+    function copyScript() {
+      const script = document.getElementById('testScript').textContent;
+      navigator.clipboard.writeText(script).then(() => {
+        alert('脚本已复制！请在浏览器控制台粘贴执行。');
+      });
+    }
+  </script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import Director from "./vue/Director";
 import Player from "./vue/Player";
 import Helper from "./vue/Helper";
 import Algs from "./vue/Algs";
+import F2LTrainer from "./vue/F2LTrainer";
 import { VueConstructor } from "vue/types/umd";
 
 /* eslint-disable */
@@ -43,6 +44,9 @@ switch (mode) {
     break;
   case "helper":
     app = Helper;
+    break;
+  case "f2l":
+    app = F2LTrainer;
     break;
   case "reset":
     window.localStorage.clear();

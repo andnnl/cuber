@@ -201,6 +201,10 @@ export default class Cubelet extends THREE.Group {
     return result;
   })();
 
+  static createHighlightMaterial(): THREE.MeshLambertMaterial {
+    return new THREE.MeshLambertMaterial({ color: 0xFF0080 });
+  }
+
   _vector: THREE.Vector3;
 
   set vector(vector: THREE.Vector3) {

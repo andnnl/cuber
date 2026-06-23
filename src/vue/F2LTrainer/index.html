@@ -1,0 +1,56 @@
+<v-app>
+  <v-resize @resize="onResize">
+    <setting />
+    <v-container>
+      <v-row>
+        <v-col cols="12">
+          <viewport />
+        </v-col>
+      </v-row>
+      <v-row>
+        <v-col cols="12">
+          <v-card>
+            <v-card-title>
+              F2L Trainer
+              <v-spacer></v-spacer>
+              <v-select
+                v-model="slot"
+                :items="slotOptions"
+                label="插槽"
+                outlined
+                dense
+                style="max-width: 120px"
+              ></v-select>
+            </v-card-title>
+            <v-card-text>
+              <div class="text-h6">{{ currentCase.name }}</div>
+              <div class="text-h4 font-weight-bold mt-2">{{ currentFormula }}</div>
+            </v-card-text>
+            <v-card-actions>
+              <v-btn @click="randomCase">随机</v-btn>
+              <v-btn @click="prevCase">上一题</v-btn>
+              <v-btn @click="nextCase">下一题</v-btn>
+              <v-spacer></v-spacer>
+              <v-btn @click="play" color="primary" :disabled="state === 'playing'"
+                >播放</v-btn
+              >
+              <v-btn @click="replay">重播</v-btn>
+            </v-card-actions>
+            <v-card-text v-if="diffs.length">
+              <v-list dense>
+                <v-list-item v-for="d in diffs" :key="d.type">
+                  <v-list-item-content>
+                    <v-list-item-title>
+                      {{ d.type }}: slot {{ d.fromSlot }} → {{ d.toSlot }}
+                      {{ d.moved ? "" : "(未移动)" }}
+                    </v-list-item-title>
+                  </v-list-item-content>
+                </v-list-item>
+              </v-list>
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+    </v-container>
+  </v-resize>
+</v-app>
