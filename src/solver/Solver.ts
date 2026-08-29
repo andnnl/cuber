@@ -386,6 +386,11 @@ export default class Solver {
    * @param facelets The cube state as a string of facelets
    * @param maxSolutions Maximum number of solutions to return (default: 5)
    * @param maxDepth Maximum number of moves per solution (default: 8)
+   *
+   * 说明: 求解体系 (deserialize/WASM/BFS) 均为「字符=面」标准语义 —
+   * 永远求「输入串中字符 D 的棱归 D 位」, 解法面名与输入串坐标系一致。
+   * 调用方 (CrossF2LTrainer) 负责姿态适配: 默认方案直接传打乱态 (黄底绿前);
+   * 白底方案传 z2 字符映射后的状态 (U↔D, L↔R), 使求解器求出「U 材质棱归物理 D 位」的白十字解法。
    * @returns Array of solution strings, each solution is a space-separated list of moves
    */
   async solveCross(facelets: string, maxSolutions: number = 5, maxDepth: number = 8): Promise<string[]> {
@@ -400,7 +405,7 @@ export default class Solver {
 
     console.log("[底层十字求解] 初始魔方状态: " + facelets);
 
-    // 检查初始状态是否已经完成十字
+    // 检查初始状态是否已完成十字
     if (this.isCrossSolved(this.cc)) {
       console.log("[底层十字求解] 初始状态已完成底层十字");
       return ['']; // 空解法
@@ -487,14 +492,19 @@ export default class Solver {
     maxDepth = Math.min(maxDepth, 8);
     const maxIterations = 1000000; // 降低迭代上限以提高响应速度
 
-    // 使用队列实现广度优先搜索
+    // 使用队列实现广度优先搜索 (head 指针代替 shift, 避免大数组搬移)
     const queue: { cube: CubieCube, moves: number[], depth: number }[] = [];
     queue.push({ cube: initialCube, moves: [], depth: 0 });
+    let head = 0;
 
     let iterations = 0;
-    while (queue.length > 0 && solutions.length < maxSolutions && iterations < maxIterations) {
+    let foundDepth = -1; // 首个解所在深度: 只收集同层解, 不向更深层搜索 (避免指数爆炸)
+    while (head < queue.length && solutions.length < maxSolutions && iterations < maxIterations) {
       iterations++;
-      const { cube, moves, depth } = queue.shift()!;
+      const { cube, moves, depth } = queue[head++];
+      if (foundDepth >= 0 && depth > foundDepth) {
+        break;
+      }
 
       // 增加日志输出频率，每1000次迭代输出一次
       if (iterations % 1000 === 0) {
@@ -502,7 +512,23 @@ export default class Solver {
       }
 
       // 检查是否完成十字
-      if (this.isCrossSolved(cube)) {
+      // 先做棱块级快速预判 (D 棱 eo=0 且位于 D 区), 命中才做完整中心色语义判定
+      let solved = true;
+      for (const edge of [4, 5, 6, 7]) {
+        const edgeVal = cube.ea[edge];
+        const edgePos = edgeVal >> 1;
+        if ((edgeVal & 1) !== 0 || edgePos < 4 || edgePos > 7) {
+          solved = false;
+          break;
+        }
+      }
+      if (solved) {
+        solved = this.isCrossSolved(cube);
+      }
+      if (solved) {
+        if (foundDepth < 0) {
+          foundDepth = depth;
+        }
         let solution = "";
         for (const move of moves) {
           // 修复：使用正确的MOVE2STR映射
@@ -530,19 +556,13 @@ export default class Solver {
 
       // 尝试所有可能的移动
       for (let m = 0; m < 18; m++) {
-        // 跳过与上一步相同轴的移动以减少冗余
+        // 跳过与上一步相同轴的移动以减少冗余 (同轴连续转动可合并为单步)
+        // 注意: 不能跳过与上两步同轴的移动 — "R U R" 这类隔步回轴是十字解的常见模式
         if (moves.length > 0) {
           const lastAxis = Math.floor(moves[moves.length - 1] / 3);
           const currentAxis = Math.floor(m / 3);
           if (lastAxis === currentAxis) {
             continue;
-          }
-          // 还要跳过与上两步相同的轴（避免冗余）
-          if (moves.length > 1) {
-            const secondLastAxis = Math.floor(moves[moves.length - 2] / 3);
-            if (secondLastAxis === currentAxis) {
-              continue;
-            }
           }
         }
 
@@ -568,24 +588,21 @@ export default class Solver {
   }
 
   /**
-   * 生成用于比较的十字状态键值，只考虑底层十字相关块的位置和方向
+   * 生成用于比较的十字状态键值，只考虑十字相关块的位置和方向
    * 这样可以大大减少状态空间，提高搜索效率
+   *
+   * 跟踪 D 棱 cubie 4-7 的位置与朝向 (Kociemba 棱块编号: 0=UR, 1=UF, 2=UL, 3=UB, 4=DR, 5=DF, 6=DL, 7=DB)。
+   * 「字符=面」标准语义下 D 棱即输入串中字符 D 的棱 (调用方已做姿态映射)。
+   * D 层位置占用与 D 棱位置在双射下信息等价, 直接取 ea[4..7]
    */
   private getCrossKey(cube: CubieCube): string {
-    // 只关注底层四个边块的位置和方向
     let key = "";
-    
-    // 检查四个底面边块的位置和方向
-    // 使用ea数组，每个元素包含位置和方向信息
-    // 位置信息：右移1位得到位置，方向信息：最低位表示方向
-    const crossEdges = [4, 5, 6, 7]; // 底面边块的索引 (DF, DL, DB, DR)
-    for (const edge of crossEdges) {
+    for (const edge of [4, 5, 6, 7]) {
       const edgeInfo = cube.ea[edge];
       const position = edgeInfo >> 1;  // 获取位置
       const orientation = edgeInfo & 1;  // 获取方向
       key += position + "," + orientation + ";";
     }
-    
     return key;
   }
 

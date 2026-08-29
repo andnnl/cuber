@@ -2,70 +2,7 @@ import Vue from "vue";
 import { Component, Prop, Inject } from "vue-property-decorator";
 import World from "../../../cuber/world";
 import { COLORS } from "../../../cuber/define";
-import { PaletteData } from "../../../data";
-
-// 定义预设配色方案类型
-interface PaletteType {
-  R: string;
-  L: string;
-  U: string;
-  D: string;
-  F: string;
-  B: string;
-  [key: string]: string;
-}
-
-// 定义预设配色方案
-const PRESET_PALETTES: { [key: string]: PaletteType } = {
-  "默认": {
-    R: "#B71C1C",
-    L: "#FF6D00",
-    U: "#F0F0F0",
-    D: "#FFD600",
-    F: "#00A020",
-    B: "#0D47A1",
-  },
-  "白底": {
-    R: "#FF6D00",
-    L: "#B71C1C",
-    U: "#FFD600",
-    D: "#F0F0F0",
-    F: "#00A020",
-    B: "#0D47A1",
-  },
-  "黄底": {
-    R: "#B71C1C",
-    L: "#FF6D00",
-    U: "#FFD600",
-    D: "#F0F0F0",
-    F: "#00A020",
-    B: "#0D47A1",
-  },
-  "鲜艳": {
-    R: "#FF0000",
-    L: "#FFA500",
-    U: "#FFFFFF",
-    D: "#FFFF00",
-    F: "#00FF00",
-    B: "#0000FF",
-  },
-  "柔和": {
-    R: "#E57373",
-    L: "#FFB74D",
-    U: "#F5F5F5",
-    D: "#FFF59D",
-    F: "#81C784",
-    B: "#64B5F6",
-  },
-  "深色": {
-    R: "#C62828",
-    L: "#E65100",
-    U: "#E0E0E0",
-    D: "#F9A825",
-    F: "#2E7D32",
-    B: "#1565C0",
-  },
-};
+import { PaletteData, PRESET_PALETTES } from "../../../data";
 
 @Component({
   template: require("./index.html"),
@@ -100,6 +37,7 @@ export default class Palette extends Vue {
   }
 
   mounted(): void {
+    this.selectedPreset = this.data.preset;
     this.resize();
   }
 
@@ -154,11 +92,8 @@ export default class Palette extends Vue {
 
   // 应用预设配色方案
   applyPreset(preset: string): void {
-    const colors = PRESET_PALETTES[preset];
-    for (const key in colors) {
-      this.data.color(key, colors[key]);
-    }
-    this.data.save();
+    // 配色应用与 preset 记录统一由 PaletteData 处理 (先记录再保存, 确保持久化)
+    this.data.applyPreset(preset);
     this.selectedPreset = preset;
   }
 

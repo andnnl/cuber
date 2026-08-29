@@ -9,7 +9,7 @@ import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
-import { pieceName, pieceTypeOf, rotatePositionIndex } from "./pieces";
+import { pieceName, pieceTypeOf, rotatePositionIndex, mapZ2Facelets } from "./pieces";
 import { HIGHLIGHT_COLORS, highlightPiece, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
 
 @Component({
@@ -61,6 +61,33 @@ export default class CrossF2LTrainer extends Vue {
 
   // 整体视角转动的待还原记录 (axis, 有符号 90° 次数)
   private pendingRestore: { axis: string; times: number }[] = [];
+
+  // 配色方案: 打乱公式固定按 "默认" 方案 (黄底绿前) 坐标系执行。
+  // "白底" 方案不是换色, 而是打乱后通过整体旋转 z2 (绕 z 轴 180°: U↔D, L↔R, F/B 不变)
+  // 把魔方转成白底绿前姿态 ("默认" 预设染色下: 打乱后底面中心显黄=黄底, z2 后 U 材质中心
+  // 转到底部显白=白底); 求解时需把序列化状态做 z2 字符映射 (U↔D, L↔R) 交给求解器,
+  // 得到的解法按物理面名直接执行即可完成白十字
+  private whiteBase = false;
+
+  // 白底还原态下位于槽位处的块 (默认方案即槽位块本身; 白底为槽位索引 z2 映射后的块)
+  private get mappedCornerIndex(): number {
+    return this.whiteBase ? rotatePositionIndex(this.selectedSlot.cornerIndex, "z", 2) : this.selectedSlot.cornerIndex;
+  }
+
+  private get mappedEdgeIndex(): number {
+    return this.whiteBase ? rotatePositionIndex(this.selectedSlot.edgeIndex, "z", 2) : this.selectedSlot.edgeIndex;
+  }
+
+  // 应用基准姿态: 白底方案下将打乱后的魔方整体旋转 z2 (瞬间完成, 不计入视角还原记录)
+  private applyOrientation(): void {
+    if (!this.whiteBase) {
+      return;
+    }
+    for (const group of this.world.cube.table.groups["z"]) {
+      group.twist(Math.PI, true);
+    }
+    this.world.dirty = true;
+  }
 
   // 整体转动回调: 记录待还原信息; 非播放状态下预判位置索引同步旋转 (青色框跟随魔方)
   private onWholeTurn(axis: string, times: number): void {
@@ -243,8 +270,11 @@ export default class CrossF2LTrainer extends Vue {
     this.phase = "idle";
     this.stopTimer(true);
     clearAllHighlights(this.world);
+    // 读取配色方案: "白底" 通过打乱后整体旋转 z2 实现 (非换色)
+    this.whiteBase = this.palette.preset === "白底";
     this.scramble = this.world.cube.twister.scrambler();
     this.world.cube.twister.setup(this.scramble);
+    this.applyOrientation();
     this.markTargetSlot();
     await this.solve();
   }
@@ -269,6 +299,8 @@ export default class CrossF2LTrainer extends Vue {
     this.stopTimer(true);
     clearAllHighlights(this.world);
     this.world.cube.twister.setup(this.scramble);
+    // 白底方案: 重置回打乱态后同样应用基准姿态旋转
+    this.applyOrientation();
     this.markTargetSlot();
   }
 
@@ -319,17 +351,25 @@ export default class CrossF2LTrainer extends Vue {
 
   // 标记目标 F2L 块 (颜色 A): 槽位对应的角块+棱块 (按还原位置识别),
   // 高亮它们在当前打乱状态中的实际位置, 覆层随块移动
+  // 白底方案: 目标块为白底还原态下位于槽位的块 (槽位索引 z2 映射)
   private markTargetSlot(): void {
-    const slot = this.selectedSlot;
-    highlightPiece(this.world, slot.cornerIndex, HIGHLIGHT_COLORS.target);
-    highlightPiece(this.world, slot.edgeIndex, HIGHLIGHT_COLORS.target);
+    highlightPiece(this.world, this.mappedCornerIndex, HIGHLIGHT_COLORS.target);
+    highlightPiece(this.world, this.mappedEdgeIndex, HIGHLIGHT_COLORS.target);
   }
 
   // 调用 Cross 求解器获取多个最优解法
+  // 求解器为 "字符=面" 语义: 永远求「输入串中字符 D 的棱归 D 位」, 解法面名与输入串坐标一致。
+  //   - 默认方案: 打乱态 (黄底绿前), 底面中心为 D 材质 (显黄) → 直接求解即黄十字
+  //   - 白底方案: 打乱后整体 z2, 底面中心为 U 材质 (显白)。求解前先把序列化状态做
+  //     z2 字符映射 (U↔D, L↔R), 映射后恰为标准中心串; 求解器把「U 材质棱」归到物理 D 位,
+  //     解法按物理面名直接执行即得白十字 (白棱贴白中心)
   private async solve(): Promise<void> {
     this.solving = true;
     try {
-      const state = this.world.cube.serialize();
+      let state = this.world.cube.serialize();
+      if (this.whiteBase) {
+        state = mapZ2Facelets(state);
+      }
       const raw = await this.solver.solveCross(state, 5, 8);
       // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化
       this.solutions = (raw || [])
@@ -486,10 +526,10 @@ export default class CrossF2LTrainer extends Vue {
   private judge(): void {
     this.phase = "judged";
     this.stopTimer(false); // 动画播放完毕停表, 保留用时显示
-    const slot = this.selectedSlot;
     // 目标 F2L 块 (按还原位置识别): initials 中还原位为槽位索引的块
-    const targetCorner = this.world.cube.initials[slot.cornerIndex];
-    const targetEdge = this.world.cube.initials[slot.edgeIndex];
+    // 白底方案: 使用 z2 映射后的槽位索引 (白底还原态下位于槽位的块)
+    const targetCorner = this.world.cube.initials[this.mappedCornerIndex];
+    const targetEdge = this.world.cube.initials[this.mappedEdgeIndex];
     // cubelet.index 在转层后始终维护为当前位置索引 (group.ts 转层结束时回写)
     const actualCornerIndex = targetCorner.index;
     const actualEdgeIndex = targetEdge.index;

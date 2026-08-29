@@ -83,3 +83,16 @@ export function rotatePositionIndex(index: number, axis: string, times: number, 
   const half = (order - 1) / 2;
   return (z + half) * order * order + (y + half) * order + (x + half);
 }
+
+// serialize 状态串的 z2 字符映射 (U↔D, L↔R, F/B 不变)
+// 与整体旋转 z2 (绕 z 轴 180°) 的面共轭一致: 物理 z2 后各面位置的块来自 z2 共轭面,
+// 对状态串做此映射可将其变换回标准求解坐标 (中心字符恢复 U R F D L B 标准排列)
+const Z2_CHAR: { [key: string]: string } = { U: "D", D: "U", L: "R", R: "L", F: "F", B: "B" };
+
+export function mapZ2Facelets(state: string): string {
+  let result = "";
+  for (const ch of state) {
+    result += Z2_CHAR[ch] || ch;
+  }
+  return result;
+}

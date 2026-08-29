@@ -215,11 +215,81 @@ export class PreferanceData {
   }
 }
 
+// 预设配色方案定义 (供配色菜单与训练器共用)
+// 注: 本项目物理复原态为 U 黄 / D 白 (原版 COLORS), "默认" 预设通过换色实现黄底绿前显示
+export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
+  "默认": {
+    R: "#B71C1C",
+    L: "#FF6D00",
+    U: "#F0F0F0",
+    D: "#FFD600",
+    F: "#00A020",
+    B: "#0D47A1",
+  },
+  // "白底" 方案不通过换色实现: 染色与 "默认" 一致 (打乱后呈黄底绿前),
+  // 由训练器在打乱后整体旋转 z2 得到白底绿前姿态
+  "白底": {
+    R: "#B71C1C",
+    L: "#FF6D00",
+    U: "#F0F0F0",
+    D: "#FFD600",
+    F: "#00A020",
+    B: "#0D47A1",
+  },
+  "黄底": {
+    R: "#B71C1C",
+    L: "#FF6D00",
+    U: "#FFD600",
+    D: "#F0F0F0",
+    F: "#00A020",
+    B: "#0D47A1",
+  },
+  "鲜艳": {
+    R: "#FF0000",
+    L: "#FFA500",
+    U: "#FFFFFF",
+    D: "#FFFF00",
+    F: "#00FF00",
+    B: "#0000FF",
+  },
+  "柔和": {
+    R: "#E57373",
+    L: "#FFB74D",
+    U: "#F5F5F5",
+    D: "#FFF59D",
+    F: "#81C784",
+    B: "#64B5F6",
+  },
+  "深色": {
+    R: "#C62828",
+    L: "#E65100",
+    U: "#E0E0E0",
+    D: "#F9A825",
+    F: "#2E7D32",
+    B: "#1565C0",
+  },
+};
+
+// 旧版 "白底" 预设配色 (原版色), 仅用于存档迁移识别
+const LEGACY_WHITE_PRESET = {
+  R: "#FF6D00",
+  L: "#B71C1C",
+  U: "#FFD600",
+  D: "#F0F0F0",
+  F: "#00A020",
+  B: "#0D47A1",
+};
+
 export class PaletteData {
   private world: World;
   private default: string;
-  private values = {
+  private values: {
+    version: string;
+    preset?: string;
+    colors: { [key: string]: string };
+  } = {
     version: "0.3",
+    preset: "默认",
     colors: {},
   };
 
@@ -227,6 +297,43 @@ export class PaletteData {
     this.world = world;
     this.default = JSON.stringify(COLORS);
     this.load();
+  }
+
+  // 当前预设配色方案名 (如 "默认" / "白底"; 旧存档缺省按 "默认")
+  get preset(): string {
+    return this.values.preset || "默认";
+  }
+
+  setPreset(name: string): void {
+    this.values.preset = name;
+  }
+
+  // 应用预设配色: 写入存档并刷新显示
+  applyPreset(name: string): void {
+    const colors = PRESET_PALETTES[name];
+    if (!colors) {
+      return;
+    }
+    for (const key in colors) {
+      this.color(key, colors[key]);
+    }
+    this.values.preset = name;
+    this.save();
+  }
+
+  // 存档迁移: 旧版 "白底" 预设通过换色 (原版色) 实现, 现改为与 "默认" 一致
+  // (白底由训练器整体旋转呈现)。存档配色为空或恰为旧白底配色时纠正,
+  // 用户有其他自定义颜色则不覆盖
+  private migrateWhitePreset(): void {
+    if (this.values.preset !== "白底") {
+      return;
+    }
+    const colors = this.values.colors as { [key: string]: string };
+    const legacy = LEGACY_WHITE_PRESET as { [key: string]: string };
+    const match = Object.keys(legacy).every((key) => (colors[key] ?? legacy[key]) === legacy[key]);
+    if (match) {
+      this.applyPreset("白底");
+    }
   }
 
   load(): void {
@@ -238,6 +345,7 @@ export class PaletteData {
         return;
       }
       this.values = data;
+      this.migrateWhitePreset();
     }
   }
 
