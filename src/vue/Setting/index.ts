@@ -69,6 +69,7 @@ export default class Setting extends Vue {
       case "helper":
       case "algs":
       case "f2l":
+      case "crossf2l":
         let search = location.search || "";
         const list = search.match(/(\?|\&)mode=([^&]*)(&|$)/);
         const mode = list ? list[2] : "playground";

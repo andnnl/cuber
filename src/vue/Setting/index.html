@@ -40,6 +40,12 @@
               @click="tap('f2l')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">fitness_center</v-icon>
             </v-btn>
+            <v-btn :color="mode == 'crossf2l'?'primary':''" depressed
+              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1; flex-direction: column;"
+              @click="tap('crossf2l')" :style="{height: size + 'px'}">
+              <v-icon :size="size * 0.5">track_changes</v-icon>
+              <span :style="{'font-size': size * 0.22 + 'px'}">F2L预判</span>
+            </v-btn>
           </v-flex>
         </v-layout>
         <v-layout row wrap style="padding-bottom: 5%;">

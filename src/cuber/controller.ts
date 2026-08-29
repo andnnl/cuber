@@ -65,6 +65,10 @@ export default class Controller {
     this._disable = value;
   }
 
+  // 整体视角转动回调 (axis 为 "x"/"y"/"z", times 为有符号 90° 次数)
+  // 供训练等场景在预判后逆序还原视角
+  public wholeTurnCallbacks: ((axis: string, times: number) => void)[] = [];
+
   world: World;
   sensitivity = 0.5;
   constructor(world: World) {
@@ -314,7 +318,8 @@ export default class Controller {
     }
     if (this.rotating) {
       let angle = this.angle;
-      if (!this.lock) {
+      if (!this.lock || !this.group) {
+        // 未锁定; 或锁定状态下旋转整体视角 — 允许旋转并吸附到 90°
         if (Math.abs(angle) < Math.PI / 4) {
           const tick = new Date().getTime();
           const speed = (Math.abs(angle) / (tick - this.tick)) * 1000;
@@ -324,6 +329,7 @@ export default class Controller {
         }
         angle = angle + this.contingle;
       } else {
+        // 锁定状态下拖动单层 — 禁止转动, 弹回原位
         angle = 0;
       }
       if (this.group) {
@@ -341,9 +347,16 @@ export default class Controller {
         }
         if (angle != 0) {
           let times = Math.round(angle / (Math.PI / 2));
-          const reverse = times < 0;
-          times = Math.abs(times);
-          this.world.cube.record(new TwistAction(this.axis, reverse, times));
+          if (times != 0) {
+            const signed = times;
+            const reverse = times < 0;
+            times = Math.abs(times);
+            this.world.cube.record(new TwistAction(this.axis, reverse, times));
+            // 通知整体视角转动 (训练器记录后在预判选块时自动还原)
+            for (const callback of this.wholeTurnCallbacks) {
+              callback(this.axis, signed);
+            }
+          }
         }
       }
     }

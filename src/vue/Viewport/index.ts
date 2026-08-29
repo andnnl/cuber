@@ -23,6 +23,7 @@ export default class Viewport extends Vue {
   renderer: THREE.WebGLRenderer;
   constructor() {
     super();
+    console.log("[Viewport] constructor, world:", !!this.world, "preferance:", !!this.preferance);
     const canvas = document.createElement("canvas");
     canvas.style.outline = "none";
     this.renderer = new THREE.WebGLRenderer({
@@ -42,6 +43,8 @@ export default class Viewport extends Vue {
     if (e.target != this.renderer.domElement) {
       return;
     }
+    e.preventDefault();
+    e.stopPropagation();
     let scale = this.preferance.scale;
     if (e.deltaY > 0) {
       scale = scale - 10;

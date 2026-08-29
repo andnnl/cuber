@@ -5,6 +5,7 @@ import { F2LSlot } from "../../cuber/f2l";
 export interface PieceState {
   slot: number;
   visibleFaces: number[];
+  type: "corner" | "edge";
 }
 
 export interface PieceDiff {
@@ -19,8 +20,8 @@ export class PieceTracker {
 
   snapshot(cube: Cube, slot: F2LSlot): void {
     this.before.clear();
-    this.record(slot.cornerIndex, cube);
-    this.record(slot.edgeIndex, cube);
+    this.recordPieceAt(cube, slot.cornerIndex, "corner");
+    this.recordPieceAt(cube, slot.edgeIndex, "edge");
   }
 
   diff(cube: Cube, slot: F2LSlot): PieceDiff[] {
@@ -29,7 +30,7 @@ export class PieceTracker {
       const before = this.before.get(initialIndex)!;
       const after = this.getState(cube.initials[initialIndex]);
       diffs.push({
-        type: initialIndex === slot.cornerIndex ? "corner" : "edge",
+        type: before.type,
         fromSlot: before.slot,
         toSlot: after.slot,
         moved: before.slot !== after.slot,
@@ -38,15 +39,26 @@ export class PieceTracker {
     return diffs;
   }
 
-  private record(initialIndex: number, cube: Cube): void {
-    const cubelet = cube.initials[initialIndex];
-    this.before.set(initialIndex, this.getState(cubelet));
+  private recordPieceAt(cube: Cube, positionIndex: number, type: "corner" | "edge"): void {
+    const cubelet = cube.cubelets[positionIndex];
+    if (!cubelet) {
+      return;
+    }
+    this.before.set(cubelet.initial, {
+      ...this.getState(cubelet),
+      type,
+    });
   }
 
-  private getState(cubelet: Cubelet): PieceState {
+  getInitialIndices(): number[] {
+    return Array.from(this.before.keys());
+  }
+
+  private getState(cubelet: Cubelet): Omit<PieceState, "type"> {
     const visibleFaces: number[] = [];
     for (let f = 0; f < 6; f++) {
-      if (cubelet.stickers[f].visible) {
+      const sticker = cubelet.stickers[f];
+      if (sticker && sticker.visible) {
         visibleFaces.push(f);
       }
     }

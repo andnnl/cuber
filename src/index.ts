@@ -9,6 +9,7 @@ import Player from "./vue/Player";
 import Helper from "./vue/Helper";
 import Algs from "./vue/Algs";
 import F2LTrainer from "./vue/F2LTrainer";
+import CrossF2LTrainer from "./vue/CrossF2LTrainer";
 import { VueConstructor } from "vue/types/umd";
 
 /* eslint-disable */
@@ -47,6 +48,9 @@ switch (mode) {
     break;
   case "f2l":
     app = F2LTrainer;
+    break;
+  case "crossf2l":
+    app = CrossF2LTrainer;
     break;
   case "reset":
     window.localStorage.clear();

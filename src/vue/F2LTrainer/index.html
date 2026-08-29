@@ -1,14 +1,18 @@
 <v-app>
-  <v-resize @resize="onResize">
+  <div v-resize="onResize" style="user-select: none; touch-action: none; display: flex; flex-direction: column; height: 100vh;">
     <setting />
-    <v-container>
-      <v-row>
-        <v-col cols="12">
-          <viewport />
-        </v-col>
-      </v-row>
-      <v-row>
-        <v-col cols="12">
+    <div style="flex: 1 1 auto; min-height: 0;">
+      <viewport ref="viewport"></viewport>
+    </div>
+    <v-container
+      fluid
+      grid-list-md
+      text-xs-center
+      :style="{width:Math.min(size * 8, width) + 'px'}"
+      style="padding: 0%; touch-action: none; flex: 0 0 auto;"
+    >
+      <v-layout row wrap>
+        <v-flex xs12>
           <v-card>
             <v-card-title>
               F2L Trainer
@@ -16,15 +20,24 @@
               <v-select
                 v-model="slot"
                 :items="slotOptions"
-                label="插槽"
+                label="追踪插槽"
                 outlined
                 dense
                 style="max-width: 120px"
               ></v-select>
             </v-card-title>
-            <v-card-text>
+            <v-card-text v-if="algs.length > 0">
               <div class="text-h6">{{ currentCase.name }}</div>
-              <div class="text-h4 font-weight-bold mt-2">{{ currentFormula }}</div>
+              <div class="text-h4 font-weight-bold mt-2">{{ currentScramble }}</div>
+              <div class="text-h5 mt-1" style="color: #1976D2;">
+                {{ currentFormula }}
+              </div>
+              <div v-if="steps.length" class="text-h6 mt-1">
+                步骤: {{ stepDisplay }}
+              </div>
+            </v-card-text>
+            <v-card-text v-else>
+              <div class="text-h6">加载中...</div>
             </v-card-text>
             <v-card-actions>
               <v-btn @click="randomCase">随机</v-btn>
@@ -35,22 +48,13 @@
                 >播放</v-btn
               >
               <v-btn @click="replay">重播</v-btn>
+              <v-btn @click="reset">重置</v-btn>
+              <v-btn @click="stepBackward" :disabled="state === 'playing' || stepIndex <= 0">上一步</v-btn>
+              <v-btn @click="stepForward" color="primary" :disabled="state === 'playing' || stepIndex >= steps.length">下一步</v-btn>
             </v-card-actions>
-            <v-card-text v-if="diffs.length">
-              <v-list dense>
-                <v-list-item v-for="d in diffs" :key="d.type">
-                  <v-list-item-content>
-                    <v-list-item-title>
-                      {{ d.type }}: slot {{ d.fromSlot }} → {{ d.toSlot }}
-                      {{ d.moved ? "" : "(未移动)" }}
-                    </v-list-item-title>
-                  </v-list-item-content>
-                </v-list-item>
-              </v-list>
-            </v-card-text>
           </v-card>
-        </v-col>
-      </v-row>
+        </v-flex>
+      </v-layout>
     </v-container>
-  </v-resize>
+  </div>
 </v-app>

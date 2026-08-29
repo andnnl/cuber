@@ -33,6 +33,14 @@ const PRESET_PALETTES: { [key: string]: PaletteType } = {
     F: "#00A020",
     B: "#0D47A1",
   },
+  "黄底": {
+    R: "#B71C1C",
+    L: "#FF6D00",
+    U: "#FFD600",
+    D: "#F0F0F0",
+    F: "#00A020",
+    B: "#0D47A1",
+  },
   "鲜艳": {
     R: "#FF0000",
     L: "#FFA500",
@@ -118,12 +126,12 @@ export default class Palette extends Vue {
 
   // 预设配色方案列表
   presets = Object.keys(PRESET_PALETTES);
-  selectedPreset = "默认";
+  selectedPreset = "白底";
 
   palette: string[] = [
     // DEFAULT
-    "#B71C1C",
     "#FF6D00",
+    "#B71C1C",
     "#0D47A1",
     "#00A020",
     "#FFD600",
