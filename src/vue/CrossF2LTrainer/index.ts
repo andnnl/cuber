@@ -9,7 +9,7 @@ import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
-import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBaseOpsFacelets, convertBaseOpsFaceNames, BaseOp } from "./pieces";
+import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBaseOpsFacelets, BaseOp } from "./pieces";
 import { HIGHLIGHT_COLORS, highlightPiece, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
 
 @Component({
@@ -78,10 +78,6 @@ export default class CrossF2LTrainer extends Vue {
   // 置位表示有整体转动动画进行中, 动画结束后需按新坐标系重新求解 (旧解法已失效)
   private pendingSolve = false;
 
-  // 置位表示本次解法在标准坐标系执行 (播放前逆放了基准旋转, 见 play),
-  // 播放结束后需重放 baseOps 恢复基准视角再做判定
-  private playingUndoBase = false;
-
   // 配色方案: "默认" (白顶黄底) / "白底" (黄顶白底), 纯配色切换,
   // 与基准视角 (z2/y/y' 按钮) 完全解耦, 切换不重开轮、不影响解法
   // (serialize 输出材质字符, 与显示配色无关)
@@ -112,17 +108,6 @@ export default class CrossF2LTrainer extends Vue {
     for (const op of this.baseOps) {
       for (const group of this.world.cube.table.groups[op.axis]) {
         group.twist(op.times * (Math.PI / 2), true);
-      }
-    }
-    this.world.dirty = true;
-  }
-
-  // 逆放基准旋转: 物理回到标准坐标系 (瞬间完成, 不计入视角还原记录)
-  private applyInverseBaseOps(): void {
-    for (let i = this.baseOps.length - 1; i >= 0; i--) {
-      const op = this.baseOps[i];
-      for (const group of this.world.cube.table.groups[op.axis]) {
-        group.twist(-op.times * (Math.PI / 2), true);
       }
     }
     this.world.dirty = true;
@@ -485,8 +470,8 @@ export default class CrossF2LTrainer extends Vue {
   //     求解前先按复合置换做字符映射 (mapBaseOpsFacelets), 映射后恰为标准中心串;
   //     求解器把「D 字符的棱」归到基准视角的物理底位。
   //     注意解法面名是姿态系 (当前观察者视角) 层名: 用户手动执行 (在当前视角下按解法列表转)
-  //     直接正确; 而 play() 自动播放会先逆放 baseOps 回标准坐标系, 须先经
-  //     convertBaseOpsFaceNames 改名再执行 (见 play)。
+  //     直接正确; play() 自动播放同样直接按面名执行 (引擎 twist 为位置语义, 基准姿态下
+  //     世界层转与手动执行语义一致, 见 play 注释)。
   //     (底面十字颜色跟随配色: D 材质在默认配色显黄、白底配色显白)
   private async solve(): Promise<void> {
     this.solving = true;
@@ -527,8 +512,7 @@ export default class CrossF2LTrainer extends Vue {
     if (!this.canPlay) {
       return;
     }
-    // 若平滑还原动画仍在进行, 先立即完成; 同时排空 twister 队列确保所有层已解锁,
-    // 否则下方的逆放 fast twist 可能被部分拒绝, 物理状态与 baseOps 失同步
+    // 若平滑还原动画仍在进行, 先立即完成; 同时排空 twister 队列确保所有层已解锁
     this.world.cube.twister.finish();
     this.restoreView(true);
     // 冻结预判覆层: 块锚定 → 位置绑定 (播放时青色框固定在预判位置, 不随层转动)
@@ -547,21 +531,15 @@ export default class CrossF2LTrainer extends Vue {
       this.predictedEdgePiece = null;
     }
     this.result = "";
-    // 层 group 按初始索引静态绑定 (GroupTable 构造时分配, 永不更新), 整体旋转后若直接执行
-    // 解法, convert 按面名选到的是「初始层成员」而非当前视角下的对应层, 转动会破坏物理状态。
-    // 因此先把基准旋转逆放 (瞬间), 在标准坐标系下执行解法; 必须在置 playing 之前逆放 ——
-    // fast twist 的 drop 会同步触发 onAnimationEnd, 播放态下会被误当成播放结束提前判定。
-    // 播放结束后由 handleAnimationEnd 重放 baseOps 恢复基准视角再判定 (判定索引均为基准
-    // 视角坐标系, 与预判点击时一致)。
-    if (this.baseOps.length > 0) {
-      this.playingUndoBase = true;
-      this.applyInverseBaseOps();
-    }
     this.phase = "playing";
-    // 解法面名是姿态系层名, 逆放后须按 baseOps 映射表的逆表改名 (共轭 C⁻¹∘τ_f∘C = τ_{C⁻¹(f)},
-    // 即改名串世界 τ_f = 物理 τ_{C⁻¹(f)}) 再执行; 标准视角下 baseOps 为空, 直接原样执行
+    // 直接在当前基准视角下执行解法, 全程不发生整体旋转 (视角保持红前等基准姿态)。
+    // 依据: 引擎层 twist 为位置语义 (group.hold 按当前位置收集块, cubelets 按当前位置索引
+    // 存储回写), 基准姿态 (物理 = R∘打乱态) 下按世界层执行解法面名序列, 净效果 =
+    // τ_sol∘R∘打乱态; 与「逆放 R⁻¹ → 执行 C⁻¹ 改名序列 → 重放 R」的净效果 R∘τ_{C⁻¹(sol)}∘打乱态
+    // 数学等价 (位置语义共轭 R⁻¹∘τ_f∘R = τ_{R⁻¹(f)}, 且 R⁻¹ 层名映射 = C⁻¹)。
+    // 解法面名本就是姿态系 (当前观察者视角) 层名, 与用户手动执行语义一致。
     const sol = this.solutions[this.selectedSolution];
-    this.world.cube.twister.push(this.baseOps.length > 0 ? convertBaseOpsFaceNames(sol, this.baseOps) : sol);
+    this.world.cube.twister.push(sol);
   }
 
   // 用户在 3D 场景中点击选块 (预判: 点击某个位置, 表示预测目标块 Cross 后会到达这里)
@@ -676,12 +654,8 @@ export default class CrossF2LTrainer extends Vue {
     if (this.pendingRestore.length > 0) {
       this.restoreView(true);
     }
-    // 解法曾在标准坐标系执行 (播放前逆放了基准旋转): 重放 baseOps 恢复基准视角,
-    // 保证判定时的物理位置索引与预判点击时处于同一坐标系
-    if (this.playingUndoBase) {
-      this.playingUndoBase = false;
-      this.applyBaseOrientation();
-    }
+    // 播放全程未发生整体旋转 (基准视角下直接执行解法), 物理仍处于基准姿态,
+    // 判定索引与预判点击时同一坐标系
     this.judge();
   }
 
