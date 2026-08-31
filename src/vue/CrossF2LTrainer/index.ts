@@ -190,14 +190,10 @@ export default class CrossF2LTrainer extends Vue {
     // (部分 group 转动成功、部分失败), 物理状态与 baseOps 记录失同步
     this.world.cube.twister.finish();
     this.restoreView(true); // 先抵消临时拖拽, 从基准视角出发旋转
-    // 预判针对旧解法的落点, 视角切换后会按新视角重新求解 (落点一般不同), 旧预判随之失效,
-    // 必须同步清除, 否则基于旧预判的判定必然报错
-    if (this.predictedCornerIndex !== null || this.predictedEdgeIndex !== null) {
-      this.clearSelection();
-      clearAllHighlights(this.world);
-      this.markTargetSlot();
-      this.result = "视角已切换, 请基于新解法重新预判";
-    }
+    // 预判与当前视角关联: 青色框锚定物理块随整体转动平滑跟随, 索引同步映射到新视角坐标系
+    // (与拖拽转动的 onWholeTurn 同构)。切视角只是整体旋转, 不改变物理块排列, 重解后的
+    // 物理落点与切视角前一致, 预判判定语义不变, 无需清除
+    this.followPrediction(axis, times);
     for (const group of this.world.cube.table.groups[axis]) {
       group.twist(times * (Math.PI / 2), false); // 平滑动画
     }
@@ -562,8 +558,8 @@ export default class CrossF2LTrainer extends Vue {
       this.applyInverseBaseOps();
     }
     this.phase = "playing";
-    // 解法面名是姿态系层名, 逆放后须按 baseOps 映射表改名 (共轭 R·τ_f·R⁻¹ = τ_{R(f)}) 再执行;
-    // 标准视角下 baseOps 为空, 直接原样执行
+    // 解法面名是姿态系层名, 逆放后须按 baseOps 映射表的逆表改名 (共轭 C⁻¹∘τ_f∘C = τ_{C⁻¹(f)},
+    // 即改名串世界 τ_f = 物理 τ_{C⁻¹(f)}) 再执行; 标准视角下 baseOps 为空, 直接原样执行
     const sol = this.solutions[this.selectedSolution];
     this.world.cube.twister.push(this.baseOps.length > 0 ? convertBaseOpsFaceNames(sol, this.baseOps) : sol);
   }

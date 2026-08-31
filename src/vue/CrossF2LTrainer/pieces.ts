@@ -134,11 +134,16 @@ function faceCharOfIndex(index: number, order: number = 3): string {
 // 基准姿态 = 视角操作序列 baseOps 的复合 (z2 按钮 / y·y' 按钮按时间顺序累积)。
 // ops 为按钮/twist 语义 (正 times 绕负轴), 故姿态位置映射 R 按序取 -times 复合:
 // R(p) = R_{axis_k}(-t_k)(...R_{axis_1}(-t_1)(p))。
-// 字符映射: C[f] = faceCharAt(R(centerOf(f)))。同一张表服务两个方向:
-//   1. mapBaseOpsFacelets —— 把姿态 serialize 串的字符替换回标准求解坐标 (中心恢复 URFDLB);
-//   2. convertBaseOpsFaceNames —— play() 逆放 baseOps 后, 把姿态系面名的解法改名为标准系面名。
-//      原理: 整体旋转 R 与面转 τ 的共轭 R·τ_f·R⁻¹ = τ_{R(f)} (90° 面转共轭保转角, 仅层名变化),
-//      而 R(f) 的面字符恰为 C[f]。
+// 字符映射: C[f] = faceCharAt(R(centerOf(f)))。两处使用的方向不同 (互为逆):
+//   1. mapBaseOpsFacelets —— 把姿态 serialize 串的字符按 C 改名回标准求解坐标 (中心恢复 URFDLB)。
+//      依据: serialize 按位置读块, S_pose[i] = S_std[R⁻¹(i)], 逐字符按 C 改名后 S_map = C∘S_std∘C⁻¹,
+//      中心位 (C 的不动点) 恢复 URFDLB。
+//   2. convertBaseOpsFaceNames —— play() 逆放 baseOps 后, 把姿态系面名的解法按 C 的逆表改名。
+//      原理: 在 S_map (即 C∘S_std∘C⁻¹) 世界里执行层转 τ_f, 共轭给出 C⁻¹∘τ_f∘C = τ_{C⁻¹(f)}
+//      作用于 S_std, 即改名串世界的 τ_f 等价于标准串世界的 τ_{C⁻¹(f)}。故 S_map 上的有效解法 sol,
+//      对应物理执行 C⁻¹ 改名序列 (方向与 mapBaseOpsFacelets 相反)。
+//      注: C 常为非对合置换 (如纯 y1 时 C = (FLBR) 四循环), 逆方向不可省略; 早期仅测过 z2 及
+//      z2·y 复合场景 (其面置换恰为对合), 掩盖了方向错误。
 export function baseOpsFaceCharMap(ops: BaseOp[], order: number = 3): { [ch: string]: string } {
   const pose = ops.map((op) => ({ axis: op.axis, times: -op.times }));
   const map: { [ch: string]: string } = {};
@@ -161,14 +166,20 @@ export function mapBaseOpsFacelets(state: string, ops: BaseOp[], order: number =
   return result;
 }
 
-// 把表达式 (如解法 "F2 U' F R2 B'") 中的面名字符按 baseOps 映射表改名, 保留 "2"/"'/2'" 后缀。
+// 把表达式 (如解法 "F2 U' F R2 B'") 中的面名字符按 baseOps 映射表的逆表改名, 保留 "2"/"'/2'" 后缀。
 // 仅 play() 的自动播放路径需要: 求解器给出的解法面名是姿态系 (求解时的观察者视角) 层名,
-// 逆放 baseOps 后魔方处于标准坐标系, 直接执行会层错位; 用户手动执行解法仍在姿态系, 保持原样。
+// 逆放 baseOps 后魔方处于标准坐标系, 解法的物理语义为 C⁻¹ 改名序列 (见 baseOpsFaceCharMap 注释 2),
+// 故须用逆表 inv[map[f]] = f 改名; 用户手动执行解法仍在姿态系 (用户转屏幕 f 面 = 初始 C⁻¹(f)
+// 组 twist, 天然就是所需的物理序列), 保持原样无需转换。
 export function convertBaseOpsFaceNames(exp: string, ops: BaseOp[], order: number = 3): string {
   const map = baseOpsFaceCharMap(ops, order);
+  const inv: { [ch: string]: string } = {};
+  for (const f of Object.keys(map)) {
+    inv[map[f]] = f;
+  }
   return exp
     .split(/\s+/)
     .filter((token) => token.length > 0)
-    .map((token) => (map[token[0]] || token[0]) + token.slice(1))
+    .map((token) => (inv[token[0]] || token[0]) + token.slice(1))
     .join(" ");
 }
