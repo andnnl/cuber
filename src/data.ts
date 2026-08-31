@@ -216,7 +216,9 @@ export class PreferanceData {
 }
 
 // 预设配色方案定义 (供配色菜单与训练器共用)
-// 注: 本项目物理复原态为 U 黄 / D 白 (原版 COLORS), "默认" 预设通过换色实现黄底绿前显示
+// 注: 本项目物理复原态为 U 黄 / D 白 (原版 COLORS), "默认" 预设通过换色实现白顶黄底显示;
+// "白底" 预设仅与 "默认" 对调 U/D 染色 (黄顶白底), 供练习白色十字;
+// 训练时的基准视角 (z2/y/y' 按钮整体旋转) 与配色完全解耦
 export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
   "默认": {
     R: "#B71C1C",
@@ -226,13 +228,11 @@ export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
     F: "#00A020",
     B: "#0D47A1",
   },
-  // "白底" 方案不通过换色实现: 染色与 "默认" 一致 (打乱后呈黄底绿前),
-  // 由训练器在打乱后整体旋转 z2 得到白底绿前姿态
   "白底": {
     R: "#B71C1C",
     L: "#FF6D00",
-    U: "#F0F0F0",
-    D: "#FFD600",
+    U: "#FFD600",
+    D: "#F0F0F0",
     F: "#00A020",
     B: "#0D47A1",
   },
@@ -268,16 +268,6 @@ export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
     F: "#2E7D32",
     B: "#1565C0",
   },
-};
-
-// 旧版 "白底" 预设配色 (原版色), 仅用于存档迁移识别
-const LEGACY_WHITE_PRESET = {
-  R: "#FF6D00",
-  L: "#B71C1C",
-  U: "#FFD600",
-  D: "#F0F0F0",
-  F: "#00A020",
-  B: "#0D47A1",
 };
 
 export class PaletteData {
@@ -321,21 +311,6 @@ export class PaletteData {
     this.save();
   }
 
-  // 存档迁移: 旧版 "白底" 预设通过换色 (原版色) 实现, 现改为与 "默认" 一致
-  // (白底由训练器整体旋转呈现)。存档配色为空或恰为旧白底配色时纠正,
-  // 用户有其他自定义颜色则不覆盖
-  private migrateWhitePreset(): void {
-    if (this.values.preset !== "白底") {
-      return;
-    }
-    const colors = this.values.colors as { [key: string]: string };
-    const legacy = LEGACY_WHITE_PRESET as { [key: string]: string };
-    const match = Object.keys(legacy).every((key) => (colors[key] ?? legacy[key]) === legacy[key]);
-    if (match) {
-      this.applyPreset("白底");
-    }
-  }
-
   load(): void {
     const save = window.localStorage.getItem("palette");
     if (save) {
@@ -345,7 +320,6 @@ export class PaletteData {
         return;
       }
       this.values = data;
-      this.migrateWhitePreset();
     }
   }
 

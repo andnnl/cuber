@@ -84,29 +84,91 @@ export function rotatePositionIndex(index: number, axis: string, times: number, 
   return (z + half) * order * order + (y + half) * order + (x + half);
 }
 
-// serialize 状态串的整体旋转字符映射。
-// 白底方案基准姿态 = z2 (applyOrientation) 复合 baseTurn 次 y 轴 90° (rotateY 按钮)。
-// 注意 y 与 z2 不可交换, 复合旋转的共轭面置换随 baseTurn 变化 (y 一次: F→L→B→R→F),
-// 字符映射 = 该复合置换, 可把姿态状态串变换回标准求解坐标 (中心字符恢复标准排列)。
-// 字符替换与位置转可交换, 故求解得到的解法按物理面名直接执行即可, 无需再转换。
-const Z2_CHAR: { [key: string]: string } = { U: "D", D: "U", L: "R", R: "L", F: "F", B: "B" };
-// 物理 y twist(+1) (绕负 y 轴 90°, 即「y」按钮一次) 的面置换: F→L, L→B, B→R, R→F (U/D 不动)
-const Y1_CHAR: { [key: string]: string } = { U: "U", D: "D", F: "L", L: "B", B: "R", R: "F" };
+// 基准视角操作序列: 每项表示整体绕 axis 轴转 times 个 90° (z2 与 y 不对易, 须用序列表达复合姿态)
+export interface BaseOp {
+  axis: "y" | "z";
+  times: number;
+}
 
-// 按 z2 复合 y^baseTurn 的共轭置换映射状态串 (baseTurn 任意整数, 内部规格化)
-export function mapBaseTurnFacelets(state: string, baseTurn: number): string {
-  let map = Z2_CHAR;
-  const n = ((baseTurn % 4) + 4) % 4;
-  for (let i = 0; i < n; i++) {
-    const next: { [key: string]: string } = {};
-    for (const ch of Object.keys(Y1_CHAR)) {
-      next[ch] = Y1_CHAR[map[ch]]; // C_{k+1} = Y1 ∘ C_k
-    }
-    map = next;
+// 按视角操作序列映射位置: 沿序列顺序链式外包 rotatePositionIndex
+export function rotatePositionByOps(index: number, ops: BaseOp[], order: number = 3): number {
+  let result = index;
+  for (const op of ops) {
+    result = rotatePositionIndex(result, op.axis, op.times, order);
   }
+  return result;
+}
+
+// 六个面中心的标准坐标 (3 阶时仅一轴非零)
+const FACE_COORDS: { [ch: string]: PieceCoords } = {
+  U: { x: 0, y: 1, z: 0 },
+  D: { x: 0, y: -1, z: 0 },
+  L: { x: -1, y: 0, z: 0 },
+  R: { x: 1, y: 0, z: 0 },
+  F: { x: 0, y: 0, z: 1 },
+  B: { x: 0, y: 0, z: -1 },
+};
+
+// 位置索引所在面的字符 (仅对中心/面方向有效)
+function faceCharOfIndex(index: number, order: number = 3): string {
+  const { x, y, z } = coordsOf(index, order);
+  if (y > 0) {
+    return "U";
+  }
+  if (y < 0) {
+    return "D";
+  }
+  if (z > 0) {
+    return "F";
+  }
+  if (z < 0) {
+    return "B";
+  }
+  if (x > 0) {
+    return "R";
+  }
+  return "L";
+}
+
+// 基准视角操作序列的层名字符映射 (泛化版)。
+// 基准姿态 = 视角操作序列 baseOps 的复合 (z2 按钮 / y·y' 按钮按时间顺序累积)。
+// ops 为按钮/twist 语义 (正 times 绕负轴), 故姿态位置映射 R 按序取 -times 复合:
+// R(p) = R_{axis_k}(-t_k)(...R_{axis_1}(-t_1)(p))。
+// 字符映射: C[f] = faceCharAt(R(centerOf(f)))。同一张表服务两个方向:
+//   1. mapBaseOpsFacelets —— 把姿态 serialize 串的字符替换回标准求解坐标 (中心恢复 URFDLB);
+//   2. convertBaseOpsFaceNames —— play() 逆放 baseOps 后, 把姿态系面名的解法改名为标准系面名。
+//      原理: 整体旋转 R 与面转 τ 的共轭 R·τ_f·R⁻¹ = τ_{R(f)} (90° 面转共轭保转角, 仅层名变化),
+//      而 R(f) 的面字符恰为 C[f]。
+export function baseOpsFaceCharMap(ops: BaseOp[], order: number = 3): { [ch: string]: string } {
+  const pose = ops.map((op) => ({ axis: op.axis, times: -op.times }));
+  const map: { [ch: string]: string } = {};
+  const half = (order - 1) / 2;
+  for (const f of Object.keys(FACE_COORDS)) {
+    const c = FACE_COORDS[f];
+    const center = (c.z + half) * order * order + (c.y + half) * order + (c.x + half);
+    map[f] = faceCharOfIndex(rotatePositionByOps(center, pose, order), order);
+  }
+  return map;
+}
+
+// 按映射表整体替换状态串字符, 把姿态串变换回标准求解坐标 (中心恢复 URFDLB)。
+export function mapBaseOpsFacelets(state: string, ops: BaseOp[], order: number = 3): string {
+  const map = baseOpsFaceCharMap(ops, order);
   let result = "";
   for (const ch of state) {
     result += map[ch] || ch;
   }
   return result;
+}
+
+// 把表达式 (如解法 "F2 U' F R2 B'") 中的面名字符按 baseOps 映射表改名, 保留 "2"/"'/2'" 后缀。
+// 仅 play() 的自动播放路径需要: 求解器给出的解法面名是姿态系 (求解时的观察者视角) 层名,
+// 逆放 baseOps 后魔方处于标准坐标系, 直接执行会层错位; 用户手动执行解法仍在姿态系, 保持原样。
+export function convertBaseOpsFaceNames(exp: string, ops: BaseOp[], order: number = 3): string {
+  const map = baseOpsFaceCharMap(ops, order);
+  return exp
+    .split(/\s+/)
+    .filter((token) => token.length > 0)
+    .map((token) => (map[token[0]] || token[0]) + token.slice(1))
+    .join(" ");
 }

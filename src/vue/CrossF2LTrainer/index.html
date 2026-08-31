@@ -48,6 +48,7 @@
             </v-btn-toggle>
             <v-spacer></v-spacer>
             <v-btn x-small @click="resetView" :style="{height: size * 0.55 + 'px'}">恢复视角</v-btn>
+            <v-btn x-small @click="rotateZ2" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">z2</v-btn>
             <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y</v-btn>
             <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
             <v-btn x-small @click="rescramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">打乱</v-btn>
@@ -71,7 +72,7 @@
             <v-btn x-small @click="applyCustomScramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">应用</v-btn>
             <v-btn-toggle v-model="scheme" mandatory dense :disabled="phase === 'playing'">
               <v-btn value="默认" :style="{height: size * 0.55 + 'px'}">默认</v-btn>
-              <v-btn value="白底" :style="{height: size * 0.55 + 'px'}">z2</v-btn>
+              <v-btn value="白底" :style="{height: size * 0.55 + 'px'}">白底</v-btn>
             </v-btn-toggle>
           </div>
 

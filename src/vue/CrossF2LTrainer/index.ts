@@ -9,7 +9,7 @@ import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
-import { pieceName, pieceTypeOf, rotatePositionIndex, mapBaseTurnFacelets } from "./pieces";
+import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBaseOpsFacelets, convertBaseOpsFaceNames, BaseOp } from "./pieces";
 import { HIGHLIGHT_COLORS, highlightPiece, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
 
 @Component({
@@ -66,56 +66,64 @@ export default class CrossF2LTrainer extends Vue {
   private solver: Solver = new Solver();
 
   // 整体视角转动的待还原记录 (axis, 有符号 90° 次数)
-  // 仅记录临时拖拽; y/y' 按钮的基准旋转单独记于 baseTurn
+  // 仅记录临时拖拽; z2/y/y' 按钮的基准旋转单独记于 baseOps
   private pendingRestore: { axis: string; times: number }[] = [];
 
-  // 基准视角: y/y' 按钮累计的整体旋转 (绕 y 轴有符号 90° 次数)。
+  // 基准视角: z2 / y / y' 按钮累计的整体旋转操作序列 (按时间顺序, axis 轴 times 个 90°)。
+  // z2 与 y 不对易, 须用序列表达任意复合视角 (如 z2→y→z2)。
   // 解法按基准视角坐标系求解; 「恢复视角」只抵消基准之后的临时拖拽, 回到基准视角;
-  // 打乱/重置等重开流程把基准视角归零回标准坐标系
-  private baseTurn = 0;
+  // 打乱/重置等重开流程保留当前视角 (不回标准视角)
+  private baseOps: BaseOp[] = [];
 
   // 置位表示有整体转动动画进行中, 动画结束后需按新坐标系重新求解 (旧解法已失效)
   private pendingSolve = false;
 
-  // 配色方案: 打乱公式固定按 "默认" 方案 (黄底绿前) 坐标系执行。
-  // "白底" 方案不是换色, 而是打乱后通过整体旋转 z2 (绕 z 轴 180°: U↔D, L↔R, F/B 不变)
-  // 把魔方转成白底绿前姿态 ("默认" 预设染色下: 打乱后底面中心显黄=黄底, z2 后 U 材质中心
-  // 转到底部显白=白底); 求解时需把序列化状态做 z2 字符映射 (U↔D, L↔R) 交给求解器,
-  // 得到的解法按物理面名直接执行即可完成白十字
+  // 置位表示本次解法在标准坐标系执行 (播放前逆放了基准旋转, 见 play),
+  // 播放结束后需重放 baseOps 恢复基准视角再做判定
+  private playingUndoBase = false;
+
+  // 配色方案: "默认" (白顶黄底) / "白底" (黄顶白底), 纯配色切换,
+  // 与基准视角 (z2/y/y' 按钮) 完全解耦, 切换不重开轮、不影响解法
+  // (serialize 输出材质字符, 与显示配色无关)
   // scheme 可在面板中切换 (默认/白底), 与配色菜单 preset 双向同步
   private scheme: "默认" | "白底" = "默认";
-
-  private get whiteBase(): boolean {
-    return this.scheme === "白底";
-  }
 
   // 自定义打乱公式输入 (留空则由「打乱」按钮随机生成)
   private customScramble = "";
 
-  // 白底还原态下位于槽位处的块 (默认方案即槽位块本身; 白底为槽位索引复合映射后的块)
-  // 白底还原姿态 = z2 复合 y^baseTurn, 其逆 = 先逆向 y (绕 y 正向 baseTurn 次) 再 z2:
-  // 槽位的块 = 标准系 rotatePositionIndex(y, +baseTurn) 后再 rotatePositionIndex(z, 2) 的位置块
+  // 基准姿态的逆 (逆序复合, 每个 op 的逆 = 同轴 +times):
+  // 把物理位置映射回标准位置, 用于求「当前视角下位于某槽位的标准块」
+  private get inverseBaseOps(): BaseOp[] {
+    return [...this.baseOps].reverse();
+  }
+
+  // 位于槽位处的块 (基准视角下): 标准系槽位索引经基准姿态的逆映射后的位置块
   private get mappedCornerIndex(): number {
-    if (!this.whiteBase) {
-      return this.selectedSlot.cornerIndex;
-    }
-    return rotatePositionIndex(rotatePositionIndex(this.selectedSlot.cornerIndex, "y", this.baseTurn), "z", 2);
+    return rotatePositionByOps(this.selectedSlot.cornerIndex, this.inverseBaseOps);
   }
 
   private get mappedEdgeIndex(): number {
-    if (!this.whiteBase) {
-      return this.selectedSlot.edgeIndex;
-    }
-    return rotatePositionIndex(rotatePositionIndex(this.selectedSlot.edgeIndex, "y", this.baseTurn), "z", 2);
+    return rotatePositionByOps(this.selectedSlot.edgeIndex, this.inverseBaseOps);
   }
 
-  // 应用基准姿态: 白底方案下将打乱后的魔方整体旋转 z2 (瞬间完成, 不计入视角还原记录)
-  private applyOrientation(): void {
-    if (!this.whiteBase) {
-      return;
+  // 应用基准姿态: 打乱重置到标准坐标后, 按时间顺序重放 baseOps 恢复基准视角
+  // (瞬间完成, 不计入视角还原记录)
+  private applyBaseOrientation(): void {
+    for (const op of this.baseOps) {
+      for (const group of this.world.cube.table.groups[op.axis]) {
+        group.twist(op.times * (Math.PI / 2), true);
+      }
     }
-    for (const group of this.world.cube.table.groups["z"]) {
-      group.twist(Math.PI, true);
+    this.world.dirty = true;
+  }
+
+  // 逆放基准旋转: 物理回到标准坐标系 (瞬间完成, 不计入视角还原记录)
+  private applyInverseBaseOps(): void {
+    for (let i = this.baseOps.length - 1; i >= 0; i--) {
+      const op = this.baseOps[i];
+      for (const group of this.world.cube.table.groups[op.axis]) {
+        group.twist(-op.times * (Math.PI / 2), true);
+      }
     }
     this.world.dirty = true;
   }
@@ -171,15 +179,18 @@ export default class CrossF2LTrainer extends Vue {
     this.world.dirty = true;
   }
 
-  // y / y' 按钮: 整体旋转 90° 切换基准视角, 旋转动画结束后按新坐标系重新求解,
+  // z2 / y / y' 按钮: 整体旋转切换基准视角, 旋转动画结束后按新坐标系重新求解,
   // 得到当前视角下最顺手的十字解法。基准旋转不计入 pendingRestore (不会被「恢复视角」抵消)
-  rotateY(times: number): void {
+  rotateBase(axis: "y" | "z", times: number): void {
     if (this.phase !== "idle" || this.solving || this.pendingSolve) {
       return;
     }
-    tweener.finish();
+    // 排空 twister 队列 (如打乱动画未播完的剩余动作) 并完成在飞动画, 确保所有层已解锁:
+    // 仅 tweener.finish 无法处理队列中未开始的动作, 残留的锁会导致整体旋转被部分拒绝
+    // (部分 group 转动成功、部分失败), 物理状态与 baseOps 记录失同步
+    this.world.cube.twister.finish();
     this.restoreView(true); // 先抵消临时拖拽, 从基准视角出发旋转
-    // 预判针对旧解法的落点, y/y' 会按新视角重新求解 (落点一般不同), 旧预判随之失效,
+    // 预判针对旧解法的落点, 视角切换后会按新视角重新求解 (落点一般不同), 旧预判随之失效,
     // 必须同步清除, 否则基于旧预判的判定必然报错
     if (this.predictedCornerIndex !== null || this.predictedEdgeIndex !== null) {
       this.clearSelection();
@@ -187,15 +198,24 @@ export default class CrossF2LTrainer extends Vue {
       this.markTargetSlot();
       this.result = "视角已切换, 请基于新解法重新预判";
     }
-    for (const group of this.world.cube.table.groups["y"]) {
+    for (const group of this.world.cube.table.groups[axis]) {
       group.twist(times * (Math.PI / 2), false); // 平滑动画
     }
-    this.baseTurn += times;
+    this.baseOps.push({ axis, times });
     this.world.dirty = true;
     // 旧解法基于旋转前坐标系, 立即从列表移除防止误选; 动画结束后重新求解
     this.solutions = [];
     this.selectedSolution = -1;
     this.pendingSolve = true;
+  }
+
+  rotateY(times: number): void {
+    this.rotateBase("y", times);
+  }
+
+  // z2 按钮: 与 y/y' 同质的视角切换 (整体绕 z 轴 180°)
+  rotateZ2(): void {
+    this.rotateBase("z", 2);
   }
 
   // 整体转动动画结束后的延迟求解: 坐标系变动导致旧解法失效
@@ -352,10 +372,10 @@ export default class CrossF2LTrainer extends Vue {
     this.startRound(exp);
   }
 
-  // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 按当前方案应用基准姿态并求解
+  // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 重放 baseOps 恢复基准视角并求解
+  // (视角与配色解耦且跨轮保留: 重新打乱不重置视角)
   private startRound(exp: string): void {
     this.pendingSolve = false;
-    this.baseTurn = 0; // 新一轮回到标准视角
     tweener.finish();
     this.restoreView(true);
     this.clearSelection();
@@ -367,20 +387,17 @@ export default class CrossF2LTrainer extends Vue {
     clearAllHighlights(this.world);
     this.scramble = exp;
     this.world.cube.twister.setup(exp);
-    this.applyOrientation();
+    this.applyBaseOrientation();
     this.markTargetSlot();
     this.solve();
   }
 
-  // 切换方案 (默认/白底): 同步配色 preset 持久化, 以当前打乱公式按新方案重新开始
+  // 切换配色方案 (默认/白底): 纯配色切换, 同步 preset 持久化;
+  // 不重开轮、不重算解法 (serialize 输出材质字符, 与显示配色无关)
   @Watch("scheme")
   onSchemeChange(scheme: string): void {
     this.palette.setPreset(scheme);
     this.palette.save();
-    if (this.phase === "playing" || !this.scramble) {
-      return;
-    }
-    this.startRound(this.scramble);
   }
 
   // 切换槽位: 清除旧高亮与预判, 更新为新槽位的目标块高亮
@@ -392,10 +409,9 @@ export default class CrossF2LTrainer extends Vue {
     this.reset();
   }
 
-  // 重置: 保留打乱状态, 清除解法选择/预判/判定
+  // 重置: 保留打乱状态, 清除解法选择/预判/判定 (保留当前基准视角)
   reset(): void {
     this.pendingSolve = false;
-    this.baseTurn = 0; // 回到标准视角
     tweener.finish();
     this.restoreView(true);
     this.clearSelection();
@@ -406,10 +422,10 @@ export default class CrossF2LTrainer extends Vue {
     this.stopTimer(true);
     clearAllHighlights(this.world);
     this.world.cube.twister.setup(this.scramble);
-    // 白底方案: 重置回打乱态后同样应用基准姿态旋转
-    this.applyOrientation();
+    // 重置回打乱态后同样重放基准视角旋转
+    this.applyBaseOrientation();
     this.markTargetSlot();
-    // 重置后回到标准打乱姿态, 重新求解 (此前视角可能转过, 旧解法坐标系已失效)
+    // 重置后回到基准视角打乱姿态, 重新求解 (此前视角可能转过, 旧解法坐标系已失效)
     this.solve();
   }
 
@@ -460,7 +476,7 @@ export default class CrossF2LTrainer extends Vue {
 
   // 标记目标 F2L 块 (颜色 A): 槽位对应的角块+棱块 (按还原位置识别),
   // 高亮它们在当前打乱状态中的实际位置, 覆层随块移动
-  // 白底方案: 目标块为白底还原态下位于槽位的块 (槽位索引复合映射, 见 mappedCornerIndex)
+  // 基准视角非标准时: 目标块为基准视角还原态下位于槽位的块 (槽位索引经姿态逆映射, 见 mappedCornerIndex)
   private markTargetSlot(): void {
     highlightPiece(this.world, this.mappedCornerIndex, HIGHLIGHT_COLORS.target);
     highlightPiece(this.world, this.mappedEdgeIndex, HIGHLIGHT_COLORS.target);
@@ -468,16 +484,20 @@ export default class CrossF2LTrainer extends Vue {
 
   // 调用 Cross 求解器获取多个最优解法
   // 求解器为 "字符=面" 语义: 永远求「输入串中字符 D 的棱归 D 位」, 解法面名与输入串坐标一致。
-  //   - 默认方案: 打乱态 (黄底绿前), 底面中心为 D 材质 (显黄) → 直接求解即黄十字
-  //   - 白底方案: 打乱后整体 z2 复合 baseTurn 次 y (y 与 z2 不可交换, 共轭置换随视角变化)。
-  //     求解前先按复合置换做字符映射 (mapBaseTurnFacelets), 映射后恰为标准中心串;
-  //     求解器把「U 材质棱」归到物理 D 位, 解法按物理面名直接执行即得白十字 (白棱贴白中心)
+  //   - 标准视角 (baseOps 为空): 打乱态直接求解, 解基准视角底面的十字
+  //   - 非标准视角 (z2/y/y' 后): 姿态为 baseOps 复合 (z2 与 y 不对易, 共轭置换随序列变化)。
+  //     求解前先按复合置换做字符映射 (mapBaseOpsFacelets), 映射后恰为标准中心串;
+  //     求解器把「D 字符的棱」归到基准视角的物理底位。
+  //     注意解法面名是姿态系 (当前观察者视角) 层名: 用户手动执行 (在当前视角下按解法列表转)
+  //     直接正确; 而 play() 自动播放会先逆放 baseOps 回标准坐标系, 须先经
+  //     convertBaseOpsFaceNames 改名再执行 (见 play)。
+  //     (底面十字颜色跟随配色: D 材质在默认配色显黄、白底配色显白)
   private async solve(): Promise<void> {
     this.solving = true;
     try {
       let state = this.world.cube.serialize();
-      if (this.whiteBase) {
-        state = mapBaseTurnFacelets(state, this.baseTurn);
+      if (this.baseOps.length > 0) {
+        state = mapBaseOpsFacelets(state, this.baseOps);
       }
       const raw = await this.solver.solveCross(state, 5, 8);
       // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化
@@ -511,8 +531,9 @@ export default class CrossF2LTrainer extends Vue {
     if (!this.canPlay) {
       return;
     }
-    // 若平滑还原动画仍在进行, 先立即完成, 保证解法步骤在基准视角坐标系下执行
-    tweener.finish();
+    // 若平滑还原动画仍在进行, 先立即完成; 同时排空 twister 队列确保所有层已解锁,
+    // 否则下方的逆放 fast twist 可能被部分拒绝, 物理状态与 baseOps 失同步
+    this.world.cube.twister.finish();
     this.restoreView(true);
     // 冻结预判覆层: 块锚定 → 位置绑定 (播放时青色框固定在预判位置, 不随层转动)
     if (this.predictedCornerPiece) {
@@ -530,8 +551,21 @@ export default class CrossF2LTrainer extends Vue {
       this.predictedEdgePiece = null;
     }
     this.result = "";
+    // 层 group 按初始索引静态绑定 (GroupTable 构造时分配, 永不更新), 整体旋转后若直接执行
+    // 解法, convert 按面名选到的是「初始层成员」而非当前视角下的对应层, 转动会破坏物理状态。
+    // 因此先把基准旋转逆放 (瞬间), 在标准坐标系下执行解法; 必须在置 playing 之前逆放 ——
+    // fast twist 的 drop 会同步触发 onAnimationEnd, 播放态下会被误当成播放结束提前判定。
+    // 播放结束后由 handleAnimationEnd 重放 baseOps 恢复基准视角再判定 (判定索引均为基准
+    // 视角坐标系, 与预判点击时一致)。
+    if (this.baseOps.length > 0) {
+      this.playingUndoBase = true;
+      this.applyInverseBaseOps();
+    }
     this.phase = "playing";
-    this.world.cube.twister.push(this.solutions[this.selectedSolution]);
+    // 解法面名是姿态系层名, 逆放后须按 baseOps 映射表改名 (共轭 R·τ_f·R⁻¹ = τ_{R(f)}) 再执行;
+    // 标准视角下 baseOps 为空, 直接原样执行
+    const sol = this.solutions[this.selectedSolution];
+    this.world.cube.twister.push(this.baseOps.length > 0 ? convertBaseOpsFaceNames(sol, this.baseOps) : sol);
   }
 
   // 用户在 3D 场景中点击选块 (预判: 点击某个位置, 表示预测目标块 Cross 后会到达这里)
@@ -609,7 +643,24 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   // 动画回调: 每个转动完成后触发, 仅在最后一个动作完成时判定
+  // 防重入锁: fast twist 的 drop 会同步触发本回调 (restoreView / applyBaseOrientation 等
+  // 瞬间还原场景), 若不拦截, 递归回调会在恢复流程进行到一半 (姿态未就位) 时提前判定,
+  // 且对外层循环中的层造成重复转动; 拦截后由最外层回调统一完成恢复与判定
+  private inAnimationEnd = false;
+
   private onAnimationEnd(): void {
+    if (this.inAnimationEnd) {
+      return;
+    }
+    this.inAnimationEnd = true;
+    try {
+      this.handleAnimationEnd();
+    } finally {
+      this.inAnimationEnd = false;
+    }
+  }
+
+  private handleAnimationEnd(): void {
     if (this.phase !== "playing") {
       // 非播放态的转动 (y/y' 切换视角 / 期间的拖拽还原) 结束: 按需重新求解
       this.checkPendingSolve();
@@ -624,11 +675,16 @@ export default class CrossF2LTrainer extends Vue {
         return;
       }
     }
-    // 播放中若用户整体旋转过视角, 先立即还原到标准坐标系再判定
-    // (restoreView 的快速转动会再次触发本回调, 届时 pending 已空, 正常判定)
+    // 播放中用户整体旋转过视角: 立即还原 (fast 同步完成, 递归回调已被防重入锁拦截),
+    // 还原后继续执行下方流程而非直接判定
     if (this.pendingRestore.length > 0) {
       this.restoreView(true);
-      return;
+    }
+    // 解法曾在标准坐标系执行 (播放前逆放了基准旋转): 重放 baseOps 恢复基准视角,
+    // 保证判定时的物理位置索引与预判点击时处于同一坐标系
+    if (this.playingUndoBase) {
+      this.playingUndoBase = false;
+      this.applyBaseOrientation();
     }
     this.judge();
   }
@@ -665,7 +721,7 @@ export default class CrossF2LTrainer extends Vue {
     }
   }
 
-  // 恢复视角 (平滑回放): 只抵消基准视角之后的临时拖拽, 回到 y/y' 切换后的基准视角
+  // 恢复视角 (平滑回放): 只抵消基准视角之后的临时拖拽, 回到 z2/y/y' 切换后的基准视角
   resetView(): void {
     tweener.finish();
     this.restoreView();
