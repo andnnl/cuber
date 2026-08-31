@@ -9,7 +9,7 @@ import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
-import { pieceName, pieceTypeOf, rotatePositionIndex, mapZ2Facelets } from "./pieces";
+import { pieceName, pieceTypeOf, rotatePositionIndex, mapBaseTurnFacelets } from "./pieces";
 import { HIGHLIGHT_COLORS, highlightPiece, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
 
 @Component({
@@ -92,13 +92,21 @@ export default class CrossF2LTrainer extends Vue {
   // 自定义打乱公式输入 (留空则由「打乱」按钮随机生成)
   private customScramble = "";
 
-  // 白底还原态下位于槽位处的块 (默认方案即槽位块本身; 白底为槽位索引 z2 映射后的块)
+  // 白底还原态下位于槽位处的块 (默认方案即槽位块本身; 白底为槽位索引复合映射后的块)
+  // 白底还原姿态 = z2 复合 y^baseTurn, 其逆 = 先逆向 y (绕 y 正向 baseTurn 次) 再 z2:
+  // 槽位的块 = 标准系 rotatePositionIndex(y, +baseTurn) 后再 rotatePositionIndex(z, 2) 的位置块
   private get mappedCornerIndex(): number {
-    return this.whiteBase ? rotatePositionIndex(this.selectedSlot.cornerIndex, "z", 2) : this.selectedSlot.cornerIndex;
+    if (!this.whiteBase) {
+      return this.selectedSlot.cornerIndex;
+    }
+    return rotatePositionIndex(rotatePositionIndex(this.selectedSlot.cornerIndex, "y", this.baseTurn), "z", 2);
   }
 
   private get mappedEdgeIndex(): number {
-    return this.whiteBase ? rotatePositionIndex(this.selectedSlot.edgeIndex, "z", 2) : this.selectedSlot.edgeIndex;
+    if (!this.whiteBase) {
+      return this.selectedSlot.edgeIndex;
+    }
+    return rotatePositionIndex(rotatePositionIndex(this.selectedSlot.edgeIndex, "y", this.baseTurn), "z", 2);
   }
 
   // 应用基准姿态: 白底方案下将打乱后的魔方整体旋转 z2 (瞬间完成, 不计入视角还原记录)
@@ -452,7 +460,7 @@ export default class CrossF2LTrainer extends Vue {
 
   // 标记目标 F2L 块 (颜色 A): 槽位对应的角块+棱块 (按还原位置识别),
   // 高亮它们在当前打乱状态中的实际位置, 覆层随块移动
-  // 白底方案: 目标块为白底还原态下位于槽位的块 (槽位索引 z2 映射)
+  // 白底方案: 目标块为白底还原态下位于槽位的块 (槽位索引复合映射, 见 mappedCornerIndex)
   private markTargetSlot(): void {
     highlightPiece(this.world, this.mappedCornerIndex, HIGHLIGHT_COLORS.target);
     highlightPiece(this.world, this.mappedEdgeIndex, HIGHLIGHT_COLORS.target);
@@ -461,15 +469,15 @@ export default class CrossF2LTrainer extends Vue {
   // 调用 Cross 求解器获取多个最优解法
   // 求解器为 "字符=面" 语义: 永远求「输入串中字符 D 的棱归 D 位」, 解法面名与输入串坐标一致。
   //   - 默认方案: 打乱态 (黄底绿前), 底面中心为 D 材质 (显黄) → 直接求解即黄十字
-  //   - 白底方案: 打乱后整体 z2, 底面中心为 U 材质 (显白)。求解前先把序列化状态做
-  //     z2 字符映射 (U↔D, L↔R), 映射后恰为标准中心串; 求解器把「U 材质棱」归到物理 D 位,
-  //     解法按物理面名直接执行即得白十字 (白棱贴白中心)
+  //   - 白底方案: 打乱后整体 z2 复合 baseTurn 次 y (y 与 z2 不可交换, 共轭置换随视角变化)。
+  //     求解前先按复合置换做字符映射 (mapBaseTurnFacelets), 映射后恰为标准中心串;
+  //     求解器把「U 材质棱」归到物理 D 位, 解法按物理面名直接执行即得白十字 (白棱贴白中心)
   private async solve(): Promise<void> {
     this.solving = true;
     try {
       let state = this.world.cube.serialize();
       if (this.whiteBase) {
-        state = mapZ2Facelets(state);
+        state = mapBaseTurnFacelets(state, this.baseTurn);
       }
       const raw = await this.solver.solveCross(state, 5, 8);
       // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化
@@ -630,7 +638,7 @@ export default class CrossF2LTrainer extends Vue {
     this.phase = "judged";
     this.stopTimer(false); // 动画播放完毕停表, 保留用时显示
     // 目标 F2L 块 (按还原位置识别): initials 中还原位为槽位索引的块
-    // 白底方案: 使用 z2 映射后的槽位索引 (白底还原态下位于槽位的块)
+    // 白底方案: 使用复合映射后的槽位索引 (白底还原态下位于槽位的块, 见 mappedCornerIndex)
     const targetCorner = this.world.cube.initials[this.mappedCornerIndex];
     const targetEdge = this.world.cube.initials[this.mappedEdgeIndex];
     // cubelet.index 在转层后始终维护为当前位置索引 (group.ts 转层结束时回写)

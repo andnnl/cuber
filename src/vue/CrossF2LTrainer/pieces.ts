@@ -84,15 +84,29 @@ export function rotatePositionIndex(index: number, axis: string, times: number, 
   return (z + half) * order * order + (y + half) * order + (x + half);
 }
 
-// serialize 状态串的 z2 字符映射 (U↔D, L↔R, F/B 不变)
-// 与整体旋转 z2 (绕 z 轴 180°) 的面共轭一致: 物理 z2 后各面位置的块来自 z2 共轭面,
-// 对状态串做此映射可将其变换回标准求解坐标 (中心字符恢复 U R F D L B 标准排列)
+// serialize 状态串的整体旋转字符映射。
+// 白底方案基准姿态 = z2 (applyOrientation) 复合 baseTurn 次 y 轴 90° (rotateY 按钮)。
+// 注意 y 与 z2 不可交换, 复合旋转的共轭面置换随 baseTurn 变化 (y 一次: F→L→B→R→F),
+// 字符映射 = 该复合置换, 可把姿态状态串变换回标准求解坐标 (中心字符恢复标准排列)。
+// 字符替换与位置转可交换, 故求解得到的解法按物理面名直接执行即可, 无需再转换。
 const Z2_CHAR: { [key: string]: string } = { U: "D", D: "U", L: "R", R: "L", F: "F", B: "B" };
+// 物理 y twist(+1) (绕负 y 轴 90°, 即「y」按钮一次) 的面置换: F→L, L→B, B→R, R→F (U/D 不动)
+const Y1_CHAR: { [key: string]: string } = { U: "U", D: "D", F: "L", L: "B", B: "R", R: "F" };
 
-export function mapZ2Facelets(state: string): string {
+// 按 z2 复合 y^baseTurn 的共轭置换映射状态串 (baseTurn 任意整数, 内部规格化)
+export function mapBaseTurnFacelets(state: string, baseTurn: number): string {
+  let map = Z2_CHAR;
+  const n = ((baseTurn % 4) + 4) % 4;
+  for (let i = 0; i < n; i++) {
+    const next: { [key: string]: string } = {};
+    for (const ch of Object.keys(Y1_CHAR)) {
+      next[ch] = Y1_CHAR[map[ch]]; // C_{k+1} = Y1 ∘ C_k
+    }
+    map = next;
+  }
   let result = "";
   for (const ch of state) {
-    result += Z2_CHAR[ch] || ch;
+    result += map[ch] || ch;
   }
   return result;
 }
