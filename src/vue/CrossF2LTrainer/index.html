@@ -53,6 +53,26 @@
             <v-btn x-small color="primary" @click="play" :disabled="!canPlay" :style="{height: size * 0.55 + 'px'}">▶ 播放</v-btn>
           </div>
 
+          <!-- 自定义打乱输入 + 方案切换行 -->
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <v-text-field
+              v-model="customScramble"
+              placeholder="输入打乱公式, 如 R U R' F2 (回车或点应用)"
+              dense
+              hide-details
+              outlined
+              :disabled="phase === 'playing'"
+              :style="{fontSize: size * 0.26 + 'px'}"
+              @keyup.enter="applyCustomScramble"
+              style="flex: 1; min-width: 0; padding: 0; margin: 0;"
+            ></v-text-field>
+            <v-btn x-small @click="applyCustomScramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">应用</v-btn>
+            <v-btn-toggle v-model="scheme" mandatory dense :disabled="phase === 'playing'">
+              <v-btn value="默认" :style="{height: size * 0.55 + 'px'}">默认</v-btn>
+              <v-btn value="白底" :style="{height: size * 0.55 + 'px'}">白底</v-btn>
+            </v-btn-toggle>
+          </div>
+
           <!-- 打乱信息行 -->
           <div :style="{fontSize: size * 0.26 + 'px'}" style="color: #555; word-break: break-all;">
             🎲 {{ scramble || "生成中..." }}

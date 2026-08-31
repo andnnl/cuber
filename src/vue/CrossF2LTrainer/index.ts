@@ -29,6 +29,12 @@ export default class CrossF2LTrainer extends Vue {
   @Provide("palette")
   palette: PaletteData = new PaletteData(this.world);
 
+  constructor() {
+    super();
+    // 从配色菜单持久化的 preset 恢复方案选择 (constructor 中赋值不会触发 scheme watch)
+    this.scheme = this.palette.preset === "白底" ? "白底" : "默认";
+  }
+
   // 阶段: idle(预判/准备) -> playing(播放动画) -> judged(已判定)
   private phase: "idle" | "playing" | "judged" = "idle";
 
@@ -67,7 +73,15 @@ export default class CrossF2LTrainer extends Vue {
   // 把魔方转成白底绿前姿态 ("默认" 预设染色下: 打乱后底面中心显黄=黄底, z2 后 U 材质中心
   // 转到底部显白=白底); 求解时需把序列化状态做 z2 字符映射 (U↔D, L↔R) 交给求解器,
   // 得到的解法按物理面名直接执行即可完成白十字
-  private whiteBase = false;
+  // scheme 可在面板中切换 (默认/白底), 与配色菜单 preset 双向同步
+  private scheme: "默认" | "白底" = "默认";
+
+  private get whiteBase(): boolean {
+    return this.scheme === "白底";
+  }
+
+  // 自定义打乱公式输入 (留空则由「打乱」按钮随机生成)
+  private customScramble = "";
 
   // 白底还原态下位于槽位处的块 (默认方案即槽位块本身; 白底为槽位索引 z2 映射后的块)
   private get mappedCornerIndex(): number {
@@ -261,6 +275,27 @@ export default class CrossF2LTrainer extends Vue {
 
   // 随机打乱并开始新一轮训练
   async rescramble(): Promise<void> {
+    this.startRound(this.world.cube.twister.scrambler());
+  }
+
+  // 应用用户输入的打乱公式并开始新一轮训练
+  applyCustomScramble(): void {
+    const exp = (this.customScramble || "").trim().replace(/\s+/g, " ");
+    if (!exp) {
+      return;
+    }
+    // 轻量校验: 仅支持标准面转 U R F D L B 及 '/2 后缀
+    const tokens = exp.split(" ");
+    const ok = tokens.every((t) => /^[URFDLB]('2|2'|'|2)?$/.test(t));
+    if (!ok) {
+      this.result = "打乱公式无效 (仅支持 U R F D L B 与 '/2 后缀)";
+      return;
+    }
+    this.startRound(exp);
+  }
+
+  // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 按当前方案应用基准姿态并求解
+  private startRound(exp: string): void {
     tweener.finish();
     this.restoreView(true);
     this.clearSelection();
@@ -270,13 +305,22 @@ export default class CrossF2LTrainer extends Vue {
     this.phase = "idle";
     this.stopTimer(true);
     clearAllHighlights(this.world);
-    // 读取配色方案: "白底" 通过打乱后整体旋转 z2 实现 (非换色)
-    this.whiteBase = this.palette.preset === "白底";
-    this.scramble = this.world.cube.twister.scrambler();
-    this.world.cube.twister.setup(this.scramble);
+    this.scramble = exp;
+    this.world.cube.twister.setup(exp);
     this.applyOrientation();
     this.markTargetSlot();
-    await this.solve();
+    this.solve();
+  }
+
+  // 切换方案 (默认/白底): 同步配色 preset 持久化, 以当前打乱公式按新方案重新开始
+  @Watch("scheme")
+  onSchemeChange(scheme: string): void {
+    this.palette.setPreset(scheme);
+    this.palette.save();
+    if (this.phase === "playing" || !this.scramble) {
+      return;
+    }
+    this.startRound(this.scramble);
   }
 
   // 切换槽位: 清除旧高亮与预判, 更新为新槽位的目标块高亮
