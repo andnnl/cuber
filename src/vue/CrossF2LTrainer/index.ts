@@ -171,11 +171,17 @@ export default class CrossF2LTrainer extends Vue {
     }
     tweener.finish();
     this.restoreView(true); // 先抵消临时拖拽, 从基准视角出发旋转
+    // 预判针对旧解法的落点, y/y' 会按新视角重新求解 (落点一般不同), 旧预判随之失效,
+    // 必须同步清除, 否则基于旧预判的判定必然报错
+    if (this.predictedCornerIndex !== null || this.predictedEdgeIndex !== null) {
+      this.clearSelection();
+      clearAllHighlights(this.world);
+      this.markTargetSlot();
+      this.result = "视角已切换, 请基于新解法重新预判";
+    }
     for (const group of this.world.cube.table.groups["y"]) {
       group.twist(times * (Math.PI / 2), false); // 平滑动画
     }
-    // 预判位置索引跟随基准旋转 (青色框锚定块上自动跟随, 此处仅映射索引)
-    this.followPrediction("y", times);
     this.baseTurn += times;
     this.world.dirty = true;
     // 旧解法基于旋转前坐标系, 立即从列表移除防止误选; 动画结束后重新求解
