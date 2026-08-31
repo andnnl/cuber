@@ -47,7 +47,9 @@
               <v-btn value="BR" :style="{height: size * 0.55 + 'px'}">BR</v-btn>
             </v-btn-toggle>
             <v-spacer></v-spacer>
-            <v-btn x-small @click="resetView" :style="{height: size * 0.55 + 'px'}">视角</v-btn>
+            <v-btn x-small @click="resetView" :style="{height: size * 0.55 + 'px'}">恢复视角</v-btn>
+            <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y</v-btn>
+            <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
             <v-btn x-small @click="rescramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">打乱</v-btn>
             <v-btn x-small @click="reset" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">重置</v-btn>
             <v-btn x-small color="primary" @click="play" :disabled="!canPlay" :style="{height: size * 0.55 + 'px'}">▶ 播放</v-btn>

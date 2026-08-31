@@ -66,7 +66,16 @@ export default class CrossF2LTrainer extends Vue {
   private solver: Solver = new Solver();
 
   // 整体视角转动的待还原记录 (axis, 有符号 90° 次数)
+  // 仅记录临时拖拽; y/y' 按钮的基准旋转单独记于 baseTurn
   private pendingRestore: { axis: string; times: number }[] = [];
+
+  // 基准视角: y/y' 按钮累计的整体旋转 (绕 y 轴有符号 90° 次数)。
+  // 解法按基准视角坐标系求解; 「恢复视角」只抵消基准之后的临时拖拽, 回到基准视角;
+  // 打乱/重置等重开流程把基准视角归零回标准坐标系
+  private baseTurn = 0;
+
+  // 置位表示有整体转动动画进行中, 动画结束后需按新坐标系重新求解 (旧解法已失效)
+  private pendingSolve = false;
 
   // 配色方案: 打乱公式固定按 "默认" 方案 (黄底绿前) 坐标系执行。
   // "白底" 方案不是换色, 而是打乱后通过整体旋转 z2 (绕 z 轴 180°: U↔D, L↔R, F/B 不变)
@@ -129,7 +138,7 @@ export default class CrossF2LTrainer extends Vue {
   // 视角自动还原延时器 (点击选块后延迟 1 秒触发平滑回放)
   private restoreTimer: any = null;
 
-  // 还原视角: 逆序抵消所有整体转动, 魔方状态与位置命名回到打乱时的标准坐标系
+  // 还原视角: 逆序抵消所有临时拖拽记录, 回到基准视角 (y/y' 切换后的姿态)
   // fast=true 瞬间完成 (播放/重置等需要立即归位的场景); 默认平滑动画回放
   private restoreView(fast: boolean = false): void {
     if (this.restoreTimer !== null) {
@@ -152,6 +161,41 @@ export default class CrossF2LTrainer extends Vue {
     }
     this.pendingRestore = [];
     this.world.dirty = true;
+  }
+
+  // y / y' 按钮: 整体旋转 90° 切换基准视角, 旋转动画结束后按新坐标系重新求解,
+  // 得到当前视角下最顺手的十字解法。基准旋转不计入 pendingRestore (不会被「恢复视角」抵消)
+  rotateY(times: number): void {
+    if (this.phase !== "idle" || this.solving || this.pendingSolve) {
+      return;
+    }
+    tweener.finish();
+    this.restoreView(true); // 先抵消临时拖拽, 从基准视角出发旋转
+    for (const group of this.world.cube.table.groups["y"]) {
+      group.twist(times * (Math.PI / 2), false); // 平滑动画
+    }
+    // 预判位置索引跟随基准旋转 (青色框锚定块上自动跟随, 此处仅映射索引)
+    this.followPrediction("y", times);
+    this.baseTurn += times;
+    this.world.dirty = true;
+    // 旧解法基于旋转前坐标系, 立即从列表移除防止误选; 动画结束后重新求解
+    this.solutions = [];
+    this.selectedSolution = -1;
+    this.pendingSolve = true;
+  }
+
+  // 整体转动动画结束后的延迟求解: 坐标系变动导致旧解法失效
+  private checkPendingSolve(): void {
+    if (!this.pendingSolve) {
+      return;
+    }
+    this.pendingSolve = false;
+    if (this.phase !== "idle") {
+      return;
+    }
+    // 抵消旋转动画期间可能发生的临时拖拽, 保证解法匹配基准视角
+    this.restoreView(true);
+    this.solve();
   }
 
   @Ref("viewport")
@@ -296,6 +340,8 @@ export default class CrossF2LTrainer extends Vue {
 
   // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 按当前方案应用基准姿态并求解
   private startRound(exp: string): void {
+    this.pendingSolve = false;
+    this.baseTurn = 0; // 新一轮回到标准视角
     tweener.finish();
     this.restoreView(true);
     this.clearSelection();
@@ -334,10 +380,13 @@ export default class CrossF2LTrainer extends Vue {
 
   // 重置: 保留打乱状态, 清除解法选择/预判/判定
   reset(): void {
+    this.pendingSolve = false;
+    this.baseTurn = 0; // 回到标准视角
     tweener.finish();
     this.restoreView(true);
     this.clearSelection();
     this.result = "";
+    this.solutions = [];
     this.selectedSolution = -1;
     this.phase = "idle";
     this.stopTimer(true);
@@ -346,6 +395,8 @@ export default class CrossF2LTrainer extends Vue {
     // 白底方案: 重置回打乱态后同样应用基准姿态旋转
     this.applyOrientation();
     this.markTargetSlot();
+    // 重置后回到标准打乱姿态, 重新求解 (此前视角可能转过, 旧解法坐标系已失效)
+    this.solve();
   }
 
   // 计时控制
@@ -446,7 +497,7 @@ export default class CrossF2LTrainer extends Vue {
     if (!this.canPlay) {
       return;
     }
-    // 若平滑还原动画仍在进行, 先立即完成, 保证解法步骤在标准坐标系下执行
+    // 若平滑还原动画仍在进行, 先立即完成, 保证解法步骤在基准视角坐标系下执行
     tweener.finish();
     this.restoreView(true);
     // 冻结预判覆层: 块锚定 → 位置绑定 (播放时青色框固定在预判位置, 不随层转动)
@@ -546,6 +597,8 @@ export default class CrossF2LTrainer extends Vue {
   // 动画回调: 每个转动完成后触发, 仅在最后一个动作完成时判定
   private onAnimationEnd(): void {
     if (this.phase !== "playing") {
+      // 非播放态的转动 (y/y' 切换视角 / 期间的拖拽还原) 结束: 按需重新求解
+      this.checkPendingSolve();
       return;
     }
     // 队列未清空或仍有层在转动, 说明动画未结束
@@ -598,7 +651,7 @@ export default class CrossF2LTrainer extends Vue {
     }
   }
 
-  // 恢复默认视角 (平滑回放, 逆序抵消所有整体转动, 不影响魔方打乱状态)
+  // 恢复视角 (平滑回放): 只抵消基准视角之后的临时拖拽, 回到 y/y' 切换后的基准视角
   resetView(): void {
     tweener.finish();
     this.restoreView();
