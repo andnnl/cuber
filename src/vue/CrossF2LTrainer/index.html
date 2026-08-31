@@ -70,10 +70,6 @@
               style="flex: 1; min-width: 0; padding: 0; margin: 0;"
             ></v-text-field>
             <v-btn x-small @click="applyCustomScramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">应用</v-btn>
-            <v-btn-toggle v-model="scheme" mandatory dense :disabled="phase === 'playing'">
-              <v-btn value="默认" :style="{height: size * 0.55 + 'px'}">默认</v-btn>
-              <v-btn value="白底" :style="{height: size * 0.55 + 'px'}">白底</v-btn>
-            </v-btn-toggle>
           </div>
 
           <!-- 打乱信息行 -->

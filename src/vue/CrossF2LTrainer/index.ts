@@ -31,8 +31,6 @@ export default class CrossF2LTrainer extends Vue {
 
   constructor() {
     super();
-    // 从配色菜单持久化的 preset 恢复方案选择 (constructor 中赋值不会触发 scheme watch)
-    this.scheme = this.palette.preset === "白底" ? "白底" : "默认";
   }
 
   // 阶段: idle(预判/准备) -> playing(播放动画) -> judged(已判定)
@@ -77,12 +75,6 @@ export default class CrossF2LTrainer extends Vue {
 
   // 置位表示有整体转动动画进行中, 动画结束后需按新坐标系重新求解 (旧解法已失效)
   private pendingSolve = false;
-
-  // 配色方案: "默认" (白顶黄底) / "白底" (黄顶白底), 纯配色切换,
-  // 与基准视角 (z2/y/y' 按钮) 完全解耦, 切换不重开轮、不影响解法
-  // (serialize 输出材质字符, 与显示配色无关)
-  // scheme 可在面板中切换 (默认/白底), 与配色菜单 preset 双向同步
-  private scheme: "默认" | "白底" = "默认";
 
   // 自定义打乱公式输入 (留空则由「打乱」按钮随机生成)
   private customScramble = "";
@@ -378,14 +370,6 @@ export default class CrossF2LTrainer extends Vue {
     this.applyBaseOrientation();
     this.markTargetSlot();
     this.solve();
-  }
-
-  // 切换配色方案 (默认/白底): 纯配色切换, 同步 preset 持久化;
-  // 不重开轮、不重算解法 (serialize 输出材质字符, 与显示配色无关)
-  @Watch("scheme")
-  onSchemeChange(scheme: string): void {
-    this.palette.setPreset(scheme);
-    this.palette.save();
   }
 
   // 切换槽位: 清除旧高亮与预判, 更新为新槽位的目标块高亮
