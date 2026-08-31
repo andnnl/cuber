@@ -113,15 +113,13 @@ export default class CrossF2LTrainer extends Vue {
     this.world.dirty = true;
   }
 
-  // 整体转动回调: 记录待还原信息; 非播放状态下预判位置索引同步旋转 (青色框跟随魔方)
+  // 整体转动回调 (鼠标拖拽临时观察): 仅记录待还原信息, 供「恢复视角」/播放前抵消。
+  // 拖拽不改变预判索引 —— 预判与基准视角关联, 只有 z2/y/y' 切视角操作才联动 (见 rotateBase)
   private onWholeTurn(axis: string, times: number): void {
     this.pendingRestore.push({ axis, times });
-    if (this.phase !== "playing") {
-      this.followPrediction(axis, times);
-    }
   }
 
-  // 预判位置索引跟随: 仅映射索引
+  // 预判位置索引跟随: 仅映射索引 (仅由 rotateBase 切视角调用)
   // 未播放时覆层锚定在块上, 随整体转动自动平滑跟随, 无需重挂
   // 注意: 整体转动的 group.twist(+times·90°) 绕的是负轴 (AXIS_VECTOR 为负向量),
   // 等效于绕正轴 -times 次 +90°, 因此映射时需传入 -times
@@ -134,6 +132,18 @@ export default class CrossF2LTrainer extends Vue {
     if (edge !== null) {
       this.predictedEdgeIndex = rotatePositionIndex(edge, axis, -times);
     }
+  }
+
+  // 把拖拽态 (pendingRestore 复合) 下的点击位置逆映射回基准视角坐标。
+  // 预判索引恒以基准视角坐标系记录: 拖拽只是临时观察不改变坐标系,
+  // 用户在拖拽视角下点击的屏幕位置需抵消拖拽映射后才是基准坐标
+  private toBaseIndex(pos: number): number {
+    let base = pos;
+    for (let i = this.pendingRestore.length - 1; i >= 0; i--) {
+      const { axis, times } = this.pendingRestore[i];
+      base = rotatePositionIndex(base, axis, times);
+    }
+    return base;
   }
 
   // 视角自动还原延时器 (点击选块后延迟 1 秒触发平滑回放)
@@ -151,10 +161,7 @@ export default class CrossF2LTrainer extends Vue {
     }
     for (let i = this.pendingRestore.length - 1; i >= 0; i--) {
       const { axis, times } = this.pendingRestore[i];
-      // 预判位置索引逆向映射, 与块一起回到标准坐标
-      if (this.phase !== "playing") {
-        this.followPrediction(axis, -times);
-      }
+      // 拖拽不改变预判索引 (恒为基准坐标), 此处无需映射
       const groups = this.world.cube.table.groups[axis[0]];
       for (const group of groups) {
         group.twist(-times * (Math.PI / 2), fast);
@@ -175,9 +182,9 @@ export default class CrossF2LTrainer extends Vue {
     // (部分 group 转动成功、部分失败), 物理状态与 baseOps 记录失同步
     this.world.cube.twister.finish();
     this.restoreView(true); // 先抵消临时拖拽, 从基准视角出发旋转
-    // 预判与当前视角关联: 青色框锚定物理块随整体转动平滑跟随, 索引同步映射到新视角坐标系
-    // (与拖拽转动的 onWholeTurn 同构)。切视角只是整体旋转, 不改变物理块排列, 重解后的
-    // 物理落点与切视角前一致, 预判判定语义不变, 无需清除
+    // 切视角 (z2/y/y') 是坐标系基准切换, 预判索引随之映射到新视角坐标系:
+    // 切视角只是整体旋转, 不改变物理块排列, 重解后的物理落点与切视角前一致,
+    // 预判判定语义不变。拖拽 (临时观察) 则不联动预判, 二者语义不同
     this.followPrediction(axis, times);
     for (const group of this.world.cube.table.groups[axis]) {
       group.twist(times * (Math.PI / 2), false); // 平滑动画
@@ -558,8 +565,10 @@ export default class CrossF2LTrainer extends Vue {
       return;
     }
     const clicked = this.world.cube.cubelets[index];
-    // 预判索引始终记录当前物理位置 (视角还原时自动映射回标准坐标, 见 followPrediction)
+    // 锚定/拾取用点击时的物理位置 (拖拽态下即屏幕位置的块);
+    // 预判索引用基准视角坐标 (拖拽临时观察不改变预判语义, 见 toBaseIndex)
     const pos = clicked.index;
+    const base = this.toBaseIndex(pos);
     // 1 秒后平滑回放还原视角; 期间再次点击会重新计时
     if (this.restoreTimer !== null) {
       clearTimeout(this.restoreTimer);
@@ -575,41 +584,41 @@ export default class CrossF2LTrainer extends Vue {
       this.running = true;
     }
     if (type === "corner") {
-      if (this.predictedCornerIndex === pos) {
-        // 再次点击同一位置 → 取消预判
+      if (this.predictedCornerIndex === base) {
+        // 再次点击同一位置 (基准坐标) → 取消预判
         if (this.predictedCornerPiece) {
           restoreAnchor(this.world, this.predictedCornerPiece);
           this.predictedCornerPiece = null;
         }
-        restorePositionHighlight(this.world, pos);
+        restorePositionHighlight(this.world, base);
         this.predictedCornerIndex = null;
         this.predictTarget = "corner";
       } else {
-        // 选定或改选新位置 (覆层锚定在块上, 平滑跟随所有转动)
+        // 选定或改选新位置: 覆层锚定点击的块 (物理位置), 索引记录基准坐标
         if (this.predictedCornerPiece) {
           restoreAnchor(this.world, this.predictedCornerPiece);
         }
-        this.predictedCornerIndex = pos;
+        this.predictedCornerIndex = base;
         this.predictedCornerPiece = highlightAnchor(this.world, pos, HIGHLIGHT_COLORS.predict);
         // 角块已定, 引导下一步选棱块 (若棱块也已选则保持完成态)
         this.predictTarget = this.predictedEdgeIndex !== null ? null : "edge";
       }
     } else {
-      if (this.predictedEdgeIndex === pos) {
-        // 再次点击同一位置 → 取消预判
+      if (this.predictedEdgeIndex === base) {
+        // 再次点击同一位置 (基准坐标) → 取消预判
         if (this.predictedEdgePiece) {
           restoreAnchor(this.world, this.predictedEdgePiece);
           this.predictedEdgePiece = null;
         }
-        restorePositionHighlight(this.world, pos);
+        restorePositionHighlight(this.world, base);
         this.predictedEdgeIndex = null;
         this.predictTarget = "edge";
       } else {
-        // 选定或改选新位置 (覆层锚定在块上, 平滑跟随所有转动)
+        // 选定或改选新位置: 覆层锚定点击的块 (物理位置), 索引记录基准坐标
         if (this.predictedEdgePiece) {
           restoreAnchor(this.world, this.predictedEdgePiece);
         }
-        this.predictedEdgeIndex = pos;
+        this.predictedEdgeIndex = base;
         this.predictedEdgePiece = highlightAnchor(this.world, pos, HIGHLIGHT_COLORS.predict);
         this.predictTarget = this.predictedCornerIndex !== null ? null : "corner";
       }
