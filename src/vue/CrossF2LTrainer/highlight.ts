@@ -28,6 +28,10 @@ const ANCHOR_HIGHLIGHTS: WeakMap<Cubelet, HighlightEntry> = new WeakMap();
 // 位置绑定高亮 (颜色 B, 播放态): key 为位置索引, 覆层固定在魔方坐标系, 不随层转动
 const POSITION_HIGHLIGHTS: Map<number, HighlightEntry & { parent: THREE.Object3D }> = new Map();
 
+// 预判覆层 (青色) 相对贴纸的尺寸比例: 缩小后与同块上的紫色目标覆层错开,
+// 紫色边框在外圈完整可见, 青色框在内圈, 不再互相遮盖
+const PREDICT_SCALE = 0.88;
+
 // 呼吸动画注册表: 填充材质透明度随时间脉动
 interface PulsingMaterial {
   material: THREE.MeshBasicMaterial;
@@ -47,17 +51,18 @@ export function tickHighlights(): void {
 }
 
 // 创建覆层内容: 呼吸半透明填充 + 粗实体相框边条 (内部坐标以贴纸中心为原点)
+// scale: 相对贴纸的尺寸比例 (青色预判覆层 <1, 缩小后与同块紫色目标覆层错开, 不再完全遮盖)
 // 返回的 group 未设置位置/朝向, 由调用方按绑定方式放置
-function createOverlay(source: THREE.Mesh, color: number, lift: number): { overlay: THREE.Group; disposables: (THREE.Material | THREE.BufferGeometry)[]; pulse: PulsingMaterial } {
-  // 读取贴纸平面尺寸 (局部 XY 平面, 法向 Z)
+function createOverlay(source: THREE.Mesh, color: number, lift: number, scale: number = 1): { overlay: THREE.Group; disposables: (THREE.Material | THREE.BufferGeometry)[]; pulse: PulsingMaterial } {
+  // 读取贴纸平面尺寸 (局部 XY 平面, 法向 Z), 按 scale 缩放布局尺寸
   source.geometry.computeBoundingBox();
   const bb = source.geometry.boundingBox!;
-  const w = bb.max.x - bb.min.x;
-  const h = bb.max.y - bb.min.y;
-  const cx = (bb.max.x + bb.min.x) / 2;
-  const cy = (bb.max.y + bb.min.y) / 2;
+  const w = (bb.max.x - bb.min.x) * scale;
+  const h = (bb.max.y - bb.min.y) * scale;
+  const cx = ((bb.max.x + bb.min.x) / 2) * scale;
+  const cy = ((bb.max.y + bb.min.y) / 2) * scale;
 
-  // 半透明填充 (呼吸)
+  // 半透明填充 (呼吸): 缩放填充网格, 边框按缩放后尺寸布置
   const fillMaterial = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
@@ -75,7 +80,9 @@ function createOverlay(source: THREE.Mesh, color: number, lift: number): { overl
   const zOut = barDepth / 2 + lift; // 沿法向浮出贴纸表面
 
   const overlay = new THREE.Group();
-  overlay.add(new THREE.Mesh(source.geometry, fillMaterial));
+  const fill = new THREE.Mesh(source.geometry, fillMaterial);
+  fill.scale.set(scale, scale, 1);
+  overlay.add(fill);
 
   for (const [geo, x, y] of [
     [barHorizontal, cx, cy + h / 2],
@@ -96,7 +103,7 @@ function createOverlay(source: THREE.Mesh, color: number, lift: number): { overl
 }
 
 // 遍历块的可见贴纸生成覆层并应用变换
-function buildOverlays(cubelet: Cubelet, color: number, place: (sticker: THREE.Mesh, overlay: THREE.Group) => void): { overlays: THREE.Object3D[]; disposables: (THREE.Material | THREE.BufferGeometry)[]; pulses: PulsingMaterial[] } {
+function buildOverlays(cubelet: Cubelet, color: number, place: (sticker: THREE.Mesh, overlay: THREE.Group) => void, scale: number = 1): { overlays: THREE.Object3D[]; disposables: (THREE.Material | THREE.BufferGeometry)[]; pulses: PulsingMaterial[] } {
   const overlays: THREE.Object3D[] = [];
   const disposables: (THREE.Material | THREE.BufferGeometry)[] = [];
   const pulses: PulsingMaterial[] = [];
@@ -104,7 +111,7 @@ function buildOverlays(cubelet: Cubelet, color: number, place: (sticker: THREE.M
     const sticker = cubelet.stickers[f];
     // 仅处理已加入场景的可见贴纸
     if (sticker && sticker.visible && cubelet.children.indexOf(sticker) >= 0) {
-      const { overlay, disposables: d, pulse } = createOverlay(sticker, color, 0.01);
+      const { overlay, disposables: d, pulse } = createOverlay(sticker, color, 0.01, scale);
       place(sticker, overlay);
       overlays.push(overlay);
       disposables.push(...d);
@@ -179,7 +186,7 @@ export function highlightPosition(world: World, index: number, color: number): v
     // 沿贴纸法向额外抬高, 当预判位置恰有紫色目标块时青色覆层绘制在其上方
     const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
     overlay.position.addScaledVector(normal, 0.1);
-  });
+  }, PREDICT_SCALE);
   const entry: HighlightEntry & { parent: THREE.Object3D } = { color, overlays, disposables, parent: world.cube };
   for (const overlay of overlays) {
     world.cube.add(overlay);
@@ -198,11 +205,11 @@ export function highlightAnchor(world: World, index: number, color: number): Cub
   }
   restoreAnchor(world, cubelet);
   const { overlays, disposables, pulses } = buildOverlays(cubelet, color, (sticker, overlay) => {
-    // 作为块的子节点跟随块变换; 沿贴纸法向抬高, 当同块有紫色目标覆层时青色绘制在其上方
+    // 作为块的子节点跟随块变换; 沿贴纸法向抬高, 与同块紫色目标覆层分离
     const lift = new THREE.Vector3(0, 0, 0.11).applyQuaternion(sticker.quaternion);
     overlay.position.copy(sticker.position).multiplyScalar(1.02).add(lift);
     overlay.quaternion.copy(sticker.quaternion);
-  });
+  }, PREDICT_SCALE);
   const entry: HighlightEntry = { color, overlays, disposables };
   for (const overlay of overlays) {
     cubelet.add(overlay);
