@@ -14,9 +14,8 @@
         style="border-radius: 12px 12px 0 0;"
       >
         <v-card-text style="text-align: left; padding: 6px 12px 2px 12px;">
-          <!-- 单行: 标题 + 槽位切换 + 操作按钮组 (窄屏时按钮组整体换行并右对齐, 播放保持在重置右侧) -->
+          <!-- 单行: 槽位切换 + 操作按钮组 (窄屏时按钮组整体换行并右对齐, 播放保持在重置右侧) -->
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 4px;">
-            <span class="trainer-title" :style="{fontSize: size * 0.32 + 'px'}" style="white-space: nowrap;">F2L预判</span>
             <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'">
               <v-btn value="FL" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
               <v-btn value="FR" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
@@ -81,8 +80,8 @@
               🖱 预判: 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
               <span v-if="elapsedDisplay" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedDisplay }}</span>
             </span>
-            <v-btn x-small text color="primary" @click="clearPrediction" style="padding: 0 4px; min-width: unset;">清除</v-btn>
-            <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'">{{ result }}</span>
+            <v-btn x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
+            <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result.indexOf('✅') >= 0 ? "✔" : "✘" }}</span>
           </div>
         </v-card-text>
       </v-card>

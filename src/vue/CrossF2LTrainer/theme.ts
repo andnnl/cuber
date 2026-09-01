@@ -84,19 +84,18 @@ export const TRAINER_THEME_CSS = `
   color: #3b4bd8;
   font-weight: bold;
 }
-/* 判定结果 (内联在预判行尾) */
+/* 判定结果 (内联在预判行尾, 极简图标态: ✔/✘, 完整文本见 title 提示) */
 .trainer-overlay-card .result-inline {
   font-weight: bold;
-  padding: 1px 10px;
-  border-radius: 10px;
+  font-size: 16px;
+  line-height: 1;
+  background: transparent !important;
   white-space: nowrap;
 }
 .trainer-overlay-card .result-inline.success {
-  background: #e8f5e9;
   color: #2e7d32;
 }
 .trainer-overlay-card .result-inline.fail {
-  background: #ffebee;
   color: #c62828;
 }
 /* 使用说明弹窗 */

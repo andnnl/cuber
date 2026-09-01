@@ -85,8 +85,9 @@ export function rotatePositionIndex(index: number, axis: string, times: number, 
 }
 
 // 基准视角操作序列: 每项表示整体绕 axis 轴转 times 个 90° (z2 与 y 不对易, 须用序列表达复合姿态)
+// axis 含 x: 定向 (preScr) 可能是 x/z'/x' 等三轴整体旋转, 统一并入基准姿态
 export interface BaseOp {
-  axis: "y" | "z";
+  axis: "x" | "y" | "z";
   times: number;
 }
 
