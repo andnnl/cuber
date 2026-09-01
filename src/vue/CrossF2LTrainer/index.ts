@@ -50,6 +50,41 @@ export default class CrossF2LTrainer extends Vue {
   // 使用说明弹窗
   private helpDialog = false;
 
+  // 打乱信息弹窗 (完整公式 + 目标块 + 复制)
+  private scrambleDialog = false;
+
+  // 复制打乱公式到剪贴板
+  copyScramble(): void {
+    const text = this.scramble;
+    if (!text) return;
+    const done = () => {
+      this.result = "✅ 已复制打乱公式";
+      this.scrambleDialog = false;
+    };
+    if (navigator.clipboard && document.hasFocus()) {
+      navigator.clipboard.writeText(text).then(done).catch(() => this.fallbackCopy(text, done));
+    } else {
+      this.fallbackCopy(text, done);
+    }
+  }
+
+  // 剪贴板 API 不可用时的降级: 临时 textarea + execCommand
+  private fallbackCopy(text: string, done: () => void): void {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+      done();
+    } catch {
+      this.result = "❌ 复制失败, 请手动选择复制";
+    }
+    document.body.removeChild(ta);
+  }
+
   // 目标 F2L 块 (颜色 A): 按还原位置识别, 如 FR 槽位 = 角块 DFR + 棱块 FR
 
   // 用户预判 (颜色 B): 预测目标 F2L 块 Cross 后会到达的位置
