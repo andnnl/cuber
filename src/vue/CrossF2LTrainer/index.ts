@@ -50,6 +50,15 @@ export default class CrossF2LTrainer extends Vue {
   // 使用说明弹窗
   private helpDialog = false;
 
+  // 收纳模式: true = 三行摘要条, false = 完整面板 (localStorage 记忆用户偏好)
+  private collapsed = window.localStorage.getItem("trainerCollapsed") === "1";
+
+  // 切换收纳/展开并持久化偏好
+  setCollapsed(v: boolean): void {
+    this.collapsed = v;
+    window.localStorage.setItem("trainerCollapsed", v ? "1" : "0");
+  }
+
   // 打乱信息弹窗 (完整公式 + 目标块 + 复制)
   private scrambleDialog = false;
 

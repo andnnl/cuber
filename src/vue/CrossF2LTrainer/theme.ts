@@ -98,6 +98,71 @@ export const TRAINER_THEME_CSS = `
 .trainer-overlay-card .result-inline.fail {
   color: #c62828;
 }
+/* ===== 收纳态摘要条 (三行) ===== */
+/* 第一行: 槽位/y/y'/打乱/重置/播放 + 可点击展开的空白区 */
+.trainer-overlay-card .sum-r1 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+/* 抓手条: 细小横条, 点击展开 */
+.trainer-overlay-card .grab {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: #d4dbe8;
+  cursor: pointer;
+  flex: none;
+}
+/* 第二行: 当前选中解法 (浅底单行, 点击展开换解法) */
+.trainer-overlay-card .sum-r2 {
+  margin-top: 4px;
+  padding: 3px 8px;
+  background: #f7f9fc;
+  border-radius: 5px;
+  font-family: "Roboto Mono", "Consolas", monospace;
+  font-size: 11px;
+  color: #3b4bd8;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+.trainer-overlay-card .sum-r2 .sum-cnt {
+  font-weight: normal;
+  color: #8892a8;
+  font-family: "Roboto", sans-serif;
+  margin-right: 6px;
+}
+.trainer-overlay-card .sum-r2 .sum-expr {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trainer-overlay-card .sum-r2 .sum-empty {
+  color: #8892a8;
+  font-weight: normal;
+  font-family: "Roboto", sans-serif;
+}
+/* 第三行: 预判 + 计时 + 清除 + 结果 */
+.trainer-overlay-card .sum-r3 {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  column-gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.trainer-overlay-card .sum-r3 .sum-pred {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.trainer-overlay-card .sum-r3 .sum-timer {
+  color: #673ab7;
+  white-space: nowrap;
+  flex: none;
+}
+
 /* 使用说明弹窗 */
 .help-dialog {
   border-radius: 12px !important;

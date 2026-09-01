@@ -14,6 +14,46 @@
         style="border-radius: 12px 12px 0 0;"
       >
         <v-card-text style="text-align: left; padding: 6px 12px 2px 12px;">
+          <!-- ========= 收纳态: 三行摘要条 (第一行空白处点击展开) ========= -->
+          <div v-if="collapsed" class="summary-bar">
+            <!-- 第一行: 槽位 + y/y' + 打乱/重置图标 + 播放 -->
+            <div class="sum-r1">
+              <div class="grab" @click="setCollapsed(false)" title="展开面板"></div>
+              <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'" style="flex: none;">
+                <v-btn value="FL" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
+                <v-btn value="FR" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
+                <v-btn value="BL" :style="{height: size * 0.55 + 'px'}">BL</v-btn>
+                <v-btn value="BR" :style="{height: size * 0.55 + 'px'}">BR</v-btn>
+              </v-btn-toggle>
+              <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y" :style="{height: size * 0.55 + 'px'}">y</v-btn>
+              <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y'" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
+              <v-btn x-small @click="rescramble" :disabled="phase === 'playing'" title="打乱" :style="{height: size * 0.55 + 'px'}">🎲</v-btn>
+              <v-btn x-small @click="reset" :disabled="phase === 'playing'" title="重置" :style="{height: size * 0.55 + 'px'}">↺</v-btn>
+              <div style="flex: 1; min-width: 8px; align-self: stretch; cursor: pointer;" @click="setCollapsed(false)" title="展开面板"></div>
+              <v-btn x-small color="primary" @click="play" :disabled="!canPlay" title="播放" :style="{height: size * 0.55 + 'px', padding: '0 ' + size * 0.15 + 'px', minWidth: 'unset'}">▶</v-btn>
+            </div>
+            <!-- 第二行: 当前选中解法 (点击展开换解法) -->
+            <div class="sum-r2" @click="setCollapsed(false)" title="展开面板选择解法">
+              <span v-if="solutions.length > 0 && selectedSolution >= 0">
+                <span class="sum-cnt">解法 {{ selectedSolution + 1 }}/{{ solutions.length }}</span>
+                <span class="sum-expr">{{ solutions[selectedSolution] }}</span>
+              </span>
+              <span v-else-if="solving || pendingSolve" class="sum-empty">📐 计算中...</span>
+              <span v-else-if="solutions.length === 0" class="sum-empty">📐 暂无解法</span>
+            </div>
+            <!-- 第三行: 预判 + 结果 -->
+            <div class="sum-r3" :style="{fontSize: size * 0.24 + 'px'}">
+              <span class="sum-pred" :style="{color: predictedCornerName || predictedEdgeName ? '#1976d2' : '#b0b6c0'}">
+                🖱 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
+              </span>
+              <span v-if="elapsedDisplay" class="sum-timer">⏱ {{ elapsedDisplay }}</span>
+              <v-btn v-if="predictedCornerName || predictedEdgeName" x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
+              <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result.indexOf('✅') >= 0 ? "✔" : "✘" }}</span>
+            </div>
+          </div>
+
+          <!-- ========= 展开态: 完整面板 ========= -->
+          <div v-else>
           <!-- 单行: 槽位切换 + 操作按钮组 (窄屏时按钮组整体换行并右对齐, 播放保持在重置右侧) -->
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 4px;">
             <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'">
@@ -24,6 +64,7 @@
             </v-btn-toggle>
             <v-spacer></v-spacer>
             <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px;">
+              <v-btn x-small @click="setCollapsed(true)" title="收起面板" style="font-weight: bold;">⌄</v-btn>
               <v-btn x-small @click="resetView" :style="{height: size * 0.55 + 'px'}">恢复视角</v-btn>
               <v-btn x-small @click="rotateZ2" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">z2</v-btn>
               <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y</v-btn>
@@ -83,6 +124,7 @@
             <v-btn x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
             <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result.indexOf('✅') >= 0 ? "✔" : "✘" }}</span>
           </div>
+          </div><!-- /展开态 -->
         </v-card-text>
       </v-card>
     </div>
