@@ -217,7 +217,6 @@ export class PreferanceData {
 
 // 预设配色方案定义 (供配色菜单与训练器共用)
 // 注: 本项目物理复原态为 U 黄 / D 白 (原版 COLORS), "默认" 预设通过换色实现白顶黄底显示;
-// "白底" 预设仅与 "默认" 对调 U/D 染色 (黄顶白底), 供练习白色十字;
 // 训练时的基准视角 (z2/y/y' 按钮整体旋转) 与配色完全解耦
 export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
   "默认": {
@@ -225,14 +224,6 @@ export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
     L: "#FF6D00",
     U: "#F0F0F0",
     D: "#FFD600",
-    F: "#00A020",
-    B: "#0D47A1",
-  },
-  "白底": {
-    R: "#B71C1C",
-    L: "#FF6D00",
-    U: "#FFD600",
-    D: "#F0F0F0",
     F: "#00A020",
     B: "#0D47A1",
   },
@@ -270,16 +261,45 @@ export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
   },
 };
 
+export const PRE_SCR_OPTIONS = [
+  { text: "(UF)", value: "" },
+  { text: "(UR) y", value: "y" },
+  { text: "(UB) y2", value: "y2" },
+  { text: "(UL) y'", value: "y'" },
+  { text: "(DF) z2", value: "z2" },
+  { text: "(DL) z2 y", value: "z2 y" },
+  { text: "(DB) z2 y2", value: "z2 y2" },
+  { text: "(DR) z2 y'", value: "z2 y'" },
+  { text: "(RF) z'", value: "z'" },
+  { text: "(RD) z' y", value: "z' y" },
+  { text: "(RB) z' y2", value: "z' y2" },
+  { text: "(RU) z' y'", value: "z' y'" },
+  { text: "(LF) z", value: "z" },
+  { text: "(LU) z y", value: "z y" },
+  { text: "(LB) z y2", value: "z y2" },
+  { text: "(LD) z y'", value: "z y'" },
+  { text: "(BU) x'", value: "x'" },
+  { text: "(BR) x' y", value: "x' y" },
+  { text: "(BD) x' y2", value: "x' y2" },
+  { text: "(BL) x' y'", value: "x' y'" },
+  { text: "(FD) x", value: "x" },
+  { text: "(FR) x y", value: "x y" },
+  { text: "(FU) x y2", value: "x y2" },
+  { text: "(FL) x y'", value: "x y'" },
+];
+
 export class PaletteData {
   private world: World;
   private default: string;
   private values: {
     version: string;
     preset?: string;
+    preScr?: string;
     colors: { [key: string]: string };
   } = {
     version: "0.3",
     preset: "默认",
+    preScr: "",
     colors: {},
   };
 
@@ -289,13 +309,23 @@ export class PaletteData {
     this.load();
   }
 
-  // 当前预设配色方案名 (如 "默认" / "白底"; 旧存档缺省按 "默认")
+  // 当前预设配色方案名 (如 "默认" / "黄底"; 旧存档缺省按 "默认")
   get preset(): string {
-    return this.values.preset || "默认";
+    return PRESET_PALETTES[this.values.preset || ""] ? this.values.preset || "默认" : "默认";
   }
 
   setPreset(name: string): void {
     this.values.preset = name;
+  }
+
+  // 当前定向方案 (如 "z2 y'")
+  get preScr(): string {
+    return this.values.preScr || "";
+  }
+
+  setPreScr(value: string): void {
+    this.values.preScr = value;
+    this.save();
   }
 
   // 应用预设配色: 写入存档并刷新显示

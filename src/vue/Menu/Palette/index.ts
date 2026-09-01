@@ -64,7 +64,7 @@ export default class Palette extends Vue {
 
   // 预设配色方案列表
   presets = Object.keys(PRESET_PALETTES);
-  selectedPreset = "白底";
+  selectedPreset = "默认";
 
   palette: string[] = [
     // DEFAULT

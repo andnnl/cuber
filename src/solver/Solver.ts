@@ -389,8 +389,8 @@ export default class Solver {
    *
    * 说明: 求解体系 (deserialize/WASM/BFS) 均为「字符=面」标准语义 —
    * 永远求「输入串中字符 D 的棱归 D 位」, 解法面名与输入串坐标系一致。
-   * 调用方 (CrossF2LTrainer) 负责姿态适配: 默认方案直接传打乱态 (黄底绿前);
-   * 白底方案传 z2 字符映射后的状态 (U↔D, L↔R), 使求解器求出「U 材质棱归物理 D 位」的白十字解法。
+   * 调用方 (CrossF2LTrainer) 负责姿态适配: 默认方案直接传打乱态; 非标准视角则先做 baseOps 字符映射。
+   * 过去的「白底」方案已改为「定向」, 通过训练器在打乱后追加整体旋转实现视角切换。
    * @returns Array of solution strings, each solution is a space-separated list of moves
    */
   async solveCross(facelets: string, maxSolutions: number = 5, maxDepth: number = 8): Promise<string[]> {

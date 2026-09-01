@@ -319,6 +319,13 @@ export default class CrossF2LTrainer extends Vue {
     );
   }
 
+  private directionListener = (): void => {
+    if (!this.scramble || this.phase === "playing") {
+      return;
+    }
+    this.reset();
+  };
+
   mounted(): void {
     // 注入面板主题样式 (模板内 <style> 会被编译器剥离, 只能动态注入)
     if (!document.getElementById(TRAINER_STYLE_ID)) {
@@ -327,6 +334,7 @@ export default class CrossF2LTrainer extends Vue {
       style.textContent = TRAINER_THEME_CSS;
       document.head.appendChild(style);
     }
+    window.addEventListener("direction-change", this.directionListener as EventListener);
     (window as any).__crossF2L = this; // 临时调试
     this.resize();
     this.loop();
@@ -344,6 +352,10 @@ export default class CrossF2LTrainer extends Vue {
       await this.initSolver();
       this.rescramble();
     });
+  }
+
+  beforeDestroy(): void {
+    window.removeEventListener("direction-change", this.directionListener as EventListener);
   }
 
   private async initSolver(): Promise<void> {
@@ -364,6 +376,11 @@ export default class CrossF2LTrainer extends Vue {
     } catch (e) {
       console.error("[CrossF2LTrainer] WASM 求解器初始化失败, 将使用内置求解器", e);
     }
+  }
+
+  private buildDirectionalScramble(exp: string): string {
+    const preScr = (this.palette.preScr || "").trim();
+    return preScr ? exp + " " + preScr : exp;
   }
 
   private async generateWasmTable(): Promise<void> {
@@ -398,7 +415,7 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 重放 baseOps 恢复基准视角并求解
-  // (视角与配色解耦且跨轮保留: 重新打乱不重置视角)
+  // (视角与配色/定向解耦且跨轮保留: 重新打乱不重置视角)
   private startRound(exp: string): void {
     this.pendingSolve = false;
     tweener.finish();
@@ -411,7 +428,7 @@ export default class CrossF2LTrainer extends Vue {
     this.stopTimer(true);
     clearAllHighlights(this.world);
     this.scramble = exp;
-    this.world.cube.twister.setup(exp);
+    this.world.cube.twister.setup(this.buildDirectionalScramble(exp));
     this.applyBaseOrientation();
     this.markTargetSlot();
     this.solve();
@@ -450,7 +467,7 @@ export default class CrossF2LTrainer extends Vue {
     this.phase = "idle";
     this.stopTimer(true);
     clearAllHighlights(this.world);
-    this.world.cube.twister.setup(this.scramble);
+    this.world.cube.twister.setup(this.buildDirectionalScramble(this.scramble));
     // 重置回打乱态后同样重放基准视角旋转
     this.applyBaseOrientation();
     this.markTargetSlot();
@@ -715,7 +732,7 @@ export default class CrossF2LTrainer extends Vue {
     this.phase = "judged";
     this.stopTimer(false); // 动画播放完毕停表, 保留用时显示
     // 目标 F2L 块 (按还原位置识别): initials 中还原位为槽位索引的块
-    // 白底方案: 使用复合映射后的槽位索引 (白底还原态下位于槽位的块, 见 mappedCornerIndex)
+    // 旧的「白底方案」已改为「定向」: 这里仍按基准姿态后的槽位索引判定目标块
     const targetCorner = this.world.cube.initials[this.mappedCornerIndex];
     const targetEdge = this.world.cube.initials[this.mappedEdgeIndex];
     // cubelet.index 在转层后始终维护为当前位置索引 (group.ts 转层结束时回写)
