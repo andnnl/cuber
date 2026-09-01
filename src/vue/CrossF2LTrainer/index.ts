@@ -11,6 +11,11 @@ import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
 import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBaseOpsFacelets, BaseOp } from "./pieces";
 import { HIGHLIGHT_COLORS, highlightPiece, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
+import { TRAINER_THEME_CSS } from "./theme";
+
+// 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
+// 样式统一定义在 theme.ts, mounted 时注入 document.head
+const TRAINER_STYLE_ID = "crossf2l-trainer-theme";
 
 @Component({
   template: require("./index.html"),
@@ -41,6 +46,9 @@ export default class CrossF2LTrainer extends Vue {
   private solutions: string[] = [];
   private selectedSolution = -1;
   private solving = false;
+
+  // 使用说明弹窗
+  private helpDialog = false;
 
   // 目标 F2L 块 (颜色 A): 按还原位置识别, 如 FR 槽位 = 角块 DFR + 棱块 FR
 
@@ -73,14 +81,16 @@ export default class CrossF2LTrainer extends Vue {
   // 打乱/重置等重开流程保留当前视角 (不回标准视角)
   private baseOps: BaseOp[] = [];
 
-  // 置位表示有整体转动动画进行中, 动画结束后需按新坐标系重新求解 (旧解法已失效)
+  // 置位表示有整体转动动画进行中, 动画结束后需按新坐标系重新求解 (旧解法已失效);
+  // 模板依赖它保持解法占位区渲染 (置空 solutions 时 UI 不跳动)
   private pendingSolve = false;
 
   // 自定义打乱公式输入 (留空则由「打乱」按钮随机生成)
   private customScramble = "";
 
-  // 基准姿态的逆 (逆序复合, 每个 op 的逆 = 同轴 +times):
-  // 把物理位置映射回标准位置, 用于求「当前视角下位于某槽位的标准块」
+  // 把物理位置映射回标准位置 (求「基准姿态下位于某位置的块的初始索引」):
+  // 块初始 p 经姿态物理位移 P(p) = rotatePositionByOps(p, pose) (pose = baseOps 取反 times),
+  // 故位于位置 s 的块 p = P⁻¹(s) = 逆序 + 原 times 复合 (注意不是取反 times)
   private get inverseBaseOps(): BaseOp[] {
     return [...this.baseOps].reverse();
   }
@@ -165,16 +175,22 @@ export default class CrossF2LTrainer extends Vue {
 
   // z2 / y / y' 按钮: 整体旋转切换基准视角, 旋转动画结束后按新坐标系重新求解,
   // 得到当前视角下最顺手的十字解法。基准旋转不计入 pendingRestore (不会被「恢复视角」抵消)
-  rotateBase(axis: "y" | "z", times: number): void {
+  rotateBase(axis: "y" | "z", times: number): boolean {
     if (this.phase !== "idle" || this.solving || this.pendingSolve) {
-      return;
+      return false;
     }
     // 排空 twister 队列 (如打乱动画未播完的剩余动作) 并完成在飞动画, 确保所有层已解锁:
     // 仅 tweener.finish 无法处理队列中未开始的动作, 残留的锁会导致整体旋转被部分拒绝
     // (部分 group 转动成功、部分失败), 物理状态与 baseOps 记录失同步
     this.world.cube.twister.finish();
     this.restoreView(true); // 先抵消临时拖拽, 从基准视角出发旋转
-    // 切视角 (z2/y/y') 是坐标系基准切换, 预判索引随之映射到新视角坐标系:
+    // 槽位按钮跟随物理块: FL/FR/BL/BR 按钮语义基于当前固化视角的屏幕四下槽位,
+    // 切视角后选中按钮名随目标块切换 (选中的物理块本身不变)。
+    // 反查: 目标块的初始索引 = mappedCornerIndex = rotatePositionByOps(槽位, R⁻¹),
+    // 切换后按新 baseOps 重查: 槽位 = R_new(目标块初始索引) (R 为正向位置映射),
+    // 复用 inverseBaseOps getter (已按新 baseOps 取逆)
+    const oldMapped = this.mappedCornerIndex;
+    // 切视角 (y/y') 是坐标系基准切换, 预判索引随之映射到新视角坐标系:
     // 切视角只是整体旋转, 不改变物理块排列, 重解后的物理落点与切视角前一致,
     // 预判判定语义不变。拖拽 (临时观察) 则不联动预判, 二者语义不同
     this.followPrediction(axis, times);
@@ -187,15 +203,35 @@ export default class CrossF2LTrainer extends Vue {
     this.solutions = [];
     this.selectedSolution = -1;
     this.pendingSolve = true;
+    // 槽位按钮跟随物理块: FL/FR/BL/BR 按钮语义基于当前固化视角的屏幕四下槽位,
+    // 切视角后选中按钮名随目标块切换 (选中的物理块本身不变)。
+    // 反查: mappedCorner(s) = rotatePositionByOps(s, inverseBaseOps) = oldMapped,
+    // 解得 s = 沿 baseOps 原序、times 取反 复合映射 oldMapped (逆映射的逆 = 原序取反)。
+    // z2 把目标块转到 U 层, 无对应槽位按钮, 选中名保持不变 (等效重新点击, 见 rotateZ2)
+    let base = oldMapped;
+    for (const op of this.baseOps) {
+      base = rotatePositionIndex(base, op.axis, -op.times);
+    }
+    const next = F2L_SLOTS.find((s) => s.cornerIndex === base);
+    if (next && next.name !== this.slot) {
+      // 程序性更新: 记录目标名, onSlotChange (nextTick 异步触发) 比对后跳过重置流程
+      this.lastProgrammaticSlot = next.name;
+      this.slot = next.name;
+    }
+    return true;
   }
 
   rotateY(times: number): void {
     this.rotateBase("y", times);
   }
 
-  // z2 按钮: 与 y/y' 同质的视角切换 (整体绕 z 轴 180°)
+  // z2 按钮: 上下翻转后原目标块到达 U 层, 不属于任何 F2L 槽位,
+  // 等效「重新点击当前选中的槽位按钮」: 选中名保持, 目标块/预判/解法全部按新视角重置
   rotateZ2(): void {
-    this.rotateBase("z", 2);
+    if (!this.rotateBase("z", 2)) {
+      return;
+    }
+    this.reset();
   }
 
   // 整体转动动画结束后的延迟求解: 坐标系变动导致旧解法失效
@@ -223,12 +259,14 @@ export default class CrossF2LTrainer extends Vue {
     return F2L_SLOTS.find((s) => s.name === this.slot) || F2L_SLOTS[0];
   }
 
+  // 目标块名称: 显示为「当前基准视角下位于所选槽位的物理块」(与 markTargetSlot 高亮的块一致)。
+  // z2 等切视角后槽位含义随视角变化, 故须用映射后的位置计算名称
   get targetCornerName(): string {
-    return pieceName(this.selectedSlot.cornerIndex);
+    return pieceName(this.mappedCornerIndex);
   }
 
   get targetEdgeName(): string {
-    return pieceName(this.selectedSlot.edgeIndex);
+    return pieceName(this.mappedEdgeIndex);
   }
 
   get predictedCornerName(): string {
@@ -282,6 +320,13 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   mounted(): void {
+    // 注入面板主题样式 (模板内 <style> 会被编译器剥离, 只能动态注入)
+    if (!document.getElementById(TRAINER_STYLE_ID)) {
+      const style = document.createElement("style");
+      style.id = TRAINER_STYLE_ID;
+      style.textContent = TRAINER_THEME_CSS;
+      document.head.appendChild(style);
+    }
     (window as any).__crossF2L = this; // 临时调试
     this.resize();
     this.loop();
@@ -372,11 +417,23 @@ export default class CrossF2LTrainer extends Vue {
     this.solve();
   }
 
-  // 切换槽位: 清除旧高亮与预判, 更新为新槽位的目标块高亮
+  // 切换槽位: 清除旧高亮与预判, 更新为新槽位的目标块高亮。
+  // 注意: Vue @Watch 回调在 nextTick 异步触发, 不能用瞬时布尔标志区分程序性更新,
+  // 需记录程序性设置的槽位名, watcher 触发时比对消费
+  private lastProgrammaticSlot: string | null = null;
+
   @Watch("slot")
   onSlotChange(): void {
     if (this.phase === "playing") {
       return;
+    }
+    if (this.lastProgrammaticSlot !== null) {
+      // rotateBase 切视角的程序性跟随 (选中的物理块不变): 跳过重置流程
+      if (this.slot === this.lastProgrammaticSlot) {
+        this.lastProgrammaticSlot = null;
+        return;
+      }
+      this.lastProgrammaticSlot = null;
     }
     this.reset();
   }
@@ -472,10 +529,11 @@ export default class CrossF2LTrainer extends Vue {
         state = mapBaseOpsFacelets(state, this.baseOps);
       }
       const raw = await this.solver.solveCross(state, 5, 8);
-      // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化
+      // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化; 最多取 4 条
       this.solutions = (raw || [])
         .map((s: any) => (Array.isArray(s) ? s.join(" ") : String(s)).trim())
-        .filter((s: string) => s.length > 0 && !s.startsWith("error"));
+        .filter((s: string) => s.length > 0 && !s.startsWith("error"))
+        .slice(0, 4);
       // 默认选中第 1 个解法
       this.selectedSolution = this.solutions.length > 0 ? 0 : -1;
       if (this.solutions.length === 0) {

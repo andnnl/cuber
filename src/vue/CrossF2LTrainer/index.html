@@ -1,27 +1,4 @@
 <v-app>
-  <style>
-    .solution-item {
-      cursor: pointer;
-      user-select: none;
-      background: transparent;
-      border: 2px solid transparent;
-      transition: background 0.15s;
-      text-align: left;
-    }
-    .solution-item:hover {
-      background: rgba(0, 0, 0, 0.06);
-    }
-    .solution-selected {
-      background: #e3f2fd !important;
-      border-color: #2196f3;
-      color: #1565c0;
-      font-weight: bold;
-    }
-    .trainer-overlay-card {
-      background: rgba(255, 255, 255, 0.92) !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-    }
-  </style>
   <div v-resize="onResize" style="user-select: none; touch-action: none; display: flex; flex-direction: column; height: 100vh; position: relative;">
     <setting />
     <!-- 3D 魔方占据全屏 -->
@@ -29,17 +6,17 @@
       <viewport ref="viewport"></viewport>
     </div>
 
-    <!-- 底部悬浮面板: 打乱/槽位/解法/预判/操作 -->
+    <!-- 底部悬浮面板: 打乱/槽位/解法/预判/操作 (样式见 theme.ts, mounted 时注入) -->
     <div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: center;">
       <v-card
         class="trainer-overlay-card"
         :style="{width: Math.min(size * 10, width * 0.96) + 'px'}"
         style="border-radius: 12px 12px 0 0;"
       >
-        <v-card-text style="text-align: left; padding: 8px 12px 4px 12px;">
-          <!-- 单行: 标题 + 槽位切换 + 操作按钮 -->
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span :style="{fontSize: size * 0.32 + 'px'}" style="font-weight: bold; white-space: nowrap;">F2L预判</span>
+        <v-card-text style="text-align: left; padding: 6px 12px 2px 12px;">
+          <!-- 单行: 标题 + 槽位切换 + 操作按钮组 (窄屏时按钮组整体换行并右对齐, 播放保持在重置右侧) -->
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 4px;">
+            <span class="trainer-title" :style="{fontSize: size * 0.32 + 'px'}" style="white-space: nowrap;">F2L预判</span>
             <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'">
               <v-btn value="FL" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
               <v-btn value="FR" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
@@ -47,17 +24,19 @@
               <v-btn value="BR" :style="{height: size * 0.55 + 'px'}">BR</v-btn>
             </v-btn-toggle>
             <v-spacer></v-spacer>
-            <v-btn x-small @click="resetView" :style="{height: size * 0.55 + 'px'}">恢复视角</v-btn>
-            <v-btn x-small @click="rotateZ2" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">z2</v-btn>
-            <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y</v-btn>
-            <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
-            <v-btn x-small @click="rescramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">打乱</v-btn>
-            <v-btn x-small @click="reset" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">重置</v-btn>
-            <v-btn x-small color="primary" @click="play" :disabled="!canPlay" :style="{height: size * 0.55 + 'px'}">▶ 播放</v-btn>
+            <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px;">
+              <v-btn x-small @click="resetView" :style="{height: size * 0.55 + 'px'}">恢复视角</v-btn>
+              <v-btn x-small @click="rotateZ2" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">z2</v-btn>
+              <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y</v-btn>
+              <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
+              <v-btn x-small @click="rescramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">打乱</v-btn>
+              <v-btn x-small @click="reset" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">重置</v-btn>
+              <v-btn x-small color="primary" @click="play" :disabled="!canPlay" :style="{height: size * 0.55 + 'px'}">▶ 播放</v-btn>
+            </div>
           </div>
 
-          <!-- 自定义打乱输入 + 方案切换行 -->
-          <div style="display: flex; align-items: center; gap: 6px;">
+          <!-- 自定义打乱输入行 + 帮助按钮 -->
+          <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
             <v-text-field
               v-model="customScramble"
               placeholder="输入打乱公式, 如 R U R' F2 (回车或点应用)"
@@ -70,47 +49,75 @@
               style="flex: 1; min-width: 0; padding: 0; margin: 0;"
             ></v-text-field>
             <v-btn x-small @click="applyCustomScramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">应用</v-btn>
+            <v-btn x-small @click="helpDialog = true" :style="{height: size * 0.55 + 'px'}">?</v-btn>
           </div>
 
           <!-- 打乱信息行 -->
-          <div :style="{fontSize: size * 0.26 + 'px'}" style="color: #555; word-break: break-all;">
+          <div :style="{fontSize: size * 0.26 + 'px'}" style="color: #555; word-break: break-all; margin-top: 3px;">
             🎲 {{ scramble || "生成中..." }}
             <span style="color: #9c27b0; white-space: nowrap;"> 🎯 角块 {{ targetCornerName }} , 棱块 {{ targetEdgeName }} (紫色)</span>
             <span v-if="elapsedDisplay" style="color: #673ab7; white-space: nowrap;"> ⏱ {{ elapsedDisplay }}</span>
           </div>
 
-          <!-- 解法列表 (两列) -->
-          <div v-if="solutions.length > 0" style="display: flex; flex-wrap: wrap;">
+          <!-- 解法列表: 固定 4 槽位 (不足补空占位), 避免重算时面板高度跳动 -->
+          <div v-if="solutions.length > 0 || solving || pendingSolve" style="display: flex; flex-wrap: wrap;">
             <div
-              v-for="(s, i) of solutions"
-              :key="i"
-              @click="selectSolution(i)"
+              v-for="n in 4"
+              :key="n"
+              @click="n <= solutions.length && selectSolution(n - 1)"
               class="solution-item"
-              :class="selectedSolution === i ? 'solution-selected' : ''"
+              :class="selectedSolution === n - 1 ? 'solution-selected' : ''"
               :style="{
-                padding: size * 0.04 + 'px ' + size * 0.15 + 'px',
+                padding: size * 0.02 + 'px ' + size * 0.15 + 'px',
                 borderRadius: size * 0.08 + 'px',
                 fontSize: size * 0.26 + 'px',
                 width: '50%',
                 boxSizing: 'border-box',
+                visibility: n <= solutions.length ? 'visible' : 'hidden',
               }"
             >
-              {{ selectedSolution === i ? "●" : "○" }} {{ s }}
+              {{ selectedSolution === n - 1 ? "●" : "○" }} {{ solutions[n - 1] }}
             </div>
           </div>
-          <div v-else style="fontSize: size * 0.26 + 'px'">{{ solving ? "📐 正在计算 Cross 解法..." : "📐 暂无可用解法" }}</div>
+          <div v-else :style="{fontSize: size * 0.26 + 'px'}" style="color: #667;">{{ solving ? "📐 正在计算 Cross 解法..." : "📐 暂无可用解法" }}</div>
 
-          <!-- 预判状态行 -->
-          <div :style="{fontSize: size * 0.26 + 'px'}" class="mt-1">
-            🖱 {{ predictPrompt }}
+          <!-- 预判状态行 (结果内联追加在同一行) -->
+          <div :style="{fontSize: size * 0.26 + 'px'}" style="margin-top: 3px; display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px;">
+            <span style="color: #1976d2;">
+              🖱 预判: 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
+            </span>
+            <v-btn x-small text color="primary" @click="clearPrediction" style="padding: 0 4px; min-width: unset;">清除</v-btn>
+            <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'">{{ result }}</span>
           </div>
-          <div :style="{fontSize: size * 0.26 + 'px'}" style="color: #2196f3;">
-            预判: 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
-            <v-btn x-small text color="primary" @click="clearPrediction">清除</v-btn>
-          </div>
-          <div v-if="result" class="text-h6" style="text-align: center;">{{ result }}</div>
         </v-card-text>
       </v-card>
     </div>
+
+    <!-- 使用说明弹窗 -->
+    <v-dialog v-model="helpDialog" max-width="420">
+      <v-card class="help-dialog">
+        <v-card-title class="help-title">使用说明</v-card-title>
+        <v-card-text class="help-body" style="font-size: 13px; line-height: 1.8;">
+          <div><b>训练流程</b></div>
+          <div>1. 点「打乱」生成随机打乱 (或输入自定义公式后点「应用」)</div>
+          <div>2. 观察紫色目标块 (F2L 槽位的角块+棱块), 从解法列表选一条 Cross 解法</div>
+          <div>3. 点击你预测的目标块在 Cross 完成后会到达的位置 (先角块后棱块)</div>
+          <div>4. 点「▶ 播放」验证预判; 再次点击同一位置可取消预判</div>
+          <div style="margin-top: 8px;"><b>视角操作</b></div>
+          <div>· 拖动空白处: 临时旋转观察魔方 (不影响预判), 点「恢复视角」还原</div>
+          <div>· z2 / y / y': 切换基准视角, 解法按新视角重新生成, 预判块联动跟随</div>
+          <div>· 播放与判定始终在当前基准视角下进行</div>
+          <div style="margin-top: 8px;"><b>标记说明</b></div>
+          <div><span style="color: #9c27b0;">紫色框</span>: F2L 目标块当前位置 (角块+棱块)</div>
+          <div><span style="color: #00acc1;">青色框</span>: 你的预判位置 (锚定块, 跟随转动)</div>
+          <div style="margin-top: 8px;"><b>槽位</b></div>
+          <div>FL / FR / BL / BR: 切换要训练的 F2L 槽位</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn small text color="primary" @click="helpDialog = false">知道了</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </v-app>
