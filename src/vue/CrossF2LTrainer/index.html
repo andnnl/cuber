@@ -20,10 +20,10 @@
             <div class="sum-r1">
               <div class="grab" @click="setCollapsed(false)" title="展开面板"></div>
               <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'" style="flex: none;">
-                <v-btn value="FL" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
-                <v-btn value="FR" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
-                <v-btn value="BL" :style="{height: size * 0.55 + 'px'}">BL</v-btn>
-                <v-btn value="BR" :style="{height: size * 0.55 + 'px'}">BR</v-btn>
+                <v-btn value="FL" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">FL</v-btn>
+                <v-btn value="FR" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">FR</v-btn>
+                <v-btn value="BL" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">BL</v-btn>
+                <v-btn value="BR" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">BR</v-btn>
               </v-btn-toggle>
               <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y" :style="{height: size * 0.55 + 'px'}">y</v-btn>
               <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y'" :style="{height: size * 0.55 + 'px'}">y'</v-btn>

@@ -58,6 +58,12 @@ export const TRAINER_THEME_CSS = `
   color: #fff !important;
   font-weight: bold;
 }
+/* 收纳态摘要条内槽位按钮: 极窄宽度 (仅文字宽度+2px), 字号缩小 */
+.trainer-overlay-card .summary-bar .v-btn-toggle .v-btn {
+  padding: 0 2px !important;
+  min-width: unset !important;
+  font-size: 10px !important;
+}
 /* 打乱输入框: 浅灰圆角, 去掉 outlined 边框 */
 .trainer-overlay-card .v-text-field .v-input__control .v-input__slot {
   background: #f4f6fa !important;
