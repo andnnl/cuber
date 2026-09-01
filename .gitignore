@@ -3,3 +3,8 @@ node_modules/
 package-lock.json
 dist/*.map
 .playwright-mcp/
+.playwright-cli/
+src/vue/Menu/Direction/index.html
+*.log
+bun.lock
+preview-ui.html
