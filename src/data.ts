@@ -261,45 +261,16 @@ export const PRESET_PALETTES: { [key: string]: { [key: string]: string } } = {
   },
 };
 
-export const PRE_SCR_OPTIONS = [
-  { text: "(UF)", value: "" },
-  { text: "(UR) y", value: "y" },
-  { text: "(UB) y2", value: "y2" },
-  { text: "(UL) y'", value: "y'" },
-  { text: "(DF) z2", value: "z2" },
-  { text: "(DL) z2 y", value: "z2 y" },
-  { text: "(DB) z2 y2", value: "z2 y2" },
-  { text: "(DR) z2 y'", value: "z2 y'" },
-  { text: "(RF) z'", value: "z'" },
-  { text: "(RD) z' y", value: "z' y" },
-  { text: "(RB) z' y2", value: "z' y2" },
-  { text: "(RU) z' y'", value: "z' y'" },
-  { text: "(LF) z", value: "z" },
-  { text: "(LU) z y", value: "z y" },
-  { text: "(LB) z y2", value: "z y2" },
-  { text: "(LD) z y'", value: "z y'" },
-  { text: "(BU) x'", value: "x'" },
-  { text: "(BR) x' y", value: "x' y" },
-  { text: "(BD) x' y2", value: "x' y2" },
-  { text: "(BL) x' y'", value: "x' y'" },
-  { text: "(FD) x", value: "x" },
-  { text: "(FR) x y", value: "x y" },
-  { text: "(FU) x y2", value: "x y2" },
-  { text: "(FL) x y'", value: "x y'" },
-];
-
 export class PaletteData {
   private world: World;
   private default: string;
   private values: {
     version: string;
     preset?: string;
-    preScr?: string;
     colors: { [key: string]: string };
   } = {
     version: "0.3",
     preset: "默认",
-    preScr: "",
     colors: {},
   };
 
@@ -316,16 +287,6 @@ export class PaletteData {
 
   setPreset(name: string): void {
     this.values.preset = name;
-  }
-
-  // 当前定向方案 (如 "z2 y'")
-  get preScr(): string {
-    return this.values.preScr || "";
-  }
-
-  setPreScr(value: string): void {
-    this.values.preScr = value;
-    this.save();
   }
 
   // 应用预设配色: 写入存档并刷新显示

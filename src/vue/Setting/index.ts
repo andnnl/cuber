@@ -5,7 +5,6 @@ import Control from "../Menu/Control";
 import Appear from "../Menu/Appear";
 import Camera from "../Menu/Camera";
 import Palette from "../Menu/Palette";
-import Direction from "../Menu/Direction";
 import About from "../Menu/About";
 
 export class SettingItem {
@@ -32,7 +31,6 @@ export class SettingItem {
     camera: Camera,
     control: Control,
     palette: Palette,
-    direction: Direction,
     about: About,
   },
 })

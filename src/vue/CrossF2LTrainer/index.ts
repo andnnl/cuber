@@ -363,15 +363,6 @@ export default class CrossF2LTrainer extends Vue {
     );
   }
 
-  private directionListener = (): void => {
-    if (!this.scramble || this.phase === "playing") {
-      return;
-    }
-    // 定向变更: 先重建基准姿态 (baseOps = 新 preScr), 再按新姿态重置求解
-    this.syncBaseOrientationFromPalette();
-    this.reset();
-  };
-
   mounted(): void {
     // 注入面板主题样式 (模板内 <style> 会被编译器剥离, 只能动态注入)
     if (!document.getElementById(TRAINER_STYLE_ID)) {
@@ -380,7 +371,6 @@ export default class CrossF2LTrainer extends Vue {
       style.textContent = TRAINER_THEME_CSS;
       document.head.appendChild(style);
     }
-    window.addEventListener("direction-change", this.directionListener as EventListener);
     (window as any).__crossF2L = this; // 临时调试
     this.resize();
     this.loop();
@@ -395,16 +385,12 @@ export default class CrossF2LTrainer extends Vue {
     this.$nextTick(async () => {
       this.preferance.refresh();
       this.palette.refresh();
-      // 定向 (preScr) 并入基准姿态: 之后的求解/槽位映射/预判跟随都基于含定向的 baseOps
-      this.syncBaseOrientationFromPalette();
       await this.initSolver();
       this.rescramble();
     });
   }
 
-  beforeDestroy(): void {
-    window.removeEventListener("direction-change", this.directionListener as EventListener);
-  }
+  beforeDestroy(): void {}
 
   private async initSolver(): Promise<void> {
     try {
@@ -424,28 +410,6 @@ export default class CrossF2LTrainer extends Vue {
     } catch (e) {
       console.error("[CrossF2LTrainer] WASM 求解器初始化失败, 将使用内置求解器", e);
     }
-  }
-
-  // 解析定向公式 (如 "z2 y'") 为基准姿态操作序列, 并入 baseOps 参与完整姿态链路:
-  // 求解字符映射 (mapBaseOpsFacelets) / 槽位逆映射 / 预判跟随全部自动生效,
-  // 保证十字永远做在「当前视角底面」而非「字符 D 面」
-  // (此前 preScr 直接追加进打乱公式物理翻转魔方却不计入 baseOps, 导致白底视角解出黄十字)
-  private parsePreScr(preScr: string): BaseOp[] {
-    const ops: BaseOp[] = [];
-    for (const token of (preScr || "").trim().split(/\s+/)) {
-      const m = token.match(/^([xyz])(2|')?$/);
-      if (!m) {
-        continue;
-      }
-      const times = m[2] === "2" ? 2 : m[2] === "'" ? -1 : 1;
-      ops.push({ axis: m[1] as "x" | "y" | "z", times });
-    }
-    return ops;
-  }
-
-  // 同步定向到基准姿态: 定向设置变更后调用 (mounted 初始化 / direction-change 事件)
-  private syncBaseOrientationFromPalette(): void {
-    this.baseOps = this.parsePreScr(this.palette.preScr);
   }
 
   private async generateWasmTable(): Promise<void> {
@@ -479,8 +443,8 @@ export default class CrossF2LTrainer extends Vue {
     this.startRound(exp);
   }
 
-  // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 重放 baseOps (含定向) 恢复基准视角并求解
-  // (基准视角跨轮保留: 重新打乱不重置 z2/y/y' 与定向叠加的姿态)
+  // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 重放 baseOps 恢复基准视角并求解。
+  // 打乱固定在标准姿态 (黄底绿前) 进行; baseOps 仅由 z2/y/y' 按钮产生且跨轮保留
   private startRound(exp: string): void {
     this.pendingSolve = false;
     tweener.finish();
@@ -596,11 +560,10 @@ export default class CrossF2LTrainer extends Vue {
   // 调用 Cross 求解器获取多个最优解法
   // 求解器为 "字符=面" 语义: 永远求「输入串中字符 D 的棱归 D 位」, 解法面名与输入串坐标一致。
   //   - 标准姿态 (baseOps 为空): 打乱态直接求解, 解基准视角底面的十字
-  //   - 非标准姿态 (定向 preScr / z2/y/y' 按钮后): 姿态为 baseOps 复合 (定向已并入 baseOps,
-  //     z2 与 y 不对易, 共轭置换随序列变化)。
+  //   - 非标准姿态 (z2/y/y' 按钮后): 姿态为 baseOps 复合 (z2 与 y 不对易, 共轭置换随序列变化)。
   //     求解前先按复合置换做字符映射 (mapBaseOpsFacelets), 映射后恰为标准中心串;
   //     求解器把「D 字符的棱」归到基准视角的物理底位 —— 即当前视角的底面色,
-  //     定向 z2 翻转后底面为白时解的就是白十字 (而非字符 D 的默认黄色)。
+  //     z2 翻转后底面为白时解的就是白十字 (而非字符 D 的默认黄色)。
   //     注意解法面名是姿态系 (当前观察者视角) 层名: 用户手动执行 (在当前视角下按解法列表转)
   //     直接正确; play() 自动播放同样直接按面名执行 (引擎 twist 为位置语义, 基准姿态下
   //     世界层转与手动执行语义一致, 见 play 注释)。
@@ -799,7 +762,7 @@ export default class CrossF2LTrainer extends Vue {
     this.phase = "judged";
     this.stopTimer(false); // 动画播放完毕停表, 保留用时显示
     // 目标 F2L 块 (按还原位置识别): initials 中还原位为槽位索引的块
-    // 旧的「白底方案」已改为「定向」: 这里仍按基准姿态后的槽位索引判定目标块
+    // 按基准姿态后的槽位索引判定目标块
     const targetCorner = this.world.cube.initials[this.mappedCornerIndex];
     const targetEdge = this.world.cube.initials[this.mappedEdgeIndex];
     // cubelet.index 在转层后始终维护为当前位置索引 (group.ts 转层结束时回写)
