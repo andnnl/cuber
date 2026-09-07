@@ -48,7 +48,7 @@
               <span class="sum-pred" :style="{color: predictedCornerName || predictedEdgeName ? '#1976d2' : '#b0b6c0'}">
                 🖱 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
               </span>
-              <span v-if="elapsedDisplay" class="sum-timer">⏱ {{ elapsedDisplay }}</span>
+              <span v-if="elapsedText" class="sum-timer">⏱ {{ elapsedText }}</span>
               <v-btn v-if="predictedCornerName || predictedEdgeName" x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
               <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result.indexOf('✅') >= 0 ? "✔" : "✘" }}</span>
             </div>
@@ -123,7 +123,7 @@
           <div :style="{fontSize: size * 0.24 + 'px'}" style="margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px;">
             <span style="color: #1976d2;">
               🖱 预判: 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
-              <span v-if="elapsedDisplay" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedDisplay }}</span>
+              <span v-if="elapsedText" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedText }}</span>
             </span>
             <v-btn x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
             <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result.indexOf('✅') >= 0 ? "✔" : "✘" }}</span>

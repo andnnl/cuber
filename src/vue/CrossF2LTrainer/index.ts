@@ -348,8 +348,13 @@ export default class CrossF2LTrainer extends Vue {
     return "预判完成, 可继续点击调整预判 (再次点击同一位置取消), 选择解法后即可播放 Cross";
   }
 
-  // 计时展示 (实时刷新): mm:ss.d
-  get elapsedDisplay(): string {
+  // 计时展示文本 (响应式 data): 每帧由 loop 更新。
+  // 不能用 computed —— running 期间依赖 (timerStart 等) 不再变化, computed 缓存永不失效,
+  // 显示会冻结在启动时刻的值
+  private elapsedText = "";
+
+  // 计算当前计时显示: mm:ss.d
+  private computeElapsed(): string {
     if (this.timerStart <= 0) {
       return "";
     }
@@ -383,6 +388,12 @@ export default class CrossF2LTrainer extends Vue {
     (window as any).__crossF2L = this; // 临时调试
     this.resize();
     this.loop();
+    // 计时显示兜底刷新 (切后台时 rAF 暂停, interval 仍触发)
+    this.timerTick = window.setInterval(() => {
+      if (this.running) {
+        this.elapsedText = this.computeElapsed();
+      }
+    }, 250);
     this.world.callbacks.push(() => this.onAnimationEnd());
     // 锁定手动转层, 防止训练过程中误操作破坏状态 (点击选块不受影响)
     this.world.controller.lock = true;
@@ -399,7 +410,12 @@ export default class CrossF2LTrainer extends Vue {
     });
   }
 
-  beforeDestroy(): void {}
+  beforeDestroy(): void {
+    if (this.timerTick !== null) {
+      window.clearInterval(this.timerTick);
+      this.timerTick = null;
+    }
+  }
 
   private async initSolver(): Promise<void> {
     try {
@@ -465,6 +481,7 @@ export default class CrossF2LTrainer extends Vue {
     this.selectedSolution = -1;
     this.phase = "idle";
     this.stopTimer(true);
+    this.startTimer(); // 打乱后计时立即开始
     clearAllHighlights(this.world);
     this.scramble = exp;
     this.world.cube.twister.setup(exp);
@@ -506,6 +523,7 @@ export default class CrossF2LTrainer extends Vue {
     this.selectedSolution = -1;
     this.phase = "idle";
     this.stopTimer(true);
+    this.startTimer(); // 重置后计时重新开始
     clearAllHighlights(this.world);
     this.world.cube.twister.setup(this.scramble);
     // 重置回打乱态后同样重放基准视角旋转
@@ -524,7 +542,18 @@ export default class CrossF2LTrainer extends Vue {
     if (clear) {
       this.timerStart = 0;
       this.timerStop = 0;
+      this.elapsedText = "";
+    } else {
+      // 停表后固化最终用时显示
+      this.elapsedText = this.computeElapsed();
     }
+  }
+
+  // 启动计时 (打乱/重置后立即开始, 而非首次预判点击时)
+  private startTimer(): void {
+    this.timerStart = performance.now();
+    this.timerStop = 0;
+    this.running = true;
   }
 
   // 清除预判 (颜色 B), 允许重新点选
@@ -746,12 +775,6 @@ export default class CrossF2LTrainer extends Vue {
       this.restoreTimer = null;
       this.restoreView();
     }, 1000);
-    // 首次预判点击时启动计时
-    if (!this.running && this.timerStart <= 0) {
-      this.timerStart = performance.now();
-      this.timerStop = 0;
-      this.running = true;
-    }
     if (type === "corner") {
       if (this.predictedCornerIndex === base) {
         // 再次点击同一位置 (基准坐标) → 取消预判
@@ -901,10 +924,15 @@ export default class CrossF2LTrainer extends Vue {
   loop(): void {
     requestAnimationFrame(this.loop.bind(this));
     tickHighlights();
-    // 计时运行中每帧刷新显示
+    // 计时运行中每帧刷新显示文本
     if (this.running) {
+      this.elapsedText = this.computeElapsed();
       this.$forceUpdate();
     }
     this.viewport?.draw();
   }
+
+  // 计时显示兜底刷新: 页面切后台时 rAF 被浏览器暂停 (loop 不执行),
+  // interval 仍以节流频率触发, 保证回来时显示连续; 前台与 rAF 重复赋值无副作用
+  private timerTick: any = null;
 }
