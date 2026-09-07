@@ -17,6 +17,14 @@ import { TRAINER_THEME_CSS } from "./theme";
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
 const TRAINER_STYLE_ID = "crossf2l-trainer-theme";
 
+// 取转动的逆动作: R→R', R'→R, R2→R2 (单步回退用)
+function invertMove(token: string): string {
+  if (token.endsWith("2")) {
+    return token;
+  }
+  return token.endsWith("'") ? token.slice(0, -1) : token + "'";
+}
+
 @Component({
   template: require("./index.html"),
   components: {
@@ -245,6 +253,7 @@ export default class CrossF2LTrainer extends Vue {
     this.world.dirty = true;
     // 旧解法基于旋转前坐标系, 立即从列表移除防止误选; 动画结束后重新求解
     this.solutions = [];
+    this.stepIndex = 0;
     this.selectedSolution = -1;
     this.pendingSolve = true;
     // 槽位按钮跟随物理块: FL/FR/BL/BR 按钮语义基于当前固化视角的屏幕四下槽位,
@@ -452,6 +461,7 @@ export default class CrossF2LTrainer extends Vue {
     this.clearSelection();
     this.result = "";
     this.solutions = [];
+    this.stepIndex = 0;
     this.selectedSolution = -1;
     this.phase = "idle";
     this.stopTimer(true);
@@ -492,6 +502,7 @@ export default class CrossF2LTrainer extends Vue {
     this.clearSelection();
     this.result = "";
     this.solutions = [];
+    this.stepIndex = 0;
     this.selectedSolution = -1;
     this.phase = "idle";
     this.stopTimer(true);
@@ -519,8 +530,9 @@ export default class CrossF2LTrainer extends Vue {
   // 清除预判 (颜色 B), 允许重新点选
   clearPrediction(): void {
     this.clearSelection();
-    if (this.phase === "judged") {
-      // 重新预判 = 回到 idle, 但槽位实际块已变动, 需要还原到打乱状态重新来
+    if (this.phase === "judged" || this.stepIndex > 0) {
+      // 重新预判 = 回到 idle; 若已在解法中途 (judged/单步已执行), 槽位实际块已变动,
+      // 需要还原到打乱状态重新来
       this.reset();
       return;
     }
@@ -595,23 +607,26 @@ export default class CrossF2LTrainer extends Vue {
     }
   }
 
-  // 选择解法 (点击行高亮)
+  // 选择解法 (点击行高亮); 单步播放进行中禁止换解法 (物理态已在旧解法中途)
   selectSolution(i: number): void {
-    if (this.phase !== "idle") {
+    if (this.phase !== "idle" || this.stepIndex > 0) {
       return;
     }
     this.selectedSolution = i;
   }
 
-  // 播放选中的 Cross 解法动画
-  play(): void {
-    if (!this.canPlay) {
-      return;
-    }
-    // 若平滑还原动画仍在进行, 先立即完成; 同时排空 twister 队列确保所有层已解锁
-    this.world.cube.twister.finish();
-    this.restoreView(true);
-    // 冻结预判覆层: 块锚定 → 位置绑定 (播放时青色框固定在预判位置, 不随层转动)
+  // 当前选中解法的动作序列
+  get currentSolutionSteps(): string[] {
+    return (this.solutions[this.selectedSolution] || "")
+      .split(/\s+/)
+      .filter((t) => t.length > 0);
+  }
+
+  // 单步播放进度: 已执行的动作数 (0 = 未开始); 播放/重算/重置时归零
+  private stepIndex = 0;
+
+  // 冻结预判覆层: 块锚定 → 位置绑定 (播放/单步时青色框固定在预判位置, 不随层转动)
+  private freezePredictionOverlay(): void {
     if (this.predictedCornerPiece) {
       restoreAnchor(this.world, this.predictedCornerPiece);
       if (this.predictedCornerIndex !== null) {
@@ -626,6 +641,22 @@ export default class CrossF2LTrainer extends Vue {
       }
       this.predictedEdgePiece = null;
     }
+  }
+
+  // 播放前置准备: 排空队列/完成在飞动画/抵消临时拖拽
+  private preparePlayback(): void {
+    this.world.cube.twister.finish();
+    this.restoreView(true);
+  }
+
+  // 播放选中的 Cross 解法动画 (从单步进度处继续播放剩余部分)
+  play(): void {
+    if (!this.canPlay) {
+      return;
+    }
+    this.preparePlayback();
+    // 冻结预判覆层
+    this.freezePredictionOverlay();
     this.result = "";
     this.phase = "playing";
     // 直接在当前基准视角下执行解法, 全程不发生整体旋转 (视角保持红前等基准姿态)。
@@ -634,8 +665,57 @@ export default class CrossF2LTrainer extends Vue {
     // τ_sol∘R∘打乱态; 与「逆放 R⁻¹ → 执行 C⁻¹ 改名序列 → 重放 R」的净效果 R∘τ_{C⁻¹(sol)}∘打乱态
     // 数学等价 (位置语义共轭 R⁻¹∘τ_f∘R = τ_{R⁻¹(f)}, 且 R⁻¹ 层名映射 = C⁻¹)。
     // 解法面名本就是姿态系 (当前观察者视角) 层名, 与用户手动执行语义一致。
-    const sol = this.solutions[this.selectedSolution];
-    this.world.cube.twister.push(sol);
+    const tokens = this.currentSolutionSteps;
+    this.stepIndex = tokens.length; // 动画结束回调按进度判定
+    this.world.cube.twister.push(tokens.join(" "));
+  }
+
+  // 单步播放: 执行选中解法的下一个动作 (带动画); 播完全部动作且预判完成时自动判定
+  stepForward(): void {
+    if (this.phase !== "idle") {
+      return;
+    }
+    const tokens = this.currentSolutionSteps;
+    if (this.stepIndex >= tokens.length) {
+      return;
+    }
+    this.preparePlayback();
+    // 首步时冻结预判覆层 (后续步保持位置绑定)
+    if (this.stepIndex === 0) {
+      this.freezePredictionOverlay();
+    }
+    this.result = "";
+    this.phase = "playing";
+    this.world.cube.twister.push(tokens[this.stepIndex]);
+    this.stepIndex++;
+  }
+
+  // 回退一步: 反向执行已播放的最后一个动作 (带动画), 预判覆层保持/转回位置绑定
+  stepBack(): void {
+    if (this.phase !== "idle" && this.phase !== "judged") {
+      return;
+    }
+    const tokens = this.currentSolutionSteps;
+    if (this.stepIndex <= 0 || this.stepIndex > tokens.length) {
+      return;
+    }
+    this.preparePlayback();
+    // judged 态覆层为块锚定: 转回位置绑定, 回退动画期间青色框固定在预判位置不随块移动
+    this.freezePredictionOverlay();
+    this.result = "";
+    this.phase = "playing";
+    this.world.cube.twister.push(invertMove(tokens[this.stepIndex - 1]));
+    this.stepIndex--;
+  }
+
+  // 单步前进可用性 (模板绑定): idle 且还有剩余动作
+  get canStepForward(): boolean {
+    return this.phase === "idle" && this.stepIndex < this.currentSolutionSteps.length;
+  }
+
+  // 回退可用性 (模板绑定): 已有已执行动作且不在动画中
+  get canStepBack(): boolean {
+    return (this.phase === "idle" || this.phase === "judged") && this.stepIndex > 0;
   }
 
   // 用户在 3D 场景中点击选块 (预判: 点击某个位置, 表示预测目标块 Cross 后会到达这里)
@@ -753,8 +833,19 @@ export default class CrossF2LTrainer extends Vue {
       this.restoreView(true);
     }
     // 播放全程未发生整体旋转 (基准视角下直接执行解法), 物理仍处于基准姿态,
-    // 判定索引与预判点击时同一坐标系
-    this.judge();
+    // 判定索引与预判点击时同一坐标系。
+    // 全量播放时 stepIndex = 总步数; 单步/回退时 stepIndex 指向下一待执行步 (< 总步数):
+    // 仅全部动作播完且预判完成时判定, 否则回 idle 等待下一次单步
+    const tokens = this.currentSolutionSteps;
+    if (tokens.length > 0 && this.stepIndex >= tokens.length) {
+      if (this.predictedCornerIndex !== null && this.predictedEdgeIndex !== null) {
+        this.judge();
+      } else {
+        this.phase = "idle";
+      }
+    } else {
+      this.phase = "idle";
+    }
   }
 
   // 自动判定: 用户预判的目标块位置 vs Cross 后目标块的实际位置
