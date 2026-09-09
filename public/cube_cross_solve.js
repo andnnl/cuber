@@ -1,5 +1,25 @@
 let wasm;
 
+const heap = new Array(128).fill(undefined);
+
+heap.push(undefined, null, true, false);
+
+function getObject(idx) { return heap[idx]; }
+
+let heap_next = heap.length;
+
+function dropObject(idx) {
+    if (idx < 132) return;
+    heap[idx] = heap_next;
+    heap_next = idx;
+}
+
+function takeObject(idx) {
+    const ret = getObject(idx);
+    dropObject(idx);
+    return ret;
+}
+
 const cachedTextDecoder = (typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8', { ignoreBOM: true, fatal: true }) : { decode: () => { throw Error('TextDecoder not available') } } );
 
 if (typeof TextDecoder !== 'undefined') { cachedTextDecoder.decode(); };
@@ -18,12 +38,6 @@ function getStringFromWasm0(ptr, len) {
     return cachedTextDecoder.decode(getUint8Memory0().subarray(ptr, ptr + len));
 }
 
-const heap = new Array(128).fill(undefined);
-
-heap.push(undefined, null, true, false);
-
-let heap_next = heap.length;
-
 function addHeapObject(obj) {
     if (heap_next === heap.length) heap.push(heap.length + 1);
     const idx = heap_next;
@@ -31,20 +45,6 @@ function addHeapObject(obj) {
 
     heap[idx] = obj;
     return idx;
-}
-
-function getObject(idx) { return heap[idx]; }
-
-function dropObject(idx) {
-    if (idx < 132) return;
-    heap[idx] = heap_next;
-    heap_next = idx;
-}
-
-function takeObject(idx) {
-    const ret = getObject(idx);
-    dropObject(idx);
-    return ret;
 }
 
 let WASM_VECTOR_LEN = 0;
@@ -71,7 +71,7 @@ function getInt32Memory0() {
 export function load_table_from_bytes(data) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export_0);
         const len0 = WASM_VECTOR_LEN;
         wasm.load_table_from_bytes(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
@@ -104,7 +104,7 @@ export function get_table_bytes() {
             throw takeObject(r2);
         }
         var v1 = getArrayU8FromWasm0(r0, r1).slice();
-        wasm.__wbindgen_free(r0, r1 * 1, 1);
+        wasm.__wbindgen_export_1(r0, r1 * 1, 1);
         return v1;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
@@ -196,7 +196,7 @@ function passStringToWasm0(arg, malloc, realloc) {
 export function solve_multi(scramble, max_solutions) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(scramble, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr0 = passStringToWasm0(scramble, wasm.__wbindgen_export_0, wasm.__wbindgen_export_2);
         const len0 = WASM_VECTOR_LEN;
         wasm.solve_multi(retptr, ptr0, len0, max_solutions);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
@@ -228,6 +228,41 @@ export function get_table_stats() {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.get_table_stats(retptr);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* WASM: 求解 XCross（底面十字 + 一组 F2L，最优解）
+*
+* # 参数
+* - `scramble`: 打乱公式，如 "R U R' F"（也支持 54 字符完整状态）
+* - `slot`: F2L 槽位，"FR" / "FL" / "BR" / "BL" / "ALL"（ALL 时返回所有槽位的最优解）
+* - `max_solutions`: 最多返回的解法数量
+*
+* # 返回
+* JSON 数组: [{ "moves": ["R", "U", ...], "slot": "FR", "length": 7 }, ...]
+* @param {string} scramble
+* @param {string} slot
+* @param {number} max_solutions
+* @returns {any}
+*/
+export function solve_xcross(scramble, slot, max_solutions) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(scramble, wasm.__wbindgen_export_0, wasm.__wbindgen_export_2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(slot, wasm.__wbindgen_export_0, wasm.__wbindgen_export_2);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.solve_xcross(retptr, ptr0, len0, ptr1, len1, max_solutions);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         var r2 = getInt32Memory0()[retptr / 4 + 2];
@@ -274,10 +309,6 @@ async function __wbg_load(module, imports) {
 function __wbg_get_imports() {
     const imports = {};
     imports.wbg = {};
-    imports.wbg.__wbindgen_error_new = function(arg0, arg1) {
-        const ret = new Error(getStringFromWasm0(arg0, arg1));
-        return addHeapObject(ret);
-    };
     imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
         takeObject(arg0);
     };
@@ -285,8 +316,16 @@ function __wbg_get_imports() {
         const ret = typeof(getObject(arg0)) === 'string';
         return ret;
     };
+    imports.wbg.__wbindgen_error_new = function(arg0, arg1) {
+        const ret = new Error(getStringFromWasm0(arg0, arg1));
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbindgen_string_new = function(arg0, arg1) {
         const ret = getStringFromWasm0(arg0, arg1);
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_object_clone_ref = function(arg0) {
+        const ret = getObject(arg0);
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_set_f975102236d3c502 = function(arg0, arg1, arg2) {
@@ -294,13 +333,17 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_String_b9412f8799faab3e = function(arg0, arg1) {
         const ret = String(getObject(arg1));
-        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_export_0, wasm.__wbindgen_export_2);
         const len1 = WASM_VECTOR_LEN;
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
     imports.wbg.__wbindgen_number_new = function(arg0) {
         const ret = arg0;
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_bigint_from_u64 = function(arg0) {
+        const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_new_16b304a2cfa7ff4a = function() {

@@ -55,6 +55,43 @@ export default class CrossF2LTrainer extends Vue {
   private selectedSolution = -1;
   private solving = false;
 
+  // 求解模式: cross = 仅十字; xcross = 十字 + 求解槽位一组 F2L (仅 WASM 支持)。
+  // xcross 解法依赖求解槽位 solveSlot, 切换需重算 (cross 与槽位无关)
+  private solveMode: "cross" | "xcross" =
+    window.localStorage.getItem("trainerSolveMode") === "xcross" ? "xcross" : "cross";
+
+  // XCross 求解槽位 (调接口求解用的 F2L 槽位, 与预判槽位 slot 解耦):
+  // XCross 解法会一并还原该槽位一组 F2L, 该槽位不可再作为预判目标 (按钮灰显)
+  private solveSlot: string = ["FL", "FR", "BL", "BR"].indexOf(
+    window.localStorage.getItem("trainerSolveSlot") || ""
+  ) >= 0
+    ? (window.localStorage.getItem("trainerSolveSlot") as string)
+    : "FR";
+
+  // XCross 模式下求解槽位已被解法还原, 相同的预判槽位按钮灰显禁用
+  isSlotDisabled(name: string): boolean {
+    return this.solveMode === "xcross" && name === this.solveSlot;
+  }
+
+  // 预判槽位与求解槽位冲突时 (XCross 已还原该槽位 F2L, 无法预判),
+  // 程序性切到下一可用槽位 (lastProgrammaticSlot 机制避免 onSlotChange 重复 reset)
+  private avoidSlotConflict(): void {
+    if (this.solveMode !== "xcross" || this.slot !== this.solveSlot) {
+      return;
+    }
+    const order = ["FL", "FR", "BL", "BR"];
+    this.lastProgrammaticSlot = order[(order.indexOf(this.solveSlot) + 1) % order.length];
+    this.slot = this.lastProgrammaticSlot;
+  }
+
+  // 求解模式下拉框选项
+  private get solveModeItems(): { text: string; value: string }[] {
+    return [
+      { text: "Cross", value: "cross" },
+      { text: "XCross", value: "xcross" },
+    ];
+  }
+
   // 使用说明弹窗
   private helpDialog = false;
 
@@ -405,6 +442,8 @@ export default class CrossF2LTrainer extends Vue {
     this.world.controller.wholeTurnCallbacks.push((axis, times) => this.onWholeTurn(axis, times));
     // 注册 3D 场景点击拾取, 用于预判选块
     this.world.controller.taps.push((index) => this.onTap(index));
+    // 初始化: localStorage 恢复的预判/求解槽位可能相同 (XCross 已还原该槽位, 不可预判), 程序性错开
+    this.avoidSlotConflict();
     // 初始化 WASM 求解器 (失败时 Solver 内部自动回退到 TS 求解器)
     this.$nextTick(async () => {
       this.preferance.refresh();
@@ -517,6 +556,7 @@ export default class CrossF2LTrainer extends Vue {
 
   // 切换槽位: 清除旧高亮与预判, 更新为新槽位的目标块高亮。
   // 走 reset() 但十字解法与槽位无关, 不重算 (见 reset 注释)。
+  // XCross 亦不在此重算: 求解槽位已解耦为 solveSlot, 预判槽位切换不影响解法。
   // 注意: Vue @Watch 回调在 nextTick 异步触发, 不能用瞬时布尔标志区分程序性更新,
   // 需记录程序性设置的槽位名, watcher 触发时比对消费
   private lastProgrammaticSlot: string | null = null;
@@ -534,6 +574,31 @@ export default class CrossF2LTrainer extends Vue {
       }
       this.lastProgrammaticSlot = null;
     }
+    this.reset();
+  }
+
+  @Watch("solveSlot")
+  onSolveSlotChange(): void {
+    window.localStorage.setItem("trainerSolveSlot", this.solveSlot);
+    if (this.phase === "playing") {
+      return;
+    }
+    // 求解槽位改变: 若与当前预判槽位冲突 (该槽位 F2L 已被还原), 先程序性错开
+    this.avoidSlotConflict();
+    // 解法语义改变 (xcross 含求解槽位 F2L): 清空解法重算 (reset 内检测到空会重新求解)
+    this.solutions = [];
+    this.reset();
+  }
+
+  @Watch("solveMode")
+  onSolveModeChange(): void {
+    window.localStorage.setItem("trainerSolveMode", this.solveMode);
+    if (this.phase === "playing") {
+      return;
+    }
+    // 模式改变 = 解法语义改变 (xcross 含求解槽位 F2L): 冲突错开后清空解法/预判/判定并重算
+    this.avoidSlotConflict();
+    this.solutions = [];
     this.reset();
   }
 
@@ -644,7 +709,12 @@ export default class CrossF2LTrainer extends Vue {
       if (this.baseOps.length > 0) {
         state = mapBaseOpsFacelets(state, this.baseOps);
       }
-      const raw = await this.solver.solveCross(state, 5, 8);
+      // xcross 求「十字 + 求解槽位 solveSlot 一组 F2L」, 槽位名与映射后状态同属基准视角坐标系
+      // (solveSlot 与预判槽位 slot 解耦, 见 solveSlot 注释)
+      const raw =
+        this.solveMode === "xcross"
+          ? await this.solver.solveXCross(state, this.solveSlot, 5)
+          : await this.solver.solveCross(state, 5, 8);
       // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化; 最多取 4 条
       this.solutions = (raw || [])
         .map((s: any) => (Array.isArray(s) ? s.join(" ") : String(s)).trim())
@@ -653,7 +723,10 @@ export default class CrossF2LTrainer extends Vue {
       // 默认选中第 1 个解法
       this.selectedSolution = this.solutions.length > 0 ? 0 : -1;
       if (this.solutions.length === 0) {
-        this.result = "十字已完成或求解失败, 请点击「重新打乱」";
+        this.result =
+          this.solveMode === "xcross"
+            ? "十字/槽位已完成或求解失败, 请点击「重新打乱」"
+            : "十字已完成或求解失败, 请点击「重新打乱」";
       }
     } catch (e) {
       console.error("[CrossF2LTrainer] 求解失败", e);

@@ -73,6 +73,24 @@ export const TRAINER_THEME_CSS = `
 .trainer-overlay-card .v-text-field fieldset {
   border: none !important;
 }
+/* 求解模式下拉框 (原生 select, 与面板极简按钮风格一致) */
+.trainer-overlay-card .solve-mode-select {
+  flex: none;
+  border: 1px solid #cfd6e4;
+  border-radius: 4px;
+  background: #f4f6fa;
+  color: #3b4bd8;
+  font-weight: bold;
+  padding: 0 1px;
+  margin: 0;
+  outline: none;
+  cursor: pointer;
+  appearance: auto;
+}
+.trainer-overlay-card .solve-mode-select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 /* 解法项: 浅底卡片感 + 选中靛蓝 */
 .trainer-overlay-card .solution-item {
   background: #f7f9fc;

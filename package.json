@@ -1,7 +1,7 @@
 {
   "name": "cuber",
   "description": "Rubik's Cube toolbox using Javascript for 100% client side single page application using Vue and Vuetify.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "huazhechen",
   "license": "MIT",
   "private": true,

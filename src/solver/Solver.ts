@@ -435,6 +435,38 @@ export default class Solver {
   }
 
   /**
+   * 求解 XCross (底面十字 + 指定槽位的一组 F2L, 最优解) —— 仅 WASM 支持:
+   * XCross 搜索深度达 11 步, JS BFS 暴搜不可行, 无内置回退。
+   * 坐标语义与 solveCross 一致: 传入状态应为基准视角字符映射后的标准中心串,
+   * slot 为基准视角下的槽位名 (FL/FR/BL/BR)。
+   * @returns Array of solution strings, each solution is a space-separated list of moves
+   */
+  async solveXCross(facelets: string, slot: string, maxSolutions: number = 5): Promise<string[]> {
+    const valid = this.cc.deserialize(facelets);
+    if (!valid) {
+      return ["error: invalid cube"];
+    }
+    const verify = this.cc.verify();
+    if (verify.length > 0) {
+      return ["error: " + verify];
+    }
+
+    if (!(WasmSolver.isWasmLoaded() && WasmSolver.isTableLoaded())) {
+      return ["error: xcross 需要 WASM 求解器"];
+    }
+
+    try {
+      const solutions = await WasmSolver.solveXCross(facelets, slot, maxSolutions);
+      return (solutions || [])
+        .map((s: any) => (Array.isArray(s.moves) ? s.moves.join(" ") : ""))
+        .filter((s: string) => s.length > 0);
+    } catch (error) {
+      console.error("[XCross 求解] 失败:", error);
+      return ["error: xcross 求解失败"];
+    }
+  }
+
+  /**
    * 将 CubieCube 状态转换为打乱公式
    * @param cube CubieCube 对象
    * @returns 打乱公式字符串

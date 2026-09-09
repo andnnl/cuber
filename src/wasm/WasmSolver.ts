@@ -102,6 +102,32 @@ export async function solveMulti(scramble: string, maxSolutions: number = 5): Pr
   }
 }
 
+export interface XCrossSolution {
+  moves: string[];
+  slot: string;
+  length: number;
+}
+
+export async function solveXCross(scramble: string, slot: string, maxSolutions: number = 5): Promise<XCrossSolution[]> {
+  if (!isWasmLoaded()) {
+    throw new Error('WASM 模块未初始化');
+  }
+
+  if (!isTableLoaded()) {
+    throw new Error('搜索表未加载，请先调用 generateTable 或 loadTableFromBytes');
+  }
+
+  try {
+    console.log(`[WASM] 求解 XCross, 状态 ${scramble}, 槽位 ${slot}`);
+    const solutions = await wasmModule.solve_xcross(scramble, slot, maxSolutions);
+    console.log(`[WASM] XCross 求解完成，找到 ${solutions.length} 个解法`);
+    return solutions;
+  } catch (error) {
+    console.error('[WASM] XCross 求解失败:', error);
+    throw error;
+  }
+}
+
 export async function getTableStats(): Promise<Record<string, number>> {
   if (!isWasmLoaded()) {
     throw new Error('WASM 模块未初始化');

@@ -37,6 +37,22 @@ export function is_table_loaded(): boolean;
 * @returns {any}
 */
 export function get_table_stats(): any;
+/**
+* WASM: 求解 XCross（底面十字 + 一组 F2L，最优解）
+*
+* # 参数
+* - `scramble`: 打乱公式，如 "R U R' F"（也支持 54 字符完整状态）
+* - `slot`: F2L 槽位，"FR" / "FL" / "BR" / "BL" / "ALL"（ALL 时返回所有槽位的最优解）
+* - `max_solutions`: 最多返回的解法数量
+*
+* # 返回
+* JSON 数组: [{ "moves": ["R", "U", ...], "slot": "FR", "length": 7 }, ...]
+* @param {string} scramble
+* @param {string} slot
+* @param {number} max_solutions
+* @returns {any}
+*/
+export function solve_xcross(scramble: string, slot: string, max_solutions: number): any;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -48,10 +64,11 @@ export interface InitOutput {
   readonly is_table_loaded: () => number;
   readonly load_table_from_bytes: (a: number, b: number, c: number) => void;
   readonly solve_multi: (a: number, b: number, c: number, d: number) => void;
+  readonly solve_xcross: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-  readonly __wbindgen_malloc: (a: number, b: number) => number;
-  readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-  readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+  readonly __wbindgen_export_0: (a: number, b: number) => number;
+  readonly __wbindgen_export_1: (a: number, b: number, c: number) => void;
+  readonly __wbindgen_export_2: (a: number, b: number, c: number, d: number) => number;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

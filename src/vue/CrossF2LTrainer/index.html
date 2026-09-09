@@ -16,14 +16,24 @@
         <v-card-text style="text-align: left; padding: 6px 12px 2px 12px;">
           <!-- ========= 收纳态: 三行摘要条 (第一行空白处点击展开) ========= -->
           <div v-if="collapsed" class="summary-bar">
-            <!-- 第一行: 槽位 + y/y' + 打乱/重置图标 + 播放 -->
+            <!-- 第一行: 求解模式下拉 + 槽位 + y/y' + 打乱/重置图标 + 播放 -->
             <div class="sum-r1">
               <div class="grab" @click="setCollapsed(false)" title="展开面板"></div>
+              <select v-model="solveMode" class="solve-mode-select" :disabled="phase === 'playing'" title="求解模式: Cross=仅十字, XCross=十字+求解槽位一组F2L" :style="{height: size * 0.55 + 'px', fontSize: size * 0.2 + 'px', width: size * 1.1 + 'px'}">
+                <option value="cross">Cross</option>
+                <option value="xcross">XCross</option>
+              </select>
+              <select v-if="solveMode === 'xcross'" v-model="solveSlot" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位: XCross 解法会一并还原该槽位一组F2L, 相同的预判按钮将灰显" :style="{height: size * 0.55 + 'px', fontSize: size * 0.2 + 'px', width: size * 0.8 + 'px'}">
+                <option value="FL">FL</option>
+                <option value="FR">FR</option>
+                <option value="BL">BL</option>
+                <option value="BR">BR</option>
+              </select>
               <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'" style="flex: none;">
-                <v-btn value="FL" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">FL</v-btn>
-                <v-btn value="FR" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">FR</v-btn>
-                <v-btn value="BL" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">BL</v-btn>
-                <v-btn value="BR" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">BR</v-btn>
+                <v-btn value="FL" :disabled="isSlotDisabled('FL')" title="预判槽位" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">FL</v-btn>
+                <v-btn value="FR" :disabled="isSlotDisabled('FR')" title="预判槽位" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">FR</v-btn>
+                <v-btn value="BL" :disabled="isSlotDisabled('BL')" title="预判槽位" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">BL</v-btn>
+                <v-btn value="BR" :disabled="isSlotDisabled('BR')" title="预判槽位" :style="{height: size * 0.55 + 'px', padding: 0, minWidth: 'unset'}">BR</v-btn>
               </v-btn-toggle>
               <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y" :style="{height: size * 0.55 + 'px'}">y</v-btn>
               <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y'" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
@@ -56,13 +66,23 @@
 
           <!-- ========= 展开态: 完整面板 ========= -->
           <div v-else>
-          <!-- 单行: 槽位切换 + 操作按钮组 (窄屏时按钮组整体换行并右对齐, 播放保持在重置右侧) -->
+          <!-- 单行: 求解模式下拉 + 槽位切换 + 操作按钮组 (窄屏时按钮组整体换行并右对齐, 播放保持在重置右侧) -->
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 4px;">
+            <select v-model="solveMode" class="solve-mode-select" :disabled="phase === 'playing'" title="求解模式: Cross=仅十字, XCross=十字+求解槽位一组F2L" :style="{height: size * 0.55 + 'px', fontSize: size * 0.24 + 'px', width: size * 1.2 + 'px'}">
+              <option value="cross">Cross</option>
+              <option value="xcross">XCross</option>
+            </select>
+            <select v-if="solveMode === 'xcross'" v-model="solveSlot" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位: XCross 解法会一并还原该槽位一组F2L, 相同的预判按钮将灰显" :style="{height: size * 0.55 + 'px', fontSize: size * 0.24 + 'px', width: size * 0.85 + 'px'}">
+              <option value="FL">FL</option>
+              <option value="FR">FR</option>
+              <option value="BL">BL</option>
+              <option value="BR">BR</option>
+            </select>
             <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'">
-              <v-btn value="FL" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
-              <v-btn value="FR" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
-              <v-btn value="BL" :style="{height: size * 0.55 + 'px'}">BL</v-btn>
-              <v-btn value="BR" :style="{height: size * 0.55 + 'px'}">BR</v-btn>
+              <v-btn value="FL" :disabled="isSlotDisabled('FL')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
+              <v-btn value="FR" :disabled="isSlotDisabled('FR')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
+              <v-btn value="BL" :disabled="isSlotDisabled('BL')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">BL</v-btn>
+              <v-btn value="BR" :disabled="isSlotDisabled('BR')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">BR</v-btn>
             </v-btn-toggle>
             <v-spacer></v-spacer>
             <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px;">
@@ -117,7 +137,7 @@
               {{ selectedSolution === n - 1 ? "●" : "○" }} {{ solutions[n - 1] }}
             </div>
           </div>
-          <div v-else :style="{fontSize: size * 0.26 + 'px'}" style="color: #667;">{{ solving ? "📐 正在计算 Cross 解法..." : "📐 暂无可用解法" }}</div>
+          <div v-else :style="{fontSize: size * 0.26 + 'px'}" style="color: #667;">{{ solving ? "📐 正在计算解法..." : "📐 暂无可用解法" }}</div>
 
           <!-- 预判状态行 (结果内联追加在同一行) -->
           <div :style="{fontSize: size * 0.24 + 'px'}" style="margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px;">
@@ -168,8 +188,13 @@
           <div style="margin-top: 8px;"><b>标记说明</b></div>
           <div><span style="color: #9c27b0;">紫色框</span>: F2L 目标块当前位置 (角块+棱块)</div>
           <div><span style="color: #00acc1;">青色框</span>: 你的预判位置 (锚定块, 跟随转动)</div>
+          <div style="margin-top: 8px;"><b>求解模式</b></div>
+          <div>· Cross: 只求底面十字解法</div>
+          <div>· XCross: 十字 + 求解槽位一组 F2L 一步到位 (切换求解槽位会重新求解)</div>
           <div style="margin-top: 8px;"><b>槽位</b></div>
-          <div>FL / FR / BL / BR: 切换要训练的 F2L 槽位</div>
+          <div>· 预判槽位按钮 FL / FR / BL / BR: 切换要训练的 F2L 槽位 (预判目标)</div>
+          <div>· 求解槽位下拉 (仅 XCross): 指定求解时一并还原的 F2L 槽位,</div>
+          <div>&nbsp;&nbsp;已被还原的槽位不可预判, 相同的预判按钮会灰显</div>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>

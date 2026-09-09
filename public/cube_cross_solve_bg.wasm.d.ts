@@ -1,15 +1,14 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const generate_table: (a: number) => [number, number];
-export const get_table_bytes: () => [number, number, number, number];
-export const get_table_stats: () => [number, number, number];
-export const is_table_loaded: () => number;
-export const load_table_from_bytes: (a: number, b: number) => [number, number];
-export const solve_multi: (a: number, b: number, c: number) => [number, number, number];
-export const __wbindgen_malloc: (a: number, b: number) => number;
-export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-export const __wbindgen_externrefs: WebAssembly.Table;
-export const __externref_table_dealloc: (a: number) => void;
-export const __wbindgen_free: (a: number, b: number, c: number) => void;
-export const __wbindgen_start: () => void;
+export function generate_table(a: number, b: number): void;
+export function get_table_bytes(a: number): void;
+export function get_table_stats(a: number): void;
+export function is_table_loaded(): number;
+export function load_table_from_bytes(a: number, b: number, c: number): void;
+export function solve_multi(a: number, b: number, c: number, d: number): void;
+export function solve_xcross(a: number, b: number, c: number, d: number, e: number, f: number): void;
+export function __wbindgen_add_to_stack_pointer(a: number): number;
+export function __wbindgen_export_0(a: number, b: number): number;
+export function __wbindgen_export_1(a: number, b: number, c: number): void;
+export function __wbindgen_export_2(a: number, b: number, c: number, d: number): number;
