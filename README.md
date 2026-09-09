@@ -18,6 +18,8 @@
   npm run watch
 # 推送
   git push github HEAD:v2
+# Android APP 打包
+  打包教程见 [android/README.md](android/README.md)（一键脚本: `bash android/build-apk.sh`，产物 release APK 约 3MB）
 # 功能介绍
 ## 新增功能，可选白底配色，十字求解
 ## 物理键盘

@@ -8,3 +8,9 @@ src/vue/Menu/Direction/index.html
 *.log
 bun.lock
 preview-ui.html
+# Android 打包工程: 构建产物与本地环境配置不入库 (工程源码正常入库)
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/*.apk

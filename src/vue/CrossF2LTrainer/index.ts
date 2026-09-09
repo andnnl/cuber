@@ -284,6 +284,10 @@ export default class CrossF2LTrainer extends Vue {
     if (!this.rotateBase("z", 2)) {
       return;
     }
+    // rotateBase 已清空 solutions 并置 pendingSolve=true; 随后的 reset() 检测到
+    // 解法为空会立即按新坐标系求解 (twist 为位置语义, 物理已回写, 序列化即新坐标系
+    // 正确状态), 同时 reset 内 tweener.finish() 会同步完成整体旋转动画并触发回调
+    // (此刻 pendingSolve 已被 reset 清为 false, 不会重复求解) —— 故 z2 无需再置标记
     this.reset();
   }
 
@@ -420,6 +424,10 @@ export default class CrossF2LTrainer extends Vue {
   private async initSolver(): Promise<void> {
     try {
       await WasmSolver.initWasm();
+      // 加载优先级: 内置 bin (随包分发, 秒加载) > IndexedDB 缓存 > 现场生成
+      if (await this.loadBundledTable()) {
+        return;
+      }
       await indexedDBStorage.init();
       const cached = await indexedDBStorage.loadTable();
       if (cached) {
@@ -434,6 +442,23 @@ export default class CrossF2LTrainer extends Vue {
       }
     } catch (e) {
       console.error("[CrossF2LTrainer] WASM 求解器初始化失败, 将使用内置求解器", e);
+    }
+  }
+
+  // 加载随包分发的搜索表文件 (dist/cube_cross_table.bin, 构建时由 scripts/gen-table.mjs 生成)
+  private async loadBundledTable(): Promise<boolean> {
+    try {
+      const resp = await fetch("cube_cross_table.bin");
+      if (!resp.ok) {
+        return false;
+      }
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      await WasmSolver.loadTableFromBytes(bytes);
+      console.log("[CrossF2LTrainer] 内置搜索表加载成功, 跳过生成");
+      return true;
+    } catch (e) {
+      console.warn("[CrossF2LTrainer] 内置搜索表不可用, 回退缓存/生成", e);
+      return false;
     }
   }
 
@@ -491,6 +516,7 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   // 切换槽位: 清除旧高亮与预判, 更新为新槽位的目标块高亮。
+  // 走 reset() 但十字解法与槽位无关, 不重算 (见 reset 注释)。
   // 注意: Vue @Watch 回调在 nextTick 异步触发, 不能用瞬时布尔标志区分程序性更新,
   // 需记录程序性设置的槽位名, watcher 触发时比对消费
   private lastProgrammaticSlot: string | null = null;
@@ -511,16 +537,17 @@ export default class CrossF2LTrainer extends Vue {
     this.reset();
   }
 
-  // 重置: 保留打乱状态, 清除解法选择/预判/判定 (保留当前基准视角)
+  // 重置: 保留打乱状态, 清除解法选择/预判/判定 (保留当前基准视角)。
+  // 十字解法只与「打乱态 + baseOps 坐标系」有关, 与所选槽位 (FL/FR/BL/BR) 无关:
+  // 恢复打乱态后旧解法依然有效, 故保留解法列表与选中项复用, 不重算
+  // (仅在解法为空时重试求解, 覆盖「上次求解失败后重置」场景)
   reset(): void {
     this.pendingSolve = false;
     tweener.finish();
     this.restoreView(true);
     this.clearSelection();
     this.result = "";
-    this.solutions = [];
     this.stepIndex = 0;
-    this.selectedSolution = -1;
     this.phase = "idle";
     this.stopTimer(true);
     this.startTimer(); // 重置后计时重新开始
@@ -529,8 +556,9 @@ export default class CrossF2LTrainer extends Vue {
     // 重置回打乱态后同样重放基准视角旋转
     this.applyBaseOrientation();
     this.markTargetSlot();
-    // 重置后回到基准视角打乱姿态, 重新求解 (此前视角可能转过, 旧解法坐标系已失效)
-    this.solve();
+    if (this.solutions.length === 0) {
+      this.solve();
+    }
   }
 
   // 计时控制
