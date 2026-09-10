@@ -22,6 +22,16 @@
   打包教程见 [android/README.md](android/README.md)（一键脚本: `bash android/build-apk.sh`，产物 release APK 约 3MB）
 # 功能介绍
 ## 新增功能，可选白底配色，十字求解
+- 十字/XCross 求解算法使用独立 Rust 项目 [cube_cross_solve](https://gitee.com/andnnl/cube_cross_solve)，编译为 WASM 供前端调用
+
+## [十字/F2L 预判训练](https://andnnl.github.io/cuber/dist/?mode=crossf2l)
+
+- 打乱后观察紫色标记的目标块 (F2L 槽位的角块+棱块)，预测十字完成后它们到达的位置并点击选块
+- Cross / XCross 两种求解模式，解法列表可切换，支持单步/播放验证预判
+- 内置计时与正误判定，支持 z2 / y / y' 基准视角切换与自定义打乱公式
+
+  ![crossf2l-trainer](screenshot/crossf2l-trainer.png)
+
 ## 物理键盘
 
 <table class="table" id="vrckey" style="display: inline-block;">
