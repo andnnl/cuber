@@ -118,11 +118,16 @@ export const TRAINER_THEME_CSS = `
 }
 /* ===== 收纳态摘要条 (四行) ===== */
 /* 第一行: 求解模式/求解槽位下拉 + 预判槽位按钮 (正常大小) + 可点击展开的空白区 */
-/* XCross 模式窄屏放不下时槽位按钮整体换行, 避免溢出裁切 */
+/* 槽位按钮宽度收窄 5px (min-width 48→43), 保证 XCross 模式 360px 窄屏单行容纳 */
+.trainer-overlay-card .sum-r1 .v-btn-toggle .v-btn {
+  min-width: 43px !important;
+  padding: 0 4px !important;
+}
+/* XCross 模式极端窄屏仍放不下时槽位按钮整体换行, 避免溢出裁切 (兜底) */
 .trainer-overlay-card .sum-r1 {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
   flex-wrap: wrap;
   row-gap: 4px;
 }
