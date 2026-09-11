@@ -4,7 +4,7 @@ import { FACE } from "../../cuber/define";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
-import { CubeLink, CubeLinkKind, CubeLinkStatus, webBluetoothAvailable } from "../../ble/cube-link";
+import { CubeLink, CubeLinkKind, CubeLinkStatus, webBluetoothAvailable, nativeBridgeAvailable, getNativeTransport } from "../../ble/cube-link";
 import { LinkEvent } from "../../ble/types";
 import { SOLVED_FACELETS, brandFaceletsToState, isCrossDone } from "../../ble/facelets";
 import { applyFaceletMove, applyFormulaFrom } from "../../ble/move-diff";
@@ -85,9 +85,16 @@ export default class BleCrossTrainer extends Vue {
   // ---- 蓝牙连接 ----
   private link: CubeLink = new CubeLink();
   webBt: boolean = webBluetoothAvailable();
+  nativeBt: boolean = nativeBridgeAvailable(); // APK 内 (BleBridge 注入 window.__bleNative)
   status: CubeLinkStatus = "disconnected";
   deviceName = "";
   battery: number | null = null;
+
+  // ---- 扫描设备弹窗 (APK 原生传输: WebView 无系统选择器) ----
+  scanDialog = false;
+  scanDevices: { address: string; name: string }[] = [];
+  scanStatus = "";
+  private scanCbRegistered = false;
 
   // ---- 训练状态机: disconnected → ready → scrambling → solving → success (→ scrambling) ----
   phase: "disconnected" | "ready" | "scrambling" | "solving" | "success" = "disconnected";
@@ -148,19 +155,57 @@ export default class BleCrossTrainer extends Vue {
 
   // ================= 连接 =================
 
-  async connect(kind: CubeLinkKind): Promise<void> {
+  /** 连接入口: APK 内走原生扫描弹窗, 浏览器走 Web Bluetooth 系统弹窗 */
+  onConnectTap(): void {
+    if (this.nativeBt) {
+      this.openScanDialog();
+    } else if (this.webBt) {
+      this.connect("web");
+    }
+  }
+
+  async connect(kind: CubeLinkKind, address?: string): Promise<void> {
     if (this.status !== "disconnected") {
       return;
     }
     try {
-      this.statusText = kind === "web" ? "请在弹窗中选择你的 GAN 魔方..." : "连接模拟魔方...";
-      const info = await this.link.connect(kind);
+      this.statusText = kind === "web" ? "请在弹窗中选择你的 GAN 魔方..." : "连接魔方...";
+      const info = await this.link.connect(kind, address ? { address } : undefined);
       this.deviceName = info.name;
       this.isMock = kind === "mock";
       // 连接成功后首个 facelets 事件到达时自动生成第一次打乱 (见 onAuthoritative)
     } catch (err) {
       this.statusText = "连接失败: " + ((err as Error).message || String(err));
     }
+  }
+
+  /** 打开扫描弹窗并开始 BLE 扫描 (APK) */
+  openScanDialog(): void {
+    this.scanDialog = true;
+    this.scanDevices = [];
+    this.scanStatus = "扫描中, 请确保魔方已开机...";
+    const transport = getNativeTransport();
+    if (!this.scanCbRegistered) {
+      this.scanCbRegistered = true;
+      transport.onScan((devices) => {
+        this.scanDevices = devices;
+        if (this.scanDialog && devices.length > 0) {
+          this.scanStatus = "点击要连接的魔方";
+        }
+      });
+    }
+    transport.startScan(15000);
+    window.setTimeout(() => {
+      if (this.scanDialog && this.scanDevices.length === 0) {
+        this.scanStatus = "未发现魔方, 请确认已开机且靠近手机后重试";
+      }
+    }, 15500);
+  }
+
+  async pickDevice(address: string): Promise<void> {
+    this.scanDialog = false;
+    getNativeTransport().stopScan();
+    await this.connect("native", address);
   }
 
   async disconnect(): Promise<void> {

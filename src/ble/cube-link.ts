@@ -6,13 +6,14 @@ import { BleTransport, DeviceInfo, LinkEvent } from "./types";
 import { GanCubeLink } from "./protocols/gan";
 import { MockGanCubeTransport } from "./mock-transport";
 import { WebBluetoothTransport, webBluetoothAvailable } from "./transport/web";
+import { getNativeTransport, nativeBridgeAvailable } from "./transport/native";
 
 export type CubeLinkKind = "web" | "mock" | "native";
 export type CubeLinkStatus = "disconnected" | "connecting" | "connected";
 
-export { webBluetoothAvailable };
+export { webBluetoothAvailable, nativeBridgeAvailable, getNativeTransport };
 
-/** 传输层工厂 (native 在 M4 实现后接入) */
+/** 传输层工厂 (native = Android WebView 原生蓝牙桥) */
 export function createTransport(kind: CubeLinkKind): BleTransport {
   if (kind === "mock") {
     return new MockGanCubeTransport();
@@ -20,7 +21,7 @@ export function createTransport(kind: CubeLinkKind): BleTransport {
   if (kind === "web") {
     return new WebBluetoothTransport();
   }
-  throw new Error("原生蓝牙传输层尚未实现");
+  return getNativeTransport();
 }
 
 export class CubeLink {
@@ -56,8 +57,9 @@ export class CubeLink {
    * 连接魔方。
    * web: 需在用户手势调用链内 (系统选择弹窗); 无 MAC 时抛错。
    * mock: 直接连接内置模拟魔方 (无真机开发/演示)。
+   * native: 需先经传输层 startScan 扫描, opts.address 指定所选设备。
    */
-  async connect(kind: CubeLinkKind): Promise<DeviceInfo> {
+  async connect(kind: CubeLinkKind, opts?: { address?: string }): Promise<DeviceInfo> {
     if (this.status !== "disconnected") {
       throw new Error("已连接或连接中");
     }
@@ -67,7 +69,7 @@ export class CubeLink {
       this.gan = new GanCubeLink(this.transport);
       this.gan.onEvent((e) => this.handleEvent(e));
       this.gan.onDisconnect(() => this.setStatus("disconnected"));
-      this.deviceInfo = await this.gan.connect();
+      this.deviceInfo = await this.gan.connect(opts);
       this.setStatus("connected");
       return this.deviceInfo;
     } catch (err) {

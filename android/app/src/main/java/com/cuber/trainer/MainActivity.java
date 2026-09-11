@@ -2,6 +2,7 @@ package com.cuber.trainer;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -29,6 +30,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private WebViewAssetLoader assetLoader;
+    private BleBridge bleBridge;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -76,7 +78,30 @@ public class MainActivity extends Activity {
         });
         // 远程调试: chrome://inspect 可直接查看页面 console 与网络 (排查用)
         WebView.setWebContentsDebuggingEnabled(true);
+        // 原生 BLE 桥 (蓝牙魔方训练): 页面仅来自本地 assets, 接口收窄为 5 个方法
+        bleBridge = new BleBridge(this, webView);
+        webView.addJavascriptInterface(bleBridge, "__bleNative");
         webView.loadUrl(START_URL);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == BleBridge.REQ_PERMISSIONS && bleBridge != null) {
+            boolean granted = grantResults.length > 0;
+            for (int r : grantResults) {
+                granted = granted && r == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            }
+            bleBridge.onPermissionResult(granted);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (bleBridge != null) {
+            bleBridge.onActivityResult(requestCode, resultCode);
+        }
     }
 
     @Override

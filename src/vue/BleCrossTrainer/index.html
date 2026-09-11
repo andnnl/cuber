@@ -19,8 +19,9 @@
             <v-btn
               x-small
               color="primary"
-              @click="connect('web')"
-              :disabled="!webBt || status !== 'disconnected'"
+              @click="onConnectTap"
+              :disabled="!webBt && !nativeBt"
+              :title="nativeBt ? '扫描附近的 GAN 魔方' : '通过 Web Bluetooth 连接'"
               :style="{height: size * 0.55 + 'px'}"
             >{{ status === 'connected' ? '已连接' : status === 'connecting' ? '连接中' : '连接魔方' }}</v-btn>
             <v-btn
