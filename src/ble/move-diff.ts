@@ -172,6 +172,32 @@ export function invertMove(move: string): string {
 }
 
 /**
+ * 相邻同面转动合并 (HTM 口径): D,D→D2; R,R,R→R'; R,R'→抵消。
+ * 智能魔方对 180° 转发 2 个 1/4 转 MOVE 事件, 步数统计/展示需与
+ * 求解器解法的记号数 (D2 计 1 步) 对齐时先用此函数化简。
+ */
+export function simplifyMoves(moves: string[]): string[] {
+  const amt = (m: string) => (m.endsWith("2") ? 2 : m.endsWith("'") ? 3 : 1);
+  const name = (f: string, a: number) => (a === 2 ? f + "2" : a === 3 ? f + "'" : f);
+  // 栈内不变量: 相邻项异面 (同面已在入栈前合并)
+  const stack: { f: string; a: number }[] = [];
+  for (const mv of moves) {
+    const f = mv.charAt(0);
+    const top = stack.length > 0 ? stack[stack.length - 1] : null;
+    if (top && top.f === f) {
+      const a = (top.a + amt(mv)) % 4;
+      stack.pop();
+      if (a !== 0) {
+        stack.push({ f, a });
+      }
+    } else {
+      stack.push({ f, a: amt(mv) });
+    }
+  }
+  return stack.map((s) => name(s.f, s.a));
+}
+
+/**
  * 状态差分 → 转动记号序列。
  * 先尝试单步 (18 种), 再尝试两步组合 (快速连转一帧内多次转动的兜底);
  * 无法用 ≤2 步解释的差异返回 null (调用方应以 facelets 全量 resync)。

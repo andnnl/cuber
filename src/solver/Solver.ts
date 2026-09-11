@@ -422,8 +422,10 @@ export default class Solver {
         // 使用 WASM 求解器求解
         const solutions = await WasmSolver.solveMulti(facelets, maxSolutions);
         console.log(`[底层十字求解] WASM 求解完成，找到 ${solutions.length} 个解法`);
-        
-        return solutions;
+
+        // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[],
+        // 出口统一归一化为「空格分隔的解法字符串」数组 (与 solveXCross 出口一致)
+        return (solutions || []).map((s: any) => (Array.isArray(s) ? s.join(" ") : String(s)).trim());
       } else {
         console.log("[底层十字求解] WASM 求解器未就绪，使用原始求解器");
         return this.solveCrossFallback(facelets, maxSolutions, maxDepth);

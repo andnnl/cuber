@@ -89,6 +89,18 @@ async function main() {
     assert.strictEqual(moveDiff.diffToMoves(facelets.SOLVED_FACELETS, "X".repeat(54)), null);
   });
 
+  await test("simplifyMoves: 相邻同面合并 (D,D→D2), 三次→逆, 反向抵消", () => {
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["D", "D"]), ["D2"]);
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["R", "R", "R"]), ["R'"]);
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["R", "R'"]), []);
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["D", "D", "D", "D"]), []);
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["R", "R", "U", "U"]), ["R2", "U2"]);
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["R", "U", "R'", "U'"]), ["R", "U", "R'", "U'"]);
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["R", "R", "R", "U"]), ["R'", "U"]);
+    assert.deepStrictEqual(moveDiff.simplifyMoves(["D2"]), ["D2"]);
+    assert.deepStrictEqual(moveDiff.simplifyMoves([]), []);
+  });
+
   console.log("== facelets ==");
 
   await test("isCrossDone: 复原态为真, 打乱为假, 十字解出为真", () => {
@@ -108,6 +120,24 @@ async function main() {
     bad[4] = "R";
     assert.strictEqual(facelets.brandFaceletsToState(bad.join("")), null);
     assert.strictEqual(facelets.brandFaceletsToState("short"), null);
+  });
+
+  await test("isF2LSlotDone/f2lSlotsDone: 复原态全完成, F/D 转动按槽位判定", () => {
+    // 复原态: 4 槽位全完成
+    assert.deepStrictEqual(facelets.f2lSlotsDone(facelets.SOLVED_FACELETS), ["FL", "FR", "BL", "BR"]);
+    // F 转动: FR/FL 槽位 (角 DFR/DLF + 棱 FR/FL 参与 F 面) 破坏, BL/BR 不动
+    const afterF = moveDiff.applyFormula("F");
+    assert.deepStrictEqual(facelets.f2lSlotsDone(afterF), ["BL", "BR"]);
+    assert.strictEqual(facelets.isF2LSlotDone(afterF, "FR"), false);
+    assert.strictEqual(facelets.isF2LSlotDone(afterF, "BR"), true);
+    // D 转动: 4 个 D 层角块整体换位 (棱不动), 无一槽位角+棱同时原位
+    const afterD = moveDiff.applyFormula("D");
+    assert.deepStrictEqual(facelets.f2lSlotsDone(afterD), []);
+    // R' 恢复: R 层含 DFR 角与 FR/BR 棱, R R' 后全恢复
+    assert.deepStrictEqual(facelets.f2lSlotsDone(moveDiff.applyFormula("R R'")), ["FL", "FR", "BL", "BR"]);
+    // 非法槽位/非法串
+    assert.strictEqual(facelets.isF2LSlotDone(facelets.SOLVED_FACELETS, "XX"), false);
+    assert.strictEqual(facelets.isF2LSlotDone("X".repeat(54), "FR"), false);
   });
 
   console.log("== protocols ==");

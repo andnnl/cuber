@@ -41,8 +41,17 @@
             <v-btn x-small @click="helpDialog = true" title="使用说明" :style="{height: size * 0.55 + 'px'}">?</v-btn>
           </div>
 
-          <!-- 行2: 打乱公式 -->
+          <!-- 行2: 练习模式 + 打乱公式 -->
           <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;">
+            <select
+              v-model="trainMode"
+              @change="saveTrainMode"
+              title="cross: 只还原十字; xcross: 十字 + 任一组 F2L"
+              style="border: 1px solid #e3e8f0; border-radius: 4px; font-size: 12px; height: 24px; background: #fff; color: #333; padding: 0 2px; flex: none;"
+            >
+              <option value="cross">Cross</option>
+              <option value="xcross">XCross</option>
+            </select>
             <v-btn
               x-small
               @click="newScramble"
@@ -54,12 +63,40 @@
             <span v-else class="scramble-text muted">{{ phase === 'ready' ? '等待魔方状态...' : '—' }}</span>
           </div>
 
-          <!-- 行3: 流程状态 + 计时 + 步数 -->
+          <!-- 行3: 流程状态 + 计时 + 步数 + 自动下轮勾选 -->
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
             <span :class="{'ok-text': phase === 'success'}" style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ statusText }}</span>
             <div style="flex: 1;"></div>
+            <label v-if="status === 'connected'" style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
+              <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮
+            </label>
             <span v-if="elapsedText" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedText }}</span>
             <span v-if="phase === 'solving' || phase === 'success'" style="color: #888; white-space: nowrap;">步数 {{ moveCount }}</span>
+          </div>
+
+          <!-- 行3.5: 结果对比 (完成后): 你的解法 vs 最优解 + 成败计数 -->
+          <div v-if="phase === 'success'" style="margin-top: 5px; padding: 5px 8px; background: #f0f7f0; border: 1px solid #d8ecd8; border-radius: 6px; font-size: 12px; line-height: 1.7;">
+            <div style="display: flex; gap: 6px; min-width: 0;">
+              <span style="color: #2e7d32; white-space: nowrap; font-weight: bold;">你的解法 {{ moveCount }}步</span>
+              <span v-if="trainMode === 'xcross' && completedSlots.length" style="color: #2e7d32; white-space: nowrap;">({{ completedSlots.join('/') }})</span>
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ userSolution || '—' }}</span>
+            </div>
+            <!-- Cross 模式: 单组最优解 -->
+            <div v-if="trainMode === 'cross'" style="display: flex; gap: 6px; min-width: 0;">
+              <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">最优解 {{ bestReady ? bestSteps + '步' : '' }}</span>
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolution || '(十字已复原, 无需转动)') : '求解中…' }}</span>
+            </div>
+            <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
+            <template v-else>
+              <div v-for="b in bestX" :key="b.slot" style="display: flex; gap: 6px; min-width: 0;">
+                <span
+                  :style="{color: completedSlots.indexOf(b.slot) >= 0 ? '#2e7d32' : '#1565c0', whiteSpace: 'nowrap', fontWeight: 'bold'}"
+                >{{ b.slot }} {{ b.formula ? b.steps + '步' : '' }}</span>
+                <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ b.formula || (bestXReady ? '—' : '求解中…') }}</span>
+              </div>
+              <div v-if="!bestXReady" style="color: #999;">4 组槽位最优解求解中…</div>
+            </template>
+            <div style="margin-top: 2px; color: #666;">✅ 成功 {{ successCount }} · ❌ 失败 {{ failCount }}</div>
           </div>
 
           <!-- 行4: 打乱等待期辅助按钮 -->
@@ -92,7 +129,14 @@
           <div>2. 连接成功后自动生成打乱公式, 在实体魔方上照着公式拧</div>
           <div>3. App 检测到魔方到达打乱目标态后自动开始计时</div>
           <div>4. 用实体魔方还原十字 (4 条底棱归位), 完成自动判定并停止计时</div>
-          <div>5. 2.5 秒后自动生成下一次打乱, 循环训练</div>
+          <div>5. 正确后显示你的解法与最优解对比、步数和成功/失败计数</div>
+          <div>6. 勾选「自动下轮」时 2.5 秒后自动生成下一次打乱, 循环训练;</div>
+          <div>&nbsp;&nbsp;未勾选则停留在结果页, 手动点「新打乱」继续</div>
+          <div style="margin-top: 8px;"><b>练习模式</b></div>
+          <div>· Cross: 还原 4 条底棱即完成, 最优解为单组</div>
+          <div>· XCross: 十字 + 任一组 F2L (角+棱) 同时完成才算,</div>
+          <div>&nbsp;&nbsp;最优解显示 FL/FR/BL/BR 四组各自的最优解,</div>
+          <div>&nbsp;&nbsp;你完成的槽位会绿色高亮</div>
           <div style="margin-top: 8px;"><b>持握与公式</b></div>
           <div>· 打乱时按标准姿态持握: 白色朝上、绿色朝前</div>
           <div>· 公式字母对应方向: U上 D下 F前 B后 L左 R右</div>

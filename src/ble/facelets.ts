@@ -1,8 +1,10 @@
-// 贴纸状态工具: 各品牌协议输出的 54 串 → 项目 serialize 布局换算 + 十字判定
+// 贴纸状态工具: 各品牌协议输出的 54 串 → 项目 serialize 布局换算 + 十字/F2L 槽位判定
 //
 // 项目 Cube.serialize() 与 Kociemba 标准 facelet 布局完全一致 (URFDLB 六组各 9 字符,
 // 见 src/cuber/cube.ts serialize 的遍历顺序, 且 Rust 侧 to_cube_state_string 与之对齐),
 // GAN 协议输出的就是 Kociemba 串, 因此换算为恒等; 其他品牌接入时在此处做重排。
+
+import { faceletsToCubie } from "./move-diff";
 
 /** 复原态 (即各面中心色): U上 R右 F前 D下 L左 B后 */
 export const SOLVED_FACELETS = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
@@ -51,4 +53,36 @@ export function isCrossDone(facelets: string): boolean {
     const side = SOLVED_FACELETS[sideIdx]; // 侧贴纸应在的面字母
     return facelets[dIdx] === "D" && facelets[sideIdx] === side;
   });
+}
+
+/** F2L 槽位 → (角块 cubie 索引, 棱块 cubie 索引), Kociemba 标准序
+ *  角: URF=0 UFL=1 ULB=2 UBR=3 DFR=4 DLF=5 DBL=6 DRB=7
+ *  棱: UR=0 UF=1 UL=2 UB=3 DR=4 DF=5 DL=6 DB=7 FR=8 FL=9 BL=10 BR=11 */
+const F2L_SLOTS: { [slot: string]: [number, number] } = {
+  FR: [4, 8],
+  FL: [5, 9],
+  BL: [6, 10],
+  BR: [7, 11],
+};
+
+/**
+ * 指定 F2L 槽位 (一对角+棱) 是否归位且朝向正确。
+ * 姿态无关 —— cubie 状态以魔方核心为坐标系, 中心恒为 URFDLB。
+ */
+export function isF2LSlotDone(facelets: string, slot: string): boolean {
+  const pair = F2L_SLOTS[slot];
+  if (!pair || !facelets || facelets.length !== 54) {
+    return false;
+  }
+  const state = faceletsToCubie(facelets);
+  if (!state) {
+    return false;
+  }
+  const [c, e] = pair;
+  return state.cp[c] === c && state.co[c] === 0 && state.ep[e] === e && state.eo[e] === 0;
+}
+
+/** 已完整还原的 F2L 槽位列表 (FL/FR/BL/BR 的子集, 固定顺序) */
+export function f2lSlotsDone(facelets: string): string[] {
+  return ["FL", "FR", "BL", "BR"].filter((slot) => isF2LSlotDone(facelets, slot));
 }
