@@ -2,16 +2,22 @@
 // 用法: node scripts/gen-table.mjs [输出目录] (默认 dist)
 // 原理: Node 直接调用 wasm-bindgen 胶水, generate_table(8) 后导出字节写文件。
 //       App 启动时优先 fetch 该文件 loadTableFromBytes, 免去现场重算。
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.resolve(root, process.argv[2] || "dist");
 mkdirSync(outDir, { recursive: true });
 
-// 1. 加载 wasm-bindgen 胶水 (ES Module)
-const glue = await import(path.join(root, "dist/cube_cross_solve.js"));
+// 1. 加载 wasm-bindgen 胶水 (ES Module)。
+//    项目 package.json 无 "type":"module", .js 会被 Node 当 CJS 解析报
+//    "Unexpected token 'export'" → 复制为 .tmp/ 下临时 .mjs 再动态 import
+const gluePath = path.join(root, "dist/cube_cross_solve.js");
+mkdirSync(path.join(root, ".tmp"), { recursive: true });
+const tmpGlue = path.join(root, ".tmp/cube_cross_solve.gen.mjs");
+copyFileSync(gluePath, tmpGlue);
+const glue = await import(pathToFileURL(tmpGlue).href);
 
 // 2. Node 的 fetch 不支持 file://, 直接读 wasm 字节传入 init
 const wasmBytes = new Uint8Array(readFileSync(path.join(root, "dist/cube_cross_solve_bg.wasm")));

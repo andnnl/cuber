@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "es2019",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noImplicitAny": true,
+    "outDir": ".tmp/ble",
+    "types": []
+  },
+  "include": ["src/ble/**/*.ts"]
+}

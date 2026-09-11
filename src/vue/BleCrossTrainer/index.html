@@ -1,0 +1,115 @@
+<v-app>
+  <div v-resize="onResize" style="user-select: none; touch-action: none; display: flex; flex-direction: column; height: 100vh; position: relative;">
+    <setting />
+    <!-- 3D 镜像魔方占据全屏 -->
+    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;">
+      <viewport ref="viewport"></viewport>
+    </div>
+
+    <!-- 底部悬浮面板: 连接 / 打乱 / 状态 (样式见 theme.ts, mounted 时注入) -->
+    <div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: center;">
+      <v-card
+        class="ble-card"
+        :style="{width: Math.min(size * 10, width * 0.96) + 'px'}"
+        style="border-radius: 12px 12px 0 0;"
+      >
+        <v-card-text style="text-align: left; padding: 8px 12px 6px 12px;">
+          <!-- 行1: 蓝牙连接 + 设备信息 -->
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <v-btn
+              x-small
+              color="primary"
+              @click="connect('web')"
+              :disabled="!webBt || status !== 'disconnected'"
+              :style="{height: size * 0.55 + 'px'}"
+            >{{ status === 'connected' ? '已连接' : status === 'connecting' ? '连接中' : '连接魔方' }}</v-btn>
+            <v-btn
+              x-small
+              v-if="status === 'disconnected'"
+              @click="connect('mock')"
+              title="连接模拟魔方 (无真机演示开发用)"
+              :style="{height: size * 0.55 + 'px'}"
+            >演示</v-btn>
+            <v-btn x-small v-if="status === 'connected'" @click="disconnect" :style="{height: size * 0.55 + 'px'}">断开</v-btn>
+            <span class="status-dot" :class="'dot-' + status"></span>
+            <span style="font-size: 12px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              {{ deviceName || (webBt ? '未连接' : '此环境不支持 Web Bluetooth') }}
+            </span>
+            <span v-if="battery !== null" style="font-size: 12px; color: #888; white-space: nowrap;">🔋{{ battery }}%</span>
+            <div style="flex: 1; min-width: 4px;"></div>
+            <v-btn x-small @click="helpDialog = true" title="使用说明" :style="{height: size * 0.55 + 'px'}">?</v-btn>
+          </div>
+
+          <!-- 行2: 打乱公式 -->
+          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;">
+            <v-btn
+              x-small
+              @click="newScramble"
+              :disabled="status !== 'connected'"
+              title="生成新打乱 (以魔方当前状态为基准)"
+              :style="{height: size * 0.55 + 'px'}"
+            >新打乱</v-btn>
+            <span v-if="scramble" class="scramble-text" :class="{muted: phase !== 'scrambling' && phase !== 'ready'}">{{ scramble }}</span>
+            <span v-else class="scramble-text muted">{{ phase === 'ready' ? '等待魔方状态...' : '—' }}</span>
+          </div>
+
+          <!-- 行3: 流程状态 + 计时 + 步数 -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
+            <span :class="{'ok-text': phase === 'success'}" style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ statusText }}</span>
+            <div style="flex: 1;"></div>
+            <span v-if="elapsedText" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedText }}</span>
+            <span v-if="phase === 'solving' || phase === 'success'" style="color: #888; white-space: nowrap;">步数 {{ moveCount }}</span>
+          </div>
+
+          <!-- 行4: 打乱等待期辅助按钮 -->
+          <div v-if="phase === 'scrambling'" style="display: flex; gap: 6px; margin-top: 4px;">
+            <v-btn x-small @click="skipScramble" title="不校验打乱公式, 立即开始还原计时" :style="{height: size * 0.5 + 'px'}">跳过, 直接开始</v-btn>
+          </div>
+
+          <!-- 行5: Mock 演示控件 (仅模拟魔方显示) -->
+          <div v-if="isMock" style="display: flex; align-items: center; gap: 5px; margin-top: 5px;">
+            <v-btn x-small color="primary" @click="mockDemo" title="注入打乱并自动还原十字, 演示完整训练循环" :style="{height: size * 0.5 + 'px'}">自动演示</v-btn>
+            <input
+              v-model="mockInput"
+              placeholder="模拟物理转动, 如 R U R'"
+              style="flex: 1; min-width: 0; border: 1px solid #e3e8f0; border-radius: 4px; padding: 2px 6px; font-size: 12px; height: 24px;"
+              @keyup.enter="mockApply"
+            />
+            <v-btn x-small @click="mockApply" :style="{height: size * 0.5 + 'px'}">→</v-btn>
+          </div>
+        </v-card-text>
+      </v-card>
+    </div>
+
+    <!-- 使用说明弹窗 -->
+    <v-dialog v-model="helpDialog" max-width="420">
+      <v-card class="help-dialog">
+        <v-card-title class="help-title">蓝牙十字训练 - 使用说明</v-card-title>
+        <v-card-text class="help-body" style="font-size: 13px; line-height: 1.8;">
+          <div><b>训练流程</b></div>
+          <div>1. 打开魔方电源, 点「连接魔方」在弹窗中选择你的 GAN 魔方</div>
+          <div>2. 连接成功后自动生成打乱公式, 在实体魔方上照着公式拧</div>
+          <div>3. App 检测到魔方到达打乱目标态后自动开始计时</div>
+          <div>4. 用实体魔方还原十字 (4 条底棱归位), 完成自动判定并停止计时</div>
+          <div>5. 2.5 秒后自动生成下一次打乱, 循环训练</div>
+          <div style="margin-top: 8px;"><b>持握与公式</b></div>
+          <div>· 打乱时按标准姿态持握: 白色朝上、绿色朝前</div>
+          <div>· 公式字母对应方向: U上 D下 F前 B后 L左 R右</div>
+          <div>· 「跳过, 直接开始」: 不校验打乱公式, 立即开始还原计时</div>
+          <div style="margin-top: 8px;"><b>判定说明</b></div>
+          <div>· 十字判定是纯状态判定: 4 条底棱的 D 面贴纸朝下、</div>
+          <div>&nbsp;&nbsp;侧面贴纸与相邻中心对齐 (姿态无关)</div>
+          <div>· 屏幕中的 3D 魔方实时镜像你的实体魔方</div>
+          <div style="margin-top: 8px;"><b>设备支持</b></div>
+          <div>· GAN Gen2/3/4 (356i / i2 / i Carry / M 系列智能魔方)</div>
+          <div>· Chrome/Edge 浏览器走 Web Bluetooth; App 内走原生蓝牙</div>
+          <div>· 不支持 Web Bluetooth 的环境仅可连接模拟魔方演示</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn small text color="primary" @click="helpDialog = false">知道了</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </div>
+</v-app>

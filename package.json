@@ -8,7 +8,8 @@
   "scripts": {
     "watch": "set NODE_OPTIONS=--openssl-legacy-provider && webpack server --mode=development --hot --progress --host=0.0.0.0",
     "build": "set NODE_OPTIONS=--openssl-legacy-provider && webpack --color --mode=production --progress",
-    "verify": "node src/verify/cli.js"
+    "verify": "node src/verify/cli.js",
+    "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js"
   },
   "devDependencies": {
     "@types/three": "0.130.0",
@@ -41,5 +42,9 @@
   },
   "prettier": {
     "printWidth": 120
+  },
+  "dependencies": {
+    "@types/aes-js": "^3.1.4",
+    "aes-js": "^3.1.2"
   }
 }
