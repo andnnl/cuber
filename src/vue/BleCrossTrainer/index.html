@@ -20,19 +20,28 @@
               x-small
               color="primary"
               @click="onConnectTap"
+              v-if="!isManual"
               :disabled="!webBt && !nativeBt"
               :title="nativeBt ? '扫描附近的 GAN 魔方' : '通过 Web Bluetooth 连接'"
               :style="{height: size * 0.55 + 'px'}"
             >{{ status === 'connected' ? '已连接' : status === 'connecting' ? '连接中' : '连接魔方' }}</v-btn>
             <v-btn
               x-small
-              v-if="status === 'disconnected'"
+              v-if="!isManual && status === 'disconnected'"
               @click="connect('mock')"
               title="连接模拟魔方 (无真机演示开发用)"
               :style="{height: size * 0.55 + 'px'}"
             >演示</v-btn>
-            <v-btn x-small v-if="status === 'connected'" @click="disconnect" :style="{height: size * 0.55 + 'px'}">断开</v-btn>
-            <span class="status-dot" :class="'dot-' + status"></span>
+            <v-btn
+              x-small
+              v-if="!isManual && status === 'disconnected'"
+              @click="startManual"
+              title="无蓝牙时用鼠标拧 3D 魔方练习, 打乱直接作用于屏幕中的魔方"
+              :style="{height: size * 0.55 + 'px'}"
+            >手动练习</v-btn>
+            <v-btn x-small v-if="isManual" @click="stopManual" :style="{height: size * 0.55 + 'px'}">退出练习</v-btn>
+            <v-btn x-small v-if="!isManual && status === 'connected'" @click="disconnect" :style="{height: size * 0.55 + 'px'}">断开</v-btn>
+            <span class="status-dot" :class="'dot-' + (isManual ? 'connected' : status)"></span>
             <span style="font-size: 12px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
               {{ deviceName || (webBt ? '未连接' : '此环境不支持 Web Bluetooth') }}
             </span>
@@ -55,32 +64,40 @@
             <v-btn
               x-small
               @click="newScramble"
-              :disabled="status !== 'connected'"
-              title="生成新打乱 (以魔方当前状态为基准)"
+              :disabled="status !== 'connected' && !isManual"
+              title="生成新打乱 (蓝牙以魔方当前状态为基准; 手动练习直接打乱屏幕中的魔方)"
               :style="{height: size * 0.55 + 'px'}"
             >新打乱</v-btn>
+            <v-btn
+              x-small
+              @click="resetRound"
+              :disabled="isManual ? (phase !== 'observing' && phase !== 'solving' && phase !== 'success') : phase !== 'solving'"
+              title="重置本轮 (手动练习: 3D 魔方回打乱态重新观察; 蓝牙: 重置还原计时)"
+              :style="{height: size * 0.55 + 'px'}"
+            >重置</v-btn>
             <span v-if="scramble" class="scramble-text" :class="{muted: phase !== 'scrambling' && phase !== 'ready'}">{{ scramble }}</span>
-            <span v-else class="scramble-text muted">{{ phase === 'ready' ? '等待魔方状态...' : '—' }}</span>
+            <span v-else class="scramble-text muted">{{ phase === 'ready' ? (isManual ? '点「新打乱」开始' : '等待魔方状态...') : '—' }}</span>
           </div>
 
           <!-- 行3: 流程状态 + 计时 + 步数 + 自动下轮勾选 -->
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
             <span :class="{'ok-text': phase === 'success'}" style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ statusText }}</span>
             <div style="flex: 1;"></div>
-            <label v-if="status === 'connected'" style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
+            <label v-if="status === 'connected' || isManual" style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
               <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮
+            </label>
+            <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="全程显示 WASM 推荐的最优解 (观察/还原/完成阶段都显示, 用于学习); 关闭后不求解也不展示">
+              <input type="checkbox" v-model="showBest" @change="saveShowBest" style="width: 13px; height: 13px;" />最优解
             </label>
             <span v-if="elapsedText" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedText }}</span>
             <span v-if="phase === 'solving' || phase === 'success'" style="color: #888; white-space: nowrap;">步数 {{ moveCount }}</span>
           </div>
 
-          <!-- 行3.5: 结果对比 (完成后): 你的解法 vs 最优解 + 成败计数 -->
-          <div v-if="phase === 'success'" style="margin-top: 5px; padding: 5px 8px; background: #f0f7f0; border: 1px solid #d8ecd8; border-radius: 6px; font-size: 12px; line-height: 1.7;">
-            <div style="display: flex; gap: 6px; min-width: 0;">
-              <span style="color: #2e7d32; white-space: nowrap; font-weight: bold;">你的解法 {{ moveCount }}步</span>
-              <span v-if="trainMode === 'xcross' && completedSlots.length" style="color: #2e7d32; white-space: nowrap;">({{ completedSlots.join('/') }})</span>
-              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ userSolution || '—' }}</span>
-            </div>
+          <!-- 行3.4: 最优解 (勾选即全程显示, 用于学习): Cross 单组 / XCross 四槽位 -->
+          <div
+            v-if="showBest && (phase === 'observing' || phase === 'solving' || phase === 'success')"
+            style="margin-top: 5px; padding: 5px 8px; background: #f0f4fb; border: 1px solid #d8e4f8; border-radius: 6px; font-size: 12px; line-height: 1.7;"
+          >
             <!-- Cross 模式: 单组最优解 -->
             <div v-if="trainMode === 'cross'" style="display: flex; gap: 6px; min-width: 0;">
               <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">最优解 {{ bestReady ? bestSteps + '步' : '' }}</span>
@@ -96,6 +113,16 @@
               </div>
               <div v-if="!bestXReady" style="color: #999;">4 组槽位最优解求解中…</div>
             </template>
+          </div>
+
+          <!-- 行3.5: 结果对比 (完成后): 你的解法 + 成败计数 -->
+          <div v-if="phase === 'success'" style="margin-top: 5px; padding: 5px 8px; background: #f0f7f0; border: 1px solid #d8ecd8; border-radius: 6px; font-size: 12px; line-height: 1.7;">
+            <div style="display: flex; gap: 6px; min-width: 0;">
+              <span style="color: #2e7d32; white-space: nowrap; font-weight: bold;">你的解法 {{ moveCount }}步</span>
+              <span v-if="trainMode === 'xcross' && completedSlots.length" style="color: #2e7d32; white-space: nowrap;">({{ completedSlots.join('/') }})</span>
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ userSolution || '—' }}</span>
+            </div>
+            <div v-if="observeText" style="margin-top: 2px; color: #666;">👁 观察 {{ observeText }} · ⏱ 还原 {{ elapsedText }}</div>
             <div style="margin-top: 2px; color: #666;">✅ 成功 {{ successCount }} · ❌ 失败 {{ failCount }}</div>
           </div>
 
@@ -122,9 +149,17 @@
     <!-- 使用说明弹窗 -->
     <v-dialog v-model="helpDialog" max-width="420">
       <v-card class="help-dialog">
-        <v-card-title class="help-title">蓝牙十字训练 - 使用说明</v-card-title>
+        <v-card-title class="help-title">十字训练 - 使用说明</v-card-title>
         <v-card-text class="help-body" style="font-size: 13px; line-height: 1.8;">
-          <div><b>训练流程</b></div>
+          <div><b>手动练习 (无蓝牙)</b></div>
+          <div>· 点「手动练习」无需连接魔方, 用鼠标在 3D 魔方上</div>
+          <div>&nbsp;&nbsp;拖动转层即可训练; 拖动空白处整体转动魔方</div>
+          <div>· 「新打乱」直接把屏幕中的 3D 魔方打乱, 先进入观察阶段:</div>
+          <div>&nbsp;&nbsp;可 y/z/x 整体转动观察 (不计步), 首次转动才开始还原计时</div>
+          <div>&nbsp;&nbsp;转 y/y' 后魔方停在当前姿态, 就在当前持握方向继续还原,</div>
+          <div>&nbsp;&nbsp;判定与最优解会自动换算 (整体转不计步数)</div>
+          <div>· 判定/最优解/计数/自动下轮与蓝牙模式完全一致</div>
+          <div style="margin-top: 8px;"><b>蓝牙训练流程</b></div>
           <div>1. 打开魔方电源, 点「连接魔方」在弹窗中选择你的 GAN 魔方</div>
           <div>2. 连接成功后自动生成打乱公式, 在实体魔方上照着公式拧</div>
           <div>3. App 检测到魔方到达打乱目标态后自动开始计时</div>

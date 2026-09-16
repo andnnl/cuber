@@ -54,14 +54,15 @@ export class Tweener {
 
   update(): boolean {
     if (this.tweens.length === 0) return false;
-    let i = 0;
-    let len = this.tweens.length;
-    while (i < len) {
-      if (this.tweens[i].update()) {
-        this.tweens.splice(i, 1);
-        len--;
-      } else {
-        i++;
+    // 队列式逐个处理: 处理前先 shift 出数组。tween 完成回调内可能嵌套
+    // finish()/新建 tween (如训练器观察期重放), 若处理中仍留在数组里,
+    // 嵌套 finish 会把「正在回调中的 tween」二次 finish (drop 重入),
+    // 回调返回后的移除也会索引错位误删新建 tween, 导致其永不推进、group 永久持锁
+    let guard = this.tweens.length;
+    while (guard-- > 0 && this.tweens.length > 0) {
+      const tween = this.tweens.shift();
+      if (tween && !tween.update()) {
+        this.tweens.push(tween);
       }
     }
     return true;
