@@ -25,10 +25,14 @@ export interface DeviceInfo {
  * 传输层接口: 只负责 GATT 字节流与连接生命周期
  * - connect: 浏览器 = 系统配对弹窗 (需用户手势); 原生 = 按 address 连接 (先 requestScan)
  * - onBytes 收到的是协议原始通知帧 (可能是加密的, 由协议层解密)
+ * - opts.mac: 用户手动填写的 MAC 地址 (Web Bluetooth watchAdvertisements 失败时的兜底)
+ *   传输层应在收到 opts.mac 时跳过自动获取, 直接放入返回的 DeviceInfo.mac
+ * - opts.autoReconnect: 刷新后自动重连 (免用户手势/弹窗): Web 走 getDevices 找回已授权设备
+ *   (opts.knownName 为上次记忆的设备名, 用于匹配), 原生按 opts.address 直连
  */
 export interface BleTransport {
   readonly kind: "web" | "native" | "mock";
-  connect(opts?: { address?: string }): Promise<DeviceInfo>;
+  connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo>;
   disconnect(): Promise<void>;
   onBytes(cb: (data: Uint8Array) => void): void;
   onDisconnect(cb: () => void): void;

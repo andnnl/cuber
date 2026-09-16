@@ -302,6 +302,11 @@ export class PaletteData {
     this.save();
   }
 
+  // 当前生效颜色 (自定义色优先, 未自定义时回落原版 COLORS)
+  getColor(key: string): string {
+    return this.values.colors[key] || COLORS[key];
+  }
+
   load(): void {
     const save = window.localStorage.getItem("palette");
     if (save) {

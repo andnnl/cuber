@@ -17,6 +17,7 @@
     "@typescript-eslint/eslint-plugin": "4.28.3",
     "@typescript-eslint/parser": "4.28.3",
     "@webpack-cli/serve": "^3.0.1",
+    "ajv": "^8.20.0",
     "clean-webpack-plugin": "^3.0.0",
     "clipboard": "2.0.8",
     "copy-webpack-plugin": "^13.0.1",

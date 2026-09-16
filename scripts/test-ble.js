@@ -59,6 +59,29 @@ async function main() {
     assert.deepStrictEqual(st.eo, [1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0]);
   });
 
+  await test("z2Facelets: 标准态→物理帧黄顶绿前串 + 自逆", () => {
+    const solved = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    // 标准 SOLVED (白顶绿前) 经 z2 帧互转 → 物理参考姿态串 (黄顶绿前: U 黄 R 橙 F 绿 D 白 L 红 B 蓝)
+    assert.strictEqual(
+      moveDiff.z2Facelets(solved),
+      "DDDDDDDDDLLLLLLLLLFFFFFFFFFUUUUUUUUURRRRRRRRRBBBBBBBBB",
+      "z2Facelets 帧互转结果不符"
+    );
+    const s = moveDiff.applyFormulaFrom(solved, "R U R' F' D2 L' B U2");
+    assert.strictEqual(moveDiff.z2Facelets(moveDiff.z2Facelets(s)), s, "z2 应自逆");
+  });
+
+  await test("z2 共轭: z2∘M = z2Move(M)∘z2 (U↔D, R↔L, F/B 不变)", () => {
+    const solved = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const s = moveDiff.applyFormulaFrom(solved, "R U F' L2 D B' R' U2");
+    for (const mv of ["U", "U'", "U2", "D", "D'", "D2", "R", "R'", "R2", "L", "L'", "L2", "F", "F'", "F2", "B", "B'", "B2"]) {
+      // z2(M · s) 应等于 z2Move(M) · z2(s)
+      const lhs = moveDiff.z2Facelets(moveDiff.applyFaceletMove(s, mv));
+      const rhs = moveDiff.applyFaceletMove(moveDiff.z2Facelets(s), moveDiff.z2Move(mv));
+      assert.strictEqual(lhs, rhs, `z2 共轭不成立: ${mv}`);
+    }
+  });
+
   await test("全部 6 面三种转法 round-trip 可逆", () => {
     const solved = moveDiff.cubieToFacelets(moveDiff.solvedCubie());
     for (const f of "URFDLB") {

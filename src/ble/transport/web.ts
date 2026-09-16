@@ -62,6 +62,23 @@ function pad2(n: number): string {
   return s.length < 2 ? "0" + s : s;
 }
 
+/**
+ * 容错归一化 MAC 字符串为 "AA:BB:CC:DD:EE:FF" 格式。
+ * 接受: "AA:BB:CC:DD:EE:FF" / "aa-bb-cc-dd-ee-ff" / "AABBCCDDEEFF" / "aabbccddeeff" 等
+ * 非法 (长度/字符不对) 返回 null。
+ */
+function normalizeMac(input: string): string | null {
+  const hex = (input || "").replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+  if (hex.length !== 12) {
+    return null;
+  }
+  const parts: string[] = [];
+  for (let i = 0; i < 12; i += 2) {
+    parts.push(hex.slice(i, i + 2));
+  }
+  return parts.join(":");
+}
+
 /** 从广播 manufacturer data 提取 MAC (原库 extractMAC 逻辑: 末 6 字节反序 hex) */
 function extractMAC(manufacturerData: Map<number, DataView> | DataView): string {
   let dataView: DataView | undefined;
@@ -83,30 +100,66 @@ function extractMAC(manufacturerData: Map<number, DataView> | DataView): string 
       mac.push(pad2(dataView.getUint8(dataView.byteLength - i)));
     }
   }
-  return mac.join(":");
+  const result = mac.join(":");
+  if (!result) {
+    // 诊断: 收到了广播但 CIC 不在 GAN_CIC_LIST (0x0101-0xFF01) 范围内, 或数据太短
+    const cics: number[] = [];
+    if (!(manufacturerData instanceof DataView) && manufacturerData instanceof Map) {
+      manufacturerData.forEach((_v, k) => cics.push(k));
+    }
+    console.warn(
+      "[WebBluetooth] advertisementreceived 已收到, 但未从 manufacturer data 提取到 MAC。",
+      "已识别的 CIC 范围 0x0101-0xFF01, 实际收到的 CIC:",
+      cics.length ? cics.map((c) => "0x" + c.toString(16).toUpperCase()) : "(无)"
+    );
+  }
+  return result;
 }
 
-/** watchAdvertisements 自动取 MAC, 10s 超时 (原库 autoRetrieveMacAddress 逻辑) */
-async function autoRetrieveMacAddress(device: NBDevice): Promise<string | null> {
+/** watchAdvertisements 自动取 MAC, 15s 超时 (原库 autoRetrieveMacAddress 逻辑; 失败抛错, 原因透传给 UI) */
+async function autoRetrieveMacAddress(device: NBDevice): Promise<string> {
   if (typeof device.watchAdvertisements !== "function") {
-    return null;
+    throw new Error(
+      "当前浏览器不支持自动获取 MAC (watchAdvertisements), 请点「MAC」按钮手动填写 (魔方底盖 / 电池仓有印)"
+    );
   }
-  return new Promise<string | null>((resolve) => {
+  let settled = false;
+  return new Promise<string>((resolve, reject) => {
     const abort = new AbortController();
-    const onAdv = (evt: Event) => {
+    const finish = (value: string | null, reason: string) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       device.removeEventListener("advertisementreceived", onAdv);
       abort.abort();
-      const mac = extractMAC((evt as NBAdvertisingEvent).manufacturerData!);
-      resolve(mac || null);
+      if (reason) {
+        console.warn("[WebBluetooth] autoRetrieveMacAddress 退出:", reason);
+        reject(new Error(reason));
+      } else {
+        resolve(value as string);
+      }
+    };
+    const onAdv = (evt: Event) => {
+      const md = (evt as NBAdvertisingEvent).manufacturerData;
+      if (!md) {
+        finish(null, "未收到魔方广播数据 (缺 manufacturer data), 请关机重开魔方后重试");
+        return;
+      }
+      const mac = extractMAC(md);
+      finish(mac || null, mac ? "" : "广播数据中未提取到 MAC (CIC 不匹配)");
     };
     const onAbort = () => {
-      device.removeEventListener("advertisementreceived", onAdv);
-      abort.abort();
-      resolve(null);
+      finish(
+        null,
+        "未在 15s 内收到魔方广播: 魔方连接过一次后会停止广播, 请先关闭魔方电源再重新开机, 开机后立即点「连接魔方」; 或点「MAC」手动填写"
+      );
     };
     device.addEventListener("advertisementreceived", onAdv);
-    device.watchAdvertisements!({ signal: abort.signal }).catch(onAbort);
-    setTimeout(onAbort, 10000);
+    device.watchAdvertisements!({ signal: abort.signal }).catch((err) =>
+      finish(null, "watchAdvertisements 调用失败: " + (err && err.message ? err.message : err))
+    );
+    setTimeout(onAbort, 15000);
   });
 }
 
@@ -118,14 +171,24 @@ export class WebBluetoothTransport implements BleTransport {
   private bytesCb: ((data: Uint8Array) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
 
-  async connect(): Promise<DeviceInfo> {
+  async connect(opts?: { mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo> {
     const bt = bluetooth();
-    const device = await bt.requestDevice({
-      filters: [{ namePrefix: "GAN" }, { namePrefix: "MG" }, { namePrefix: "AiCube" }],
-      optionalServices: [GAN_GEN2_SERVICE, GAN_GEN3_SERVICE, GAN_GEN4_SERVICE],
-    });
+    // autoReconnect: 经 getDevices 免弹窗找回上次授权的设备 (刷新后自动重连);
+    // 常规路径: requestDevice 系统选择弹窗 (需用户手势)
+    const device = opts?.autoReconnect
+      ? await this.reconnectKnown(bt, opts.knownName || "")
+      : await bt.requestDevice({
+          filters: [{ namePrefix: "GAN" }, { namePrefix: "MG" }, { namePrefix: "AiCube" }],
+          optionalServices: [GAN_GEN2_SERVICE, GAN_GEN3_SERVICE, GAN_GEN4_SERVICE],
+        });
     this.device = device;
-    const mac = await autoRetrieveMacAddress(device);
+    // 手动填写的 MAC 优先: 跳过 watchAdvertisements, 直接用用户提供的 MAC
+    let mac: string | null = opts?.mac ? normalizeMac(opts.mac) : null;
+    if (!mac) {
+      mac = await autoRetrieveMacAddress(device);
+    } else {
+      console.info("[WebBluetooth] 使用手动填写的 MAC:", mac, "(跳过 watchAdvertisements)");
+    }
     const gatt = device.gatt!;
     await gatt.connect();
     const services = await gatt.getPrimaryServices();
@@ -154,6 +217,24 @@ export class WebBluetoothTransport implements BleTransport {
       mac: mac || undefined,
       serviceUuids: services.map((s) => s.uuid),
     };
+  }
+
+  /** 刷新后自动重连: 经 getDevices 免弹窗找回上次授权的设备 (Chrome 114+)。
+   * requestDevice 必须用户手势且每次弹窗, 无法后台重连; getDevices 返回用户曾授权过的设备,
+   * 按上次记忆的设备名匹配, 其次按 GAN/MG/AiCube 前缀兜底 */
+  private async reconnectKnown(bt: NavigatorBluetooth, knownName: string): Promise<NBDevice> {
+    const btx = bt as unknown as { getDevices?: () => Promise<NBDevice[]> };
+    if (typeof btx.getDevices !== "function") {
+      throw new Error("当前浏览器不支持免弹窗重连, 请点「连接魔方」重新选择一次 (授权后下次刷新可自动重连)");
+    }
+    const known: NBDevice[] = (await btx.getDevices()) || [];
+    const found =
+      known.find((d) => !!d.name && d.name === knownName) ||
+      known.find((d) => !!d.name && /^(GAN|MG|AiCube)/.test(d.name));
+    if (!found) {
+      throw new Error("未找到上次授权的魔方, 请点「连接魔方」重新选择一次 (授权后下次刷新可自动重连)");
+    }
+    return found;
   }
 
   async disconnect(): Promise<void> {

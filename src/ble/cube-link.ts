@@ -55,11 +55,12 @@ export class CubeLink {
 
   /**
    * 连接魔方。
-   * web: 需在用户手势调用链内 (系统选择弹窗); 无 MAC 时抛错。
+   * web: 需在用户手势调用链内 (系统选择弹窗); opts.mac 可手动填写兜底 watchAdvertisements 失败。
    * mock: 直接连接内置模拟魔方 (无真机开发/演示)。
    * native: 需先经传输层 startScan 扫描, opts.address 指定所选设备。
+   * autoReconnect: 刷新界面后自动重连 (免手势/弹窗), 配合 opts.mac/opts.address/opts.knownName。
    */
-  async connect(kind: CubeLinkKind, opts?: { address?: string }): Promise<DeviceInfo> {
+  async connect(kind: CubeLinkKind, opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo> {
     if (this.status !== "disconnected") {
       throw new Error("已连接或连接中");
     }

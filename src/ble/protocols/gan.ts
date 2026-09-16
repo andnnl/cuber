@@ -76,19 +76,29 @@ export class GanCubeLink {
   /**
    * 连接并完成代际识别。
    * 浏览器需在用户手势内调用 (requestDevice 弹窗); 原生可先 requestScan。
-   * 无 MAC 时抛错 (Gen2+ 解密必需, Web 侧由 watchAdvertisements 自动获取)。
+   * 无 MAC 时抛错 (Gen2+ 解密必需)。MAC 来源:
+   *   - info.mac (传输层返回, 已归一化为 "AA:BB:CC:DD:EE:FF"):
+   *     Web = opts.mac 经 normalizeMac 规范 / 广播 manufacturer data 自动提取;
+   *     原生 = 扫描到的蓝牙地址; Mock = 内置 MAC。
+   *   - opts.mac (用户原始输入, 兜底: 传输层未归一化成功时由 macToSalt 再校验)
    */
-  async connect(opts?: { address?: string }): Promise<DeviceInfo> {
+  async connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo> {
     const info = await this.transport.connect(opts);
+    // 传输层负责把 opts.mac / 广播 / 扫描地址归一化为 "AA:BB:CC:DD:EE:FF" 后放入 info.mac。
+    // 用户在 UI 填的原始 opts.mac 仅作 fallback (传输层未返回时由 macToSalt 兜底校验)。
+    const mac = info.mac || opts?.mac;
+    if (!mac) {
+      throw new Error(
+        "无法获取魔方 MAC 地址 (解密必需)。请打开 DevTools 控制台查看具体失败原因, " +
+          "或在 UI 手动填写 MAC (魔方底盖 / 电池仓通常有印)"
+      );
+    }
     const gen = (info.serviceUuids ?? []).map(ganGenForService).find((g) => g !== null) ?? null;
     if (!gen) {
       throw new Error("未发现 GAN 魔方 BLE 服务, 设备不受支持");
     }
-    if (!info.mac) {
-      throw new Error("无法获取魔方 MAC 地址 (解密必需), 请重试连接或手动填写");
-    }
     this.gen = gen;
-    this.info = info;
+    this.info = { ...info, mac };
     this.driver =
       gen === 2 ? new GanGen2ProtocolDriver() : gen === 3 ? new GanGen3ProtocolDriver() : new GanGen4ProtocolDriver();
     const key =
@@ -96,7 +106,7 @@ export class GanCubeLink {
     this.encrypter = new GanGen2CubeEncrypter(
       new Uint8Array(key.key),
       new Uint8Array(key.iv),
-      macToSalt(info.mac)
+      macToSalt(mac)
     );
     this.transport.onBytes((data) => this.handleBytes(data));
     this.transport.onDisconnect(() => {
@@ -107,7 +117,7 @@ export class GanCubeLink {
     // 初始状态 + 电量请求 (facelets 必须先到, MOVE 事件才会被接受)
     await this.requestFacelets();
     this.requestBattery().catch(() => undefined);
-    return info;
+    return this.info;
   }
 
   async disconnect(): Promise<void> {

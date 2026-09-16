@@ -151,6 +151,71 @@ export function applyFormula(moves: string): string {
   return applyFormulaFrom(SOLVED, moves);
 }
 
+// 54 串 → 3D 贴纸位置坐标 (遍历顺序与 BleCrossTrainer FACELET_TARGETS 一致):
+// U: z升序 x升序 y=+1; R: y降序 z降序 x=+1; F: y降序 x升序 z=+1;
+// D: z降序 x升序 y=-1; L: y降序 z升序 x=-1; B: y降序 x降序 z=-1
+// 注意: 面法线分量取 ±1.5 (贴纸外表面位置) 而非 ±1 (块中心) —— 角块 3 个面的贴纸
+// 若都记块中心坐标会重合 (如 (1,1,1) 同时是 U/R/F 贴纸), 查找表将产生重复键。
+const FACELEFT_POS: [number, number, number][] = (() => {
+  const list: [number, number, number][] = [];
+  for (let z = 0; z < 3; z++) for (let x = 0; x < 3; x++) list.push([x - 1, 1.5, z - 1]); // U
+  for (let y = 2; y >= 0; y--) for (let z = 2; z >= 0; z--) list.push([1.5, y - 1, z - 1]); // R
+  for (let y = 2; y >= 0; y--) for (let x = 0; x < 3; x++) list.push([x - 1, y - 1, 1.5]); // F
+  for (let z = 2; z >= 0; z--) for (let x = 0; x < 3; x++) list.push([x - 1, -1.5, z - 1]); // D
+  for (let y = 2; y >= 0; y--) for (let z = 0; z < 3; z++) list.push([-1.5, y - 1, z - 1]); // L
+  for (let y = 2; y >= 0; y--) for (let x = 2; x >= 0; x--) list.push([x - 1, y - 1, -1.5]); // B
+  return list;
+})();
+const POS_TO_FACELEFT: { [k: string]: number } = (() => {
+  const m: { [k: string]: number } = {};
+  FACELEFT_POS.forEach((p, i) => {
+    m[p.join(",")] = i;
+  });
+  return m;
+})();
+
+/**
+ * z2 = 整体绕前后轴 (F/B 轴) 旋转 180° (自逆): U↔D, R↔L, F/B 面内自转 180°。
+ * 用于物理魔方参考姿态 (黄顶绿前) 与 3D 标准姿态 (白顶绿前) 的 facelet 帧互转。
+ * 实现按贴纸位置 (x,y,z) → (-x,-y,z) 位移贴纸, 与 CrossF2LTrainer/pieces.ts 的
+ * rotatePositionIndex(axis='z', times=2) 同语义。
+ */
+export function z2Facelets(facelets: string): string {
+  const out: string[] = new Array(54);
+  for (let i = 0; i < 54; i++) {
+    const [x, y, z] = FACELEFT_POS[i];
+    out[i] = facelets[POS_TO_FACELEFT[`${-x},${-y},${z}`]];
+  }
+  return out.join("");
+}
+
+/** z2 共轭转动: 物理帧转动 → 3D 帧转动 (U↔D, R↔L; F/B 不变; ' 与 2 后缀保留) */
+export function z2Move(move: string): string {
+  const face = move.charAt(0);
+  const rest = move.slice(1);
+  const map: { [k: string]: string } = { U: "D", D: "U", R: "L", L: "R" };
+  return (map[face] || face) + rest;
+}
+
+/**
+ * 训练帧变换 (自逆): 白色十字 ⇄ 标准 D 面十字。
+ * 智能魔方以核心为坐标系 (中心恒 URFDLB); 用户校准后白色中心位于核心 U 轴,
+ * 还原的白色十字 (4 条白棱围住白色中心) 位于核心 U 面, 而 isCrossDone 判定与
+ * Kociemba 求解器均面向标准 D 面十字。判定/求解前先用本变换把状态转入训练帧。
+ * 实现 = 位置置换 z2Facelets (r) + 面字母原地换名 U↔D/R↔L (ρ) 复合, T = ρ∘r;
+ * T(solved) = solved, 且转动共轭恒等式 T∘M_f∘T = M_{z2Move(f)} 成立 ——
+ * 训练帧下求得的解需逐记号 z2Move 换回核心帧后再作用于实物/3D。
+ */
+export function toTrainFrame(facelets: string): string {
+  const swapped = z2Facelets(facelets);
+  let out = "";
+  for (let i = 0; i < swapped.length; i++) {
+    const ch = swapped[i];
+    out += ch === "U" ? "D" : ch === "D" ? "U" : ch === "R" ? "L" : ch === "L" ? "R" : ch;
+  }
+  return out;
+}
+
 /** 公式推演: 从指定状态起应用 moves (打乱目标态 = 当前态 + 打乱公式) */
 export function applyFormulaFrom(start: string, moves: string): string {
   let state = start;

@@ -41,6 +41,14 @@
             >手动练习</v-btn>
             <v-btn x-small v-if="isManual" @click="stopManual" :style="{height: size * 0.55 + 'px'}">退出练习</v-btn>
             <v-btn x-small v-if="!isManual && status === 'connected'" @click="disconnect" :style="{height: size * 0.55 + 'px'}">断开</v-btn>
+            <!-- 手动 MAC 输入口 (Web 模式: watchAdvertisements 失败的兜底; APK 原生用不到) -->
+            <v-btn
+              x-small
+              v-if="!isManual && webBt && !nativeBt && status === 'disconnected'"
+              @click="macInputOpen = !macInputOpen"
+              :title="macInputOpen ? '收起 MAC 输入' : '手动填写 MAC (watchAdvertisements 失败的兜底, 魔方底盖/电池仓通常有印)'"
+              :style="{height: size * 0.55 + 'px'}"
+            >MAC</v-btn>
             <span class="status-dot" :class="'dot-' + (isManual ? 'connected' : status)"></span>
             <span style="font-size: 12px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
               {{ deviceName || (webBt ? '未连接' : '此环境不支持 Web Bluetooth') }}
@@ -48,6 +56,32 @@
             <span v-if="battery !== null" style="font-size: 12px; color: #888; white-space: nowrap;">🔋{{ battery }}%</span>
             <div style="flex: 1; min-width: 4px;"></div>
             <v-btn x-small @click="helpDialog = true" title="使用说明" :style="{height: size * 0.55 + 'px'}">?</v-btn>
+          </div>
+
+          <!-- 行1.5: 手动 MAC 输入框 (展开式; Web 模式断开态可见) -->
+          <div
+            v-if="!isManual && webBt && !nativeBt && status === 'disconnected' && macInputOpen"
+            style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"
+          >
+            <input
+              v-model="manualMac"
+              @change="saveManualMac"
+              placeholder="AA:BB:CC:DD:EE:FF (魔方底盖/电池仓印的, 自动保存)"
+              style="flex: 1; min-width: 0; border: 1px solid #e3e8f0; border-radius: 4px; padding: 2px 6px; font-size: 12px; height: 24px; font-family: 'Roboto Mono', Consolas, monospace;"
+            />
+            <v-btn
+              x-small
+              @click="connect('web')"
+              :style="{height: size * 0.5 + 'px'}"
+              title="用填写的 MAC 连接 (跳过 watchAdvertisements)"
+            >用 MAC 连接</v-btn>
+            <v-btn
+              x-small
+              v-if="manualMac"
+              @click="manualMac = ''; saveManualMac()"
+              :style="{height: size * 0.5 + 'px'}"
+              title="清除已保存的 MAC"
+            >清除</v-btn>
           </div>
 
           <!-- 行2: 练习模式 + 打乱公式 -->
@@ -75,7 +109,23 @@
               title="重置本轮 (手动练习: 3D 魔方回打乱态重新观察; 蓝牙: 重置还原计时)"
               :style="{height: size * 0.55 + 'px'}"
             >重置</v-btn>
-            <span v-if="scramble" class="scramble-text" :class="{muted: phase !== 'scrambling' && phase !== 'ready'}">{{ scramble }}</span>
+            <v-btn
+              x-small
+              v-if="!isManual"
+              :color="z2On ? 'primary' : ''"
+              @click="toggleZ2"
+              :title="z2On ? '当前 黄顶绿前 (整体 z2 翻转), 点击切回 白顶绿前 (物理原样)' : '当前 白顶绿前 (物理原样), 点击切换 黄顶绿前 (整体 z2 翻转)'"
+              :style="{height: size * 0.55 + 'px'}"
+            >z2</v-btn>
+            <v-btn
+              x-small
+              v-if="!isManual && status === 'connected'"
+              :color="calibStep >= 0 ? 'warning' : ''"
+              @click="calibrate"
+              :title="calibStep >= 0 ? '点击取消校准' : '校准 (调试): 在白顶绿前零换算视角下, 按提示转 3 次实体魔方, 自动对比硬件上报记号是否对得上; 详细日志见控制台'"
+              :style="{height: size * 0.55 + 'px'}"
+            >{{ calibStep >= 0 ? '取消校准' : '校准' }}</v-btn>
+            <span v-if="scramble" class="scramble-text" :class="{muted: phase !== 'scrambling' && phase !== 'ready'}">{{ scrambleText }}</span>
             <span v-else class="scramble-text muted">{{ phase === 'ready' ? (isManual ? '点「新打乱」开始' : '等待魔方状态...') : '—' }}</span>
           </div>
 
@@ -100,12 +150,12 @@
           >
             <!-- Cross 模式: 单组最优解 -->
             <div v-if="trainMode === 'cross'" style="display: flex; gap: 6px; min-width: 0;">
-              <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">最优解 {{ bestReady ? bestSteps + '步' : '' }}</span>
-              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolution || '(十字已复原, 无需转动)') : '求解中…' }}</span>
+              <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">最优解({{ z2On ? '白' : '黄' }}) {{ bestReady ? bestSteps + '步' : '' }}</span>
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolutionText || '(十字已复原, 无需转动)') : '求解中…' }}</span>
             </div>
             <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
             <template v-else>
-              <div v-for="b in bestX" :key="b.slot" style="display: flex; gap: 6px; min-width: 0;">
+              <div v-for="b in bestXDisplay" :key="b.slot" style="display: flex; gap: 6px; min-width: 0;">
                 <span
                   :style="{color: completedSlots.indexOf(b.slot) >= 0 ? '#2e7d32' : '#1565c0', whiteSpace: 'nowrap', fontWeight: 'bold'}"
                 >{{ b.slot }} {{ b.formula ? b.steps + '步' : '' }}</span>
@@ -120,7 +170,7 @@
             <div style="display: flex; gap: 6px; min-width: 0;">
               <span style="color: #2e7d32; white-space: nowrap; font-weight: bold;">你的解法 {{ moveCount }}步</span>
               <span v-if="trainMode === 'xcross' && completedSlots.length" style="color: #2e7d32; white-space: nowrap;">({{ completedSlots.join('/') }})</span>
-              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ userSolution || '—' }}</span>
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ userSolutionText || '—' }}</span>
             </div>
             <div v-if="observeText" style="margin-top: 2px; color: #666;">👁 观察 {{ observeText }} · ⏱ 还原 {{ elapsedText }}</div>
             <div style="margin-top: 2px; color: #666;">✅ 成功 {{ successCount }} · ❌ 失败 {{ failCount }}</div>
@@ -163,27 +213,38 @@
           <div>1. 打开魔方电源, 点「连接魔方」在弹窗中选择你的 GAN 魔方</div>
           <div>2. 连接成功后自动生成打乱公式, 在实体魔方上照着公式拧</div>
           <div>3. App 检测到魔方到达打乱目标态后自动开始计时</div>
-          <div>4. 用实体魔方还原十字 (4 条底棱归位), 完成自动判定并停止计时</div>
+          <div>4. 还原十字: 白十字/黄十字均可 (4 条棱围住同色中心), 完成自动判定并停止计时</div>
           <div>5. 正确后显示你的解法与最优解对比、步数和成功/失败计数</div>
-          <div>6. 勾选「自动下轮」时 2.5 秒后自动生成下一次打乱, 循环训练;</div>
-          <div>&nbsp;&nbsp;未勾选则停留在结果页, 手动点「新打乱」继续</div>
+          <div>6. 勾选「自动下轮」时 2.5 秒后自动开始下一轮 (免点「跳过」):</div>
+          <div>&nbsp;&nbsp;自行打乱魔方, 首次转动开始计时; 未勾选则手动点「新打乱」继续</div>
           <div style="margin-top: 8px;"><b>练习模式</b></div>
-          <div>· Cross: 还原 4 条底棱即完成, 最优解为单组</div>
+          <div>· Cross: 白十字/黄十字任一还原即完成, 最优解按当前持握底色给出</div>
           <div>· XCross: 十字 + 任一组 F2L (角+棱) 同时完成才算,</div>
           <div>&nbsp;&nbsp;最优解显示 FL/FR/BL/BR 四组各自的最优解,</div>
           <div>&nbsp;&nbsp;你完成的槽位会绿色高亮</div>
           <div style="margin-top: 8px;"><b>持握与公式</b></div>
           <div>· 打乱时按标准姿态持握: 白色朝上、绿色朝前</div>
           <div>· 公式字母对应方向: U上 D下 F前 B后 L左 R右</div>
+          <div>· 转动/图案对不上时点「z2」按钮: 3D 魔方整体翻转</div>
+          <div>&nbsp;&nbsp;(白顶 ⇄ 黄顶), 转动记号与公式自动同步换算, 再按切回</div>
           <div>· 「跳过, 直接开始」: 不校验打乱公式, 立即开始还原计时</div>
           <div style="margin-top: 8px;"><b>判定说明</b></div>
-          <div>· 十字判定是纯状态判定: 4 条底棱的 D 面贴纸朝下、</div>
-          <div>&nbsp;&nbsp;侧面贴纸与相邻中心对齐 (姿态无关)</div>
+          <div>· 十字判定是纯状态判定: 白十字或黄十字任一完成即算 ——</div>
+          <div>&nbsp;&nbsp;4 条棱围住同色中心、侧面贴纸与相邻中心对齐 (姿态无关)</div>
           <div>· 屏幕中的 3D 魔方实时镜像你的实体魔方</div>
           <div style="margin-top: 8px;"><b>设备支持</b></div>
           <div>· GAN Gen2/3/4 (356i / i2 / i Carry / M 系列智能魔方)</div>
+          <div>· 上次连接过的魔方自动重连: App 内刷新界面即连;</div>
+          <div>&nbsp;&nbsp;浏览器刷新后经已授权设备找回 (Chrome 114+), 魔方开机即可</div>
           <div>· Chrome/Edge 浏览器走 Web Bluetooth; App 内走原生蓝牙</div>
           <div>· 不支持 Web Bluetooth 的环境仅可连接模拟魔方演示</div>
+          <div style="margin-top: 8px;"><b>MAC 获取失败的兜底</b></div>
+          <div>· Chrome 自动获取 MAC 依赖实验特性 watchAdvertisements,</div>
+          <div>&nbsp;&nbsp;失败时点「MAC」展开输入框, 把魔方底盖 / 电池仓</div>
+          <div>&nbsp;&nbsp;印的 12 位十六进制 (如 AA:BB:CC:DD:EE:FF) 填进去,</div>
+          <div>&nbsp;&nbsp;点「用 MAC 连接」即可绕过 watchAdvertisements 直连</div>
+          <div>· 填写的 MAC 自动保存到 localStorage, 下次复用</div>
+          <div>· 打开 DevTools 控制台可看到具体的失败路径提示</div>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
