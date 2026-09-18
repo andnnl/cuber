@@ -20,31 +20,22 @@
               x-small
               color="primary"
               @click="onConnectTap"
-              v-if="!isManual"
               :disabled="!webBt && !nativeBt"
-              :title="nativeBt ? '扫描附近的 GAN 魔方' : '通过 Web Bluetooth 连接'"
+              :title="nativeBt ? '扫描附近的 GAN 魔方 (练习中随时可连)' : '通过 Web Bluetooth 连接 (练习中随时可连)'"
               :style="{height: size * 0.55 + 'px'}"
             >{{ status === 'connected' ? '已连接' : status === 'connecting' ? '连接中' : '连接魔方' }}</v-btn>
             <v-btn
               x-small
-              v-if="!isManual && status === 'disconnected'"
+              v-if="status === 'disconnected'"
               @click="connect('mock')"
-              title="连接模拟魔方 (无真机演示开发用)"
+              title="连接模拟魔方 (同一套流程, 无真机演示用; 手动练习中也可点, 连上即接管)"
               :style="{height: size * 0.55 + 'px'}"
             >演示</v-btn>
-            <v-btn
-              x-small
-              v-if="!isManual && status === 'disconnected'"
-              @click="startManual"
-              title="无蓝牙时用鼠标拧 3D 魔方练习, 打乱直接作用于屏幕中的魔方"
-              :style="{height: size * 0.55 + 'px'}"
-            >手动练习</v-btn>
-            <v-btn x-small v-if="isManual" @click="stopManual" :style="{height: size * 0.55 + 'px'}">退出练习</v-btn>
-            <v-btn x-small v-if="!isManual && status === 'connected'" @click="disconnect" :style="{height: size * 0.55 + 'px'}">断开</v-btn>
+            <v-btn x-small v-if="status === 'connected'" @click="disconnect" :style="{height: size * 0.55 + 'px'}">断开</v-btn>
             <!-- 手动 MAC 输入口 (Web 模式: watchAdvertisements 失败的兜底; APK 原生用不到) -->
             <v-btn
               x-small
-              v-if="!isManual && webBt && !nativeBt && status === 'disconnected'"
+              v-if="webBt && !nativeBt && status === 'disconnected'"
               @click="macInputOpen = !macInputOpen"
               :title="macInputOpen ? '收起 MAC 输入' : '手动填写 MAC (watchAdvertisements 失败的兜底, 魔方底盖/电池仓通常有印)'"
               :style="{height: size * 0.55 + 'px'}"
@@ -58,9 +49,9 @@
             <v-btn x-small @click="helpDialog = true" title="使用说明" :style="{height: size * 0.55 + 'px'}">?</v-btn>
           </div>
 
-          <!-- 行1.5: 手动 MAC 输入框 (展开式; Web 模式断开态可见) -->
+          <!-- 行1.5: 手动 MAC 输入框 (展开式; Web 模式断开态可见, 含手动练习中) -->
           <div
-            v-if="!isManual && webBt && !nativeBt && status === 'disconnected' && macInputOpen"
+            v-if="webBt && !nativeBt && status === 'disconnected' && macInputOpen"
             style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"
           >
             <input
@@ -98,20 +89,18 @@
             <v-btn
               x-small
               @click="newScramble"
-              :disabled="status !== 'connected' && !isManual"
-              title="生成新打乱 (蓝牙以魔方当前状态为基准; 手动练习直接打乱屏幕中的魔方)"
+              title="生成新打乱 (蓝牙以魔方当前状态为基准; 未连接/连接中自动转手动练习, 直接打乱屏幕中的魔方)"
               :style="{height: size * 0.55 + 'px'}"
             >新打乱</v-btn>
             <v-btn
               x-small
               @click="resetRound"
-              :disabled="isManual ? (phase !== 'observing' && phase !== 'solving' && phase !== 'success') : phase !== 'solving'"
-              title="重置本轮 (手动练习: 3D 魔方回打乱态重新观察; 蓝牙: 重置还原计时)"
+              :disabled="phase !== 'observing' && phase !== 'solving' && phase !== 'success'"
+              title="重置本轮 (3D 回本轮打乱态, 计时/步数清零; 蓝牙连接后任意阶段可点)"
               :style="{height: size * 0.55 + 'px'}"
             >重置</v-btn>
             <v-btn
               x-small
-              v-if="!isManual"
               :color="z2On ? 'primary' : ''"
               @click="toggleZ2"
               :title="z2On ? '当前 黄顶绿前 (整体 z2 翻转), 点击切回 白顶绿前 (物理原样)' : '当前 白顶绿前 (物理原样), 点击切换 黄顶绿前 (整体 z2 翻转)'"
@@ -119,7 +108,7 @@
             >z2</v-btn>
             <v-btn
               x-small
-              v-if="!isManual && status === 'connected'"
+              v-if="status === 'connected'"
               :color="calibStep >= 0 ? 'warning' : ''"
               @click="calibrate"
               :title="calibStep >= 0 ? '点击取消校准' : '校准 (调试): 在白顶绿前零换算视角下, 按提示转 3 次实体魔方, 自动对比硬件上报记号是否对得上; 详细日志见控制台'"
@@ -133,7 +122,7 @@
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
             <span :class="{'ok-text': phase === 'success'}" style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ statusText }}</span>
             <div style="flex: 1;"></div>
-            <label v-if="status === 'connected' || isManual" style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
+            <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
               <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮
             </label>
             <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="全程显示 WASM 推荐的最优解 (观察/还原/完成阶段都显示, 用于学习); 关闭后不求解也不展示">
@@ -143,15 +132,15 @@
             <span v-if="phase === 'solving' || phase === 'success'" style="color: #888; white-space: nowrap;">步数 {{ moveCount }}</span>
           </div>
 
-          <!-- 行3.4: 最优解 (勾选即全程显示, 用于学习): Cross 单组 / XCross 四槽位 -->
+          <!-- 行3.4: 最优解 (勾选即全程显示, 打乱等待期按打乱目标态预求解, 用于学习): Cross 单组 / XCross 四槽位 -->
           <div
-            v-if="showBest && (phase === 'observing' || phase === 'solving' || phase === 'success')"
+            v-if="showBest && (phase === 'scrambling' || phase === 'observing' || phase === 'solving' || phase === 'success')"
             style="margin-top: 5px; padding: 5px 8px; background: #f0f4fb; border: 1px solid #d8e4f8; border-radius: 6px; font-size: 12px; line-height: 1.7;"
           >
             <!-- Cross 模式: 单组最优解 -->
             <div v-if="trainMode === 'cross'" style="display: flex; gap: 6px; min-width: 0;">
               <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">最优解({{ z2On ? '白' : '黄' }}) {{ bestReady ? bestSteps + '步' : '' }}</span>
-              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolutionText || '(十字已复原, 无需转动)') : '求解中…' }}</span>
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolutionText || (bestWaitingScramble ? '(打乱拆散十字后自动求解)' : '(十字已复原, 无需转动)')) : '求解中…' }}</span>
             </div>
             <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
             <template v-else>
@@ -176,12 +165,7 @@
             <div style="margin-top: 2px; color: #666;">✅ 成功 {{ successCount }} · ❌ 失败 {{ failCount }}</div>
           </div>
 
-          <!-- 行4: 打乱等待期辅助按钮 -->
-          <div v-if="phase === 'scrambling'" style="display: flex; gap: 6px; margin-top: 4px;">
-            <v-btn x-small @click="skipScramble" title="不校验打乱公式, 立即开始还原计时" :style="{height: size * 0.5 + 'px'}">跳过, 直接开始</v-btn>
-          </div>
-
-          <!-- 行5: Mock 演示控件 (仅模拟魔方显示) -->
+          <!-- 行4: Mock 演示控件 (仅模拟魔方显示) -->
           <div v-if="isMock" style="display: flex; align-items: center; gap: 5px; margin-top: 5px;">
             <v-btn x-small color="primary" @click="mockDemo" title="注入打乱并自动还原十字, 演示完整训练循环" :style="{height: size * 0.5 + 'px'}">自动演示</v-btn>
             <input
@@ -202,20 +186,26 @@
         <v-card-title class="help-title">十字训练 - 使用说明</v-card-title>
         <v-card-text class="help-body" style="font-size: 13px; line-height: 1.8;">
           <div><b>手动练习 (无蓝牙)</b></div>
-          <div>· 点「手动练习」无需连接魔方, 用鼠标在 3D 魔方上</div>
+          <div>· 未连接魔方时点「新打乱」自动进入, 无需连接蓝牙: 用鼠标在 3D 魔方上</div>
           <div>&nbsp;&nbsp;拖动转层即可训练; 拖动空白处整体转动魔方</div>
           <div>· 「新打乱」直接把屏幕中的 3D 魔方打乱, 先进入观察阶段:</div>
           <div>&nbsp;&nbsp;可 y/z/x 整体转动观察 (不计步), 首次转动才开始还原计时</div>
           <div>&nbsp;&nbsp;转 y/y' 后魔方停在当前姿态, 就在当前持握方向继续还原,</div>
           <div>&nbsp;&nbsp;判定与最优解会自动换算 (整体转不计步数)</div>
           <div>· 判定/最优解/计数/自动下轮与蓝牙模式完全一致</div>
+          <div style="margin-top: 8px;"><b>模式切换 (练习不中断)</b></div>
+          <div>· 三种方式同一套界面: 蓝牙实体魔方 / 模拟魔方 (演示) / 手动鼠标拧动</div>
+          <div>· 手动练习中可随时点「连接魔方」: 连上后以魔方当前状态直接继续还原</div>
+          <div>&nbsp;&nbsp;(首次转动开始计时); 想要打乱轮再点「新打乱」</div>
+          <div>· 蓝牙断开 (关机/超距) 自动转手动: 3D 回本轮起点, 鼠标接着还原;</div>
+          <div>&nbsp;&nbsp;重新连接后蓝牙再次接管</div>
           <div style="margin-top: 8px;"><b>蓝牙训练流程</b></div>
           <div>1. 打开魔方电源, 点「连接魔方」在弹窗中选择你的 GAN 魔方</div>
           <div>2. 连接成功后自动生成打乱公式, 在实体魔方上照着公式拧</div>
           <div>3. App 检测到魔方到达打乱目标态后自动开始计时</div>
           <div>4. 还原十字: 白十字/黄十字均可 (4 条棱围住同色中心), 完成自动判定并停止计时</div>
           <div>5. 正确后显示你的解法与最优解对比、步数和成功/失败计数</div>
-          <div>6. 勾选「自动下轮」时 2.5 秒后自动开始下一轮 (免点「跳过」):</div>
+          <div>6. 勾选「自动下轮」时 2.5 秒后自动开始下一轮 (免操作):</div>
           <div>&nbsp;&nbsp;自行打乱魔方, 首次转动开始计时; 未勾选则手动点「新打乱」继续</div>
           <div style="margin-top: 8px;"><b>练习模式</b></div>
           <div>· Cross: 白十字/黄十字任一还原即完成, 最优解按当前持握底色给出</div>
@@ -227,7 +217,8 @@
           <div>· 公式字母对应方向: U上 D下 F前 B后 L左 R右</div>
           <div>· 转动/图案对不上时点「z2」按钮: 3D 魔方整体翻转</div>
           <div>&nbsp;&nbsp;(白顶 ⇄ 黄顶), 转动记号与公式自动同步换算, 再按切回</div>
-          <div>· 「跳过, 直接开始」: 不校验打乱公式, 立即开始还原计时</div>
+          <div>· 打乱等待中不想逐块对齐: 点「重置」跳过匹配, 3D 保持显示</div>
+          <div>&nbsp;&nbsp;打乱态作为练习起点, 首次拧动后切换为实时镜像实物</div>
           <div style="margin-top: 8px;"><b>判定说明</b></div>
           <div>· 十字判定是纯状态判定: 白十字或黄十字任一完成即算 ——</div>
           <div>&nbsp;&nbsp;4 条棱围住同色中心、侧面贴纸与相邻中心对齐 (姿态无关)</div>
