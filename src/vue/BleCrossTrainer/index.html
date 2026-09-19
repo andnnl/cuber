@@ -108,6 +108,20 @@
             >z2</v-btn>
             <v-btn
               x-small
+              :disabled="!isManual"
+              @click="rotateWholeY(1)"
+              title="整体旋转 y (手动练习: 调整持握方向, 判定/最优解/步数自动换算, 打乱/重置后持握方向保留; 蓝牙模式不可用)"
+              :style="{height: size * 0.55 + 'px'}"
+            >y</v-btn>
+            <v-btn
+              x-small
+              :disabled="!isManual"
+              @click="rotateWholeY(-1)"
+              title="整体旋转 y' (手动练习: 调整持握方向, 判定/最优解/步数自动换算, 打乱/重置后持握方向保留; 蓝牙模式不可用)"
+              :style="{height: size * 0.55 + 'px'}"
+            >y'</v-btn>
+            <v-btn
+              x-small
               v-if="status === 'connected'"
               :color="calibStep >= 0 ? 'warning' : ''"
               @click="calibrate"
@@ -217,6 +231,9 @@
           <div>· 公式字母对应方向: U上 D下 F前 B后 L左 R右</div>
           <div>· 转动/图案对不上时点「z2」按钮: 3D 魔方整体翻转</div>
           <div>&nbsp;&nbsp;(白顶 ⇄ 黄顶), 转动记号与公式自动同步换算, 再按切回</div>
+          <div>· y / y' 按钮 (仅手动练习): 整体旋转调整持握方向</div>
+          <div>&nbsp;&nbsp;判定/最优解/步数自动按新方向换算, 观察期不计步不结束观察;</div>
+          <div>&nbsp;&nbsp;与 z2 一样, 打乱/重置后持握方向保留不回正</div>
           <div>· 打乱等待中不想逐块对齐: 点「重置」跳过匹配, 3D 保持显示</div>
           <div>&nbsp;&nbsp;打乱态作为练习起点, 首次拧动后切换为实时镜像实物</div>
           <div style="margin-top: 8px;"><b>判定说明</b></div>

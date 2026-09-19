@@ -146,6 +146,9 @@ export default class BleCrossTrainer extends Vue {
   completedSlots: string[] = [];
   // 本轮最优解的求解基准态 (打乱目标态; skipScramble 时为当时状态), 模式切换重求用
   private solveBaseState = "";
+  // 基准态是否为屏幕帧 (含 z2 翻转 + 基准持握姿态): 手动 newScramble 置 true,
+  // 其余 startSolving 调用点 (蓝牙路径) 为物理帧 false —— resetRound 重绘时区分
+  private solveBaseScreenFrame = false;
   // 起始态十字已完成时置位 (自动下轮直接开始/完成态跳过): 须先观察到十字被拆散,
   // 成功判定才生效, 防止尚未打乱就再次误判成功
   private needBreak = false;
@@ -189,12 +192,20 @@ export default class BleCrossTrainer extends Vue {
   isMock = false;
   mockInput = "";
 
-  // ---- 手动练习 (无蓝牙): 鼠标拧 3D 魔方, 打乱直接作用于 3D 场景 ----
+  // ---- 手动练习 (无蓝牙): 鼠标拧 3D 魔方, 打乱直接作用于 3D 场景
   isManual = false;
+  // 重置重基准重放中: setup 快转的 drop 回调会带旧 phase 活体判定 (中间态可能
+  // 十字已完成 → 误判成功/误切阶段), 置位期间 onManualTwist 直接忽略
+  private rebasing = false;
   // 观察/还原期间的整体转序列 (y/y'/x/z, 按时间序, history 已合并同向):
   // 整体转保留在物理状态中 (魔方停在用户当前持握姿态), 判定/求解前按此序列
   // 把状态串字符改名回打乱姿态 (中心恢复标准 URFDLB), 任意多次组合均成立
   private observedOps: BaseOp[] = [];
+
+  // 轮次基准持握 (CrossF2L baseOps 同语义): 打乱/重置回正后重放恢复的 y/y' 整体转,
+  // 跨轮保留 —— 用户切换的持握方向不因打乱/重置丢失 (z2 由 z2On 机制承担, 不入此列)。
+  // 判定映射 observedOps = baseOps ⊕ 本轮 history 整体转 (时间序, 见 syncObservedOps)
+  private baseOps: BaseOp[] = [];
 
   mounted(): void {
     // 注入面板主题样式 (模板内 <style> 会被编译器剥离, 只能动态注入)
@@ -361,6 +372,7 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     this.isManual = true;
+    this.baseOps = []; // 手动会话从标准白顶姿态开始 (z2On 同款复位)
     const wasZ2 = this.z2On;
     this.z2On = false; // 手动模式从白顶物理视角开始 (z2 按钮可随时切), 复位避免遗留翻转影响公式展示
     if (wasZ2) {
@@ -411,6 +423,7 @@ export default class BleCrossTrainer extends Vue {
       // 常规连接 = 等待首包后自动生成首轮打乱
       const takeover = this.isManual;
       this.isManual = false;
+      this.baseOps = []; // 蓝牙接管: 轮次基准由硬件状态定义, 手动持握基准失效
       this.takeoverPending = takeover;
       this.phase = "ready";
       this.statusText = takeover ? "已连接魔方, 读取当前状态..." : "已连接, 等待魔方状态...";
@@ -530,6 +543,19 @@ export default class BleCrossTrainer extends Vue {
     if (base) {
       this.requestBest(this.mapStateForJudge(base));
     }
+  }
+
+  /** y/y' 按钮: 整体旋转 (同鼠标拖拽整体转)。物理转动并入 history → observedOps,
+   * 判定/最优解/步数自动按新持握方向换算 (观察期不结束观察/不计步)。
+   * 仅手动练习可用: 蓝牙模式实物在用户手中, 3D 镜像不可独立转动。
+   * 方向按屏幕语义: z2 翻转把 y 轴也倒了 (z2·y·z2 = y'), z2On 时物理转反向,
+   * 保证黄顶视角下按 y 仍是「右面转向前」的观感 (与标准姿态一致) */
+  rotateWholeY(times: number): void {
+    if (!this.isManual) {
+      return;
+    }
+    const physicalTimes = this.z2On ? -times : times;
+    this.world.cube.twister.push(physicalTimes > 0 ? "y" : "y'");
   }
 
   // ================= 校准 (调试): 引导转动实体魔方, 对比硬件上报记号 =================
@@ -739,11 +765,24 @@ export default class BleCrossTrainer extends Vue {
     return isCrossDone(state) && f2lSlotsDone(state).length > 0;
   }
 
-  /** 从 history 全量重建整体转序列 (history 已合并同向记号, 无冗余) */
+  /** 整体转序列 = 轮次基准持握 (baseOps) ⊕ 本轮 history 整体转 (时间序, 已合并同向)。
+   * 打乱/重置只清 history (setup/syncScene), 基准持握经 baseOps 保留并继续参与映射 */
   private syncObservedOps(): void {
-    this.observedOps = this.world.cube.history.list
+    const fromHistory = this.world.cube.history.list
       .filter((a) => /^[xyz]$/.test(a.sign))
       .map((a) => ({ axis: a.sign as BaseOp["axis"], times: a.reverse ? -a.times : a.times }));
+    this.observedOps = [...this.baseOps, ...fromHistory];
+  }
+
+  /** 重放基准持握 (打乱 setup / 重置回正后恢复 y/y' 基准视角):
+   * 瞬间完成, 不入 history —— 姿态映射已由 observedOps = baseOps ⊕ history 表达 */
+  private applyBaseOrientation(): void {
+    for (const op of this.baseOps) {
+      for (const group of this.world.cube.table.groups[op.axis]) {
+        group.twist(op.times * (Math.PI / 2), true);
+      }
+    }
+    this.world.dirty = true;
   }
 
   /** 手动练习状态串 → 打乱姿态坐标系 (整体转只改面标签字符, 映射后中心恢复标准 URFDLB) */
@@ -753,21 +792,22 @@ export default class BleCrossTrainer extends Vue {
 
   /** 手动练习: 每次转层动画结束 (鼠标拧动/回弹) 后刷新步数并判定 */
   private onManualTwist(): void {
-    if (!this.isManual) {
+    if (!this.isManual || this.rebasing) {
       return;
     }
     const cube = this.world.cube;
     // 整体转 (观察期观察、还原期调整持握) 全量累积, 供状态串映射回打乱姿态
     this.syncObservedOps();
-    // 整体转改变当前视角坐标系: 最优解按新视角重求 (映射打乱基准态, 记号对应当前屏幕的面)
+    // 整体转改变当前视角坐标系: 最优解按新视角重求。输入必须是对当前姿态串
+    // (serialize) 的判定系映射 —— 映射串位置=屏幕面、中心恢复标准, 解得记号对应
+    // 当前屏幕的面且步数=物理最优; 不可映射基准串 solveBaseState (字符换名映射
+    // 只适用于姿态串, 误用会得到另一个物理状态, 步数漂移如 5↔6 步)。
+    // z2On 时同样重算: 映射串仍带 z2 翻转残留 (z2 不入 observedOps), 由
+    // requestBestSolution 内部的 toTrainFrame 处理 —— 两级组合后中心恢复标准
     const sig = JSON.stringify(this.observedOps);
     if (sig !== this.bestRotationSig && this.solveBaseState) {
       this.bestRotationSig = sig;
-      this.bestSolution = "";
-      this.bestReady = false;
-      this.bestX = [];
-      this.bestXReady = false;
-      this.requestBest(this.mapStateForJudge(this.solveBaseState));
+      this.requestBest(this.mapStateForJudge(cube.serialize()));
     }
     if (this.phase === "observing") {
       // 观察期整体转 (含 y 后 y' 合并抵消): 保留当前姿态继续观察, 不计步不结束观察
@@ -862,7 +902,7 @@ export default class BleCrossTrainer extends Vue {
     this.requestBest(this.mapStateForJudge(state));
   }
 
-  private startSolving(baseState?: string): void {
+  private startSolving(baseState?: string, screenFrame = false): void {
     this.phase = "solving";
     this.moveCount = 0;
     this.userMoves = [];
@@ -879,14 +919,18 @@ export default class BleCrossTrainer extends Vue {
       this.trainMode === "xcross"
         ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
         : "十字进行中: 还原" + this.crossTargetText();
-    // 记录求解基准态 (打乱目标态; skipScramble/手动模式为当时状态), 模式切换时据此重求
+    // 记录求解基准态 (打乱目标态; skipScramble/手动模式为当时状态), 模式切换时据此重求。
+    // screenFrame: 基准态是否为屏幕帧 (手动 newScramble 在 z2 翻转+基准持握重放后捕获,
+    // 已含两者姿态) —— resetRound 重绘时据此决定是否重放 z2 翻转 (屏幕帧已含, 重放会双重翻转)
     this.solveBaseState = baseState || this.scrambleTarget || this.predicted || "";
+    this.solveBaseScreenFrame = screenFrame;
     // 起始态十字若已完成 (自动下轮直接开始等): 须先拆散十字, 成功判定才生效
     this.needBreak = hasAnyCrossDone(this.solveBaseState);
     // 记录请求最优解时的整体转签名: 手动练习后续整体转会改变当前视角坐标系, 需据此重求
     this.bestRotationSig = JSON.stringify(this.observedOps);
     // 对打乱态预求最优解 (异步, 完成前结果区显示「求解中…」)。
-    // 手动练习中整体转后视角坐标系变化, 最优解按映射后的基准态求出, 记号对应当前屏幕的面
+    // 各调用点均在打乱重置后 (observedOps 必为空), 此映射恒等; 整体转后的重求
+    // 在 onManualTwist —— 按当前姿态串的判定系映射求解 (记号对应当前屏幕的面)
     if (this.solveBaseState) {
       this.requestBest(this.mapStateForJudge(this.solveBaseState));
     }
@@ -1059,7 +1103,10 @@ export default class BleCrossTrainer extends Vue {
     }
     if (this.isManual) {
       // 手动模式: 3D 魔方直接打乱 (setup 瞬时完成, history 清空后记号从拧动开始累计),
-      // 打乱后先进入观察阶段: 可 y/z/x 整体转动观察, 首次转动才开始还原计时
+      // 打乱后先进入观察阶段: 可 y/z/x 整体转动观察, 首次转动才开始还原计时。
+      // 上一轮遗留持握 (observedOps = 旧 baseOps ⊕ history 整体转) 全量固化为新轮基准,
+      // setup 回正后重放: 与 CrossF2L 一致, y/y' 设定的持握方向跨打乱保留
+      // (z2 由 z2On 重放, 见下; 只取 history 会丢掉旧 baseOps 贡献)
       const cube = this.world.cube;
       const formula = cube.twister.scrambler();
       this.scramble = formula;
@@ -1067,13 +1114,22 @@ export default class BleCrossTrainer extends Vue {
       this.predicted = null;
       this.elapsedText = "";
       this.observeText = "";
-      this.observedOps = [];
+      cube.twister.finish(); // 排空在飞整体转动画 (drop 未触发则 history 缺记录, 固化会漏)
+      this.syncObservedOps(); // 刷新 observedOps (防最后一次转动回调未触发)
+      this.baseOps = this.observedOps.slice();
       this.running = false;
+      // 贴纸复位: cube.reset 只归位 index 不清贴纸, 而本组件 syncScene 用 stick 改写过
+      // 贴纸 (上轮基准态) —— 不复位的话 setup 作用于残留布局, 姿态链路全错。
+      // CrossF2L 无此问题 (从不用 stick, 贴纸恒为出厂标准色)。复位后 setup 即作用于
+      // 标准初态, 与 CrossF2L startRound 的 setup(exp) 语义完全一致
+      this.syncScene(SOLVED_FACELETS);
       cube.twister.setup(formula);
       if (this.z2On) {
-        this.applyZ2Flip(true); // 手动打乱重建物理姿态后, 保持 z2 视角一致
+        this.applyZ2Flip(true); // 先恢复 z2 翻转 (上一轮 z2On 时刻先于 y/y' 持握, 时序一致)
       }
-      this.startSolving(cube.serialize());
+      this.applyBaseOrientation(); // 再重放 y/y' 基准持握
+      this.syncObservedOps(); // observedOps = baseOps (供 startSolving 记录整体转签名)
+      this.startSolving(cube.serialize(), true); // 基准态=屏幕帧 (已含 z2+baseOps 重放)
       this.phase = "observing";
       this.observeStart = Date.now();
       this.solveStart = 0;
@@ -1113,6 +1169,30 @@ export default class BleCrossTrainer extends Vue {
       window.clearTimeout(this.resultTimer); // success 展示窗内重置: 取消自动下轮
       this.resultTimer = null;
     }
+    if (this.isManual && this.solveBaseState && this.solveBaseScreenFrame) {
+      // 重置保留本轮 y/y' 持握: 本轮整体转 (observedOps 超出 baseOps 的尾部) 吸收为
+      // 新轮基准, 与 z2/y/y' 按钮「跨打乱/重置保留」语义一致。重基准复用 newScramble
+      // 的姿态链 (复位贴纸 → setup(打乱公式) → z2 重放 → baseOps 重放),
+      // solveBaseState=serialize 由构造保证 —— 不可用字符换名近似: C_W[S@g]=S@(g∘w)
+      // 而物理新姿态是 S@(w∘g), 需共轭 g⁻¹wg, z2 与 y 不可交换, 直接换名得到错误
+      // 物理态 (表现为重置后最优步数漂移/贴纸错乱)。仅限手动原生轮 (屏幕帧基准);
+      // 蓝牙回落轮 (物理帧) 基准串无法重放, 保持旧行为 (回基准姿态, 本轮 y 不保留)
+      this.world.cube.twister.finish(); // 排空在飞整体转动画 (history 缺记录会漏吸收)
+      this.syncObservedOps();
+      const roundOps = this.observedOps.slice(this.baseOps.length);
+      if (roundOps.length > 0) {
+        this.baseOps = this.observedOps.slice();
+        this.rebasing = true; // 屏蔽 setup 快转 drop 回调的活体判定 (防中间态误判成功)
+        this.syncScene(SOLVED_FACELETS); // 复位贴纸 (cube.reset 不清贴纸坑, newScramble 同款)
+        this.world.cube.twister.setup(this.scramble);
+        if (this.z2On) {
+          this.applyZ2Flip(true);
+        }
+        this.applyBaseOrientation();
+        this.rebasing = false;
+        this.solveBaseState = this.world.cube.serialize();
+      }
+    }
     const base = this.solveBaseState;
     this.moveCount = 0;
     this.userMoves = [];
@@ -1121,17 +1201,25 @@ export default class BleCrossTrainer extends Vue {
     this.elapsedText = "";
     this.observeText = "";
     if (base) {
-      // 3D 回本轮起点 (打乱目标态/跳过态/手动打乱态); syncScene 内清空 history, 手动计数干净
+      // 3D 回本轮起点 (打乱目标态/跳过态/手动打乱态); syncScene 内清空 history, 手动计数干净。
+      // 手动基准态为屏幕帧 (newScramble 已含 z2 翻转+基准持握, stick 绝对重现, 勿再重放 z2,
+      // 否则双重翻转回标准姿态); 蓝牙路径基准态为物理帧, 需重放 z2 翻转显示
       this.syncScene(base);
-      if (this.z2On) {
+      if (this.z2On && !this.solveBaseScreenFrame) {
         this.applyZ2Flip(true);
       }
     }
     this.running = true;
     if (this.isManual) {
-      // 手动/touch 回落轮: 回起点重新观察, 首次转动开始还原计时
-      this.observedOps = [];
-      this.bestRotationSig = "[]";
+      // 手动/touch 回落轮: 回起点重新观察, 首次转动开始还原计时。
+      // 上方已把本轮整体转吸收为新基准 (重置保留 y/y' 持握), syncScene 清 history 后
+      // observedOps=baseOps; 最优解按 (可能已换名的) 基准态刷新 —— 无整体转时幂等,
+      // 有整体转时 best 输入与重置前的 requote 一致, 兜底保证 best 与基准始终配套
+      this.syncObservedOps();
+      this.bestRotationSig = JSON.stringify(this.observedOps);
+      if (this.solveBaseState) {
+        this.requestBest(this.mapStateForJudge(this.solveBaseState));
+      }
       this.needBreak = hasAnyCrossDone(base || SOLVED_FACELETS);
       this.phase = "observing";
       this.observeStart = Date.now();
@@ -1163,6 +1251,7 @@ export default class BleCrossTrainer extends Vue {
       this.resultTimer = null;
     }
     this.isManual = true;
+    this.baseOps = []; // 蓝牙轮次无手动基准持握, 回落后以标准视角继续
     this.deviceName = "手动模式 (蓝牙已断开)";
     // 打乱匹配中断开时基准是打乱目标态 (startSolving 未执行), 其余阶段用本轮基准态
     const base =

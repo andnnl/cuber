@@ -351,7 +351,10 @@ export default class Controller {
             const signed = times;
             const reverse = times < 0;
             times = Math.abs(times);
-            this.world.cube.record(new TwistAction(this.axis, reverse, times));
+            // 记录必须与物理一致: 上方 twist 按引擎轴 (axis[0]) 执行 +angle,
+            // this.axis 可能是屏幕语义标签 "z'" (handleMove 视角判断), 若原样传给
+            // TwistAction 会把撇折进 reverse, 记录方向与物理相反 → 整体转后判定映射错
+            this.world.cube.record(new TwistAction(this.axis[0], reverse, times));
             // 通知整体视角转动 (训练器记录后在预判选块时自动还原)
             for (const callback of this.wholeTurnCallbacks) {
               callback(this.axis, signed);

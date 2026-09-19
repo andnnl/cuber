@@ -71,13 +71,14 @@ async function main() {
     assert.strictEqual(moveDiff.z2Facelets(moveDiff.z2Facelets(s)), s, "z2 应自逆");
   });
 
-  await test("z2 共轭: z2∘M = z2Move(M)∘z2 (U↔D, R↔L, F/B 不变)", () => {
+  await test("z2 共轭: T∘M_f∘T = M_z2Move(f) (U↔D, R↔L, F/B 不变)", () => {
     const solved = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
     const s = moveDiff.applyFormulaFrom(solved, "R U F' L2 D B' R' U2");
     for (const mv of ["U", "U'", "U2", "D", "D'", "D2", "R", "R'", "R2", "L", "L'", "L2", "F", "F'", "F2", "B", "B'", "B2"]) {
-      // z2(M · s) 应等于 z2Move(M) · z2(s)
-      const lhs = moveDiff.z2Facelets(moveDiff.applyFaceletMove(s, mv));
-      const rhs = moveDiff.applyFaceletMove(moveDiff.z2Facelets(s), moveDiff.z2Move(mv));
+      // T∘M_f∘T = M_z2Move(f) (T=toTrainFrame 自逆, T(solved)=solved, 中心恒标准可过 cubie 往返;
+      // 注意不能用纯位置置换 z2Facelets 代替 T —— 其结果中心非标准, faceletsToCubie 不保真)
+      const lhs = moveDiff.toTrainFrame(moveDiff.applyFaceletMove(moveDiff.toTrainFrame(s), mv));
+      const rhs = moveDiff.applyFaceletMove(s, moveDiff.z2Move(mv));
       assert.strictEqual(lhs, rhs, `z2 共轭不成立: ${mv}`);
     }
   });
