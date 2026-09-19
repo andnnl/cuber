@@ -155,6 +155,27 @@
             <div v-if="trainMode === 'cross'" style="display: flex; gap: 6px; min-width: 0;">
               <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">最优解({{ z2On ? '白' : '黄' }}) {{ bestReady ? bestSteps + '步' : '' }}</span>
               <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolutionText || (bestWaitingScramble ? '(打乱拆散十字后自动求解)' : '(十字已复原, 无需转动)')) : '求解中…' }}</span>
+              <v-btn
+                x-small
+                :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) <= 0"
+                @click="stepBest(bestSolution, -1)"
+                title="退一步 (回退上一预览步)"
+                :style="previewBtnStyle"
+              >⏮</v-btn>
+              <v-btn
+                x-small
+                :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) >= bestStepCount(bestSolution)"
+                @click="stepBest(bestSolution, 1)"
+                title="下一步 (应用下一条预览步)"
+                :style="previewBtnStyle"
+              >⏭</v-btn>
+              <v-btn
+                x-small
+                :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) >= bestStepCount(bestSolution)"
+                @click="playBest(bestSolution)"
+                title="播放剩余解法 (预览, 不自动复原; 需还原点「重置」)"
+                :style="previewBtnStyle"
+              >▶</v-btn>
             </div>
             <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
             <template v-else>
@@ -163,6 +184,27 @@
                   :style="{color: completedSlots.indexOf(b.slot) >= 0 ? '#2e7d32' : '#1565c0', whiteSpace: 'nowrap', fontWeight: 'bold'}"
                 >{{ b.slot }} {{ b.formula ? b.steps + '步' : '' }}</span>
                 <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ b.formula || (bestXReady ? '—' : '求解中…') }}</span>
+                <v-btn
+                  x-small
+                  :disabled="!b.formula || playingBest || bestStepAt(b.raw) <= 0"
+                  @click="stepBest(b.raw, -1)"
+                  title="退一步 (回退上一预览步)"
+                  :style="previewBtnStyle"
+                >⏮</v-btn>
+                <v-btn
+                  x-small
+                  :disabled="!b.formula || playingBest || bestStepAt(b.raw) >= bestStepCount(b.raw)"
+                  @click="stepBest(b.raw, 1)"
+                  title="下一步 (应用下一条预览步)"
+                  :style="previewBtnStyle"
+                >⏭</v-btn>
+                <v-btn
+                  x-small
+                  :disabled="!b.formula || playingBest || bestStepAt(b.raw) >= bestStepCount(b.raw)"
+                  @click="playBest(b.raw)"
+                  title="播放剩余解法 (预览, 不自动复原; 需还原点「重置」)"
+                  :style="previewBtnStyle"
+                >▶</v-btn>
               </div>
               <div v-if="!bestXReady" style="color: #999;">4 组槽位最优解求解中…</div>
             </template>

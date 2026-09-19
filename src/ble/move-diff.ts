@@ -189,6 +189,42 @@ export function z2Facelets(facelets: string): string {
   return out.join("");
 }
 
+/**
+ * 视图链整体旋转下的 54 串位置置换 (屏幕帧 → 真物理核心帧):
+ * ops 为按钮/twist 语义 (正 times 绕负轴, 与 CrossF2LTrainer/pieces baseOpsFaceCharMap
+ * 同约定), 姿态位置映射 R 按序取 -times 复合, S_core[i] = S_screen[R(i)]。
+ * 单 op {z,2} 恒等于 z2Facelets; 任意 z2/整体转混合链 (z2 先于/后于 y·x·z 整体转,
+ * 含共轭如 y·z2·y' = 绕倾斜轴 180°) 均精确成立 —— 用于取代「按 z2On 奇偶 z2Facelets
+ * 剥离」的旧假设 (整体转共轭会改变残留的贴纸位移, 纯 z2 剥离会错位)。
+ */
+export function rotateFaceletsByOps(facelets: string, ops: { axis: string; times: number }[]): string {
+  const out: string[] = new Array(54);
+  for (let i = 0; i < 54; i++) {
+    let [x, y, z] = FACELEFT_POS[i];
+    for (const op of ops) {
+      const quarter = (((-op.times) % 4) + 4) % 4;
+      for (let n = 0; n < quarter; n++) {
+        // 每次 +90° (同 pieces.rotatePositionIndex): Rx: (y,z)->(-z,y); Ry: (x,z)->(z,-x); Rz: (x,y)->(-y,x)
+        if (op.axis[0] === "x") {
+          const ny = -z;
+          z = y;
+          y = ny;
+        } else if (op.axis[0] === "y") {
+          const nx = z;
+          z = -x;
+          x = nx;
+        } else {
+          const nx = -y;
+          y = x;
+          x = nx;
+        }
+      }
+    }
+    out[i] = facelets[POS_TO_FACELEFT[`${x},${y},${z}`]];
+  }
+  return out.join("");
+}
+
 /** z2 共轭转动: 物理帧转动 → 3D 帧转动 (U↔D, R↔L; F/B 不变; ' 与 2 后缀保留) */
 export function z2Move(move: string): string {
   const face = move.charAt(0);

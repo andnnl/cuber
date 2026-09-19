@@ -1,5 +1,6 @@
 import { Component, Provide, Ref, Vue } from "vue-property-decorator";
 import World from "../../cuber/world";
+import { TwistAction } from "../../cuber/twister";
 import { FACE } from "../../cuber/define";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
@@ -7,8 +8,8 @@ import { PreferanceData, PaletteData } from "../../data";
 import { CubeLink, CubeLinkKind, CubeLinkStatus, webBluetoothAvailable, nativeBridgeAvailable, getNativeTransport } from "../../ble/cube-link";
 import { LinkEvent } from "../../ble/types";
 import { SOLVED_FACELETS, brandFaceletsToState, isCrossDone, f2lSlotsDone } from "../../ble/facelets";
-import { applyFaceletMove, applyFormulaFrom, simplifyMoves, z2Move, toTrainFrame } from "../../ble/move-diff";
-import { mapBaseOpsFacelets, BaseOp } from "../CrossF2LTrainer/pieces";
+import { applyFaceletMove, applyFormulaFrom, simplifyMoves, z2Move, toTrainFrame, rotateFaceletsByOps } from "../../ble/move-diff";
+import { baseOpsFaceCharMap, BaseOp } from "../CrossF2LTrainer/pieces";
 import Solver from "../../solver/Solver";
 import * as WasmSolver from "../../wasm/WasmSolver";
 import { indexedDBStorage } from "../../util/IndexedDBStorage";
@@ -23,7 +24,7 @@ function manualSolutionOf(exp: string): string {
   return exp
     .trim()
     .split(/\s+/)
-    .filter((m) => !/^[xyz][2']?$/.test(m))
+    .filter((m) => !/^[xyz][2']?0?$/.test(m))
     .join(" ");
 }
 
@@ -31,11 +32,6 @@ function manualSolutionOf(exp: string): string {
 // XCross 解法/完成槽位按训练帧判定 (如 FL), 展示换回物理帧名 (如 FR)
 function slotToPhysical(slot: string): string {
   return slot.charAt(1) === "L" ? slot.charAt(0) + "R" : slot.charAt(0) + "L";
-}
-
-// 白十字或黄十字是否任一完成 (核心帧黄十字直判 + 训练帧白十字, 见 toTrainFrame)
-function hasAnyCrossDone(state: string): boolean {
-  return isCrossDone(state) || isCrossDone(toTrainFrame(state));
 }
 
 // 54 串位置 → (cubelet 初始索引, FACE) 写入映射。
@@ -192,6 +188,18 @@ export default class BleCrossTrainer extends Vue {
   isMock = false;
   mockInput = "";
 
+  // ---- 最优解播放预览 (▶/步进按钮): 3D 上动画演示解法, 播完停留在预览态不自动复原 ----
+  // 纯视觉预览: 经 group.twist 直接驱动 (不入 history / 不更新 predicted / 不触发判定),
+  // 手动练习轮数据与蓝牙镜像数据均不受影响; 需还原时用户手动点「重置」;
+  // 打乱/重置/权威重绘 (syncScene) 会打断预览; 游标随 requestBest 清残留一并清零
+  playingBest = false;
+  private bestPlayQueue: string[] = [];
+  private bestPlayFormula = ""; // 正在预览推进的解法原串 (预览游标键)
+  private bestPlayDelta = 1; // 预览推进方向 (+1 前进 / -1 退步)
+  private bestPlayTimer: number | null = null;
+  // 预览游标 (按解法原串索引): 该解法已在 3D 上可视化推进的记号数, ▶/退一步/下一步共享
+  bestStepPos: { [formula: string]: number } = {};
+
   // ---- 手动练习 (无蓝牙): 鼠标拧 3D 魔方, 打乱直接作用于 3D 场景
   isManual = false;
   // 重置重基准重放中: setup 快转的 drop 回调会带旧 phase 活体判定 (中间态可能
@@ -199,8 +207,16 @@ export default class BleCrossTrainer extends Vue {
   private rebasing = false;
   // 观察/还原期间的整体转序列 (y/y'/x/z, 按时间序, history 已合并同向):
   // 整体转保留在物理状态中 (魔方停在用户当前持握姿态), 判定/求解前按此序列
-  // 把状态串字符改名回打乱姿态 (中心恢复标准 URFDLB), 任意多次组合均成立
+  // 把状态串换算回核心帧 (中心恢复标准 URFDLB), 任意多次组合均成立
   private observedOps: BaseOp[] = [];
+
+  // z2 视角翻转在视图链时间线中的插入位置 (observedOps 下标): z2 翻转不入 history
+  // (applyZ2Flip 直驱 group.twist), 但参与核心帧换算 —— 整体转发生在翻转之后时残留
+  // 被共轭 (如 y·z2·y' = 绕倾斜轴 180°, 额外交换 F↔B), 不能再按「纯 z2 奇偶」假设剥离。
+  // effectiveViewOps() 把 {z,2} 按标记位置插回时间线 (越界截到链尾, 保翻转奇偶);
+  // 轮次重建 (startManual/newScramble/resetRound/fallbackToTouch) 重置为 z2On ? [0] : [],
+  // toggleZ2 追加 observedOps.length。不变量: marks 数 ≡ z2On (翻转奇偶与目标底色同步)
+  private z2Marks: number[] = [];
 
   // 轮次基准持握 (CrossF2L baseOps 同语义): 打乱/重置回正后重放恢复的 y/y' 整体转,
   // 跨轮保留 —— 用户切换的持握方向不因打乱/重置丢失 (z2 由 z2On 机制承担, 不入此列)。
@@ -373,6 +389,7 @@ export default class BleCrossTrainer extends Vue {
     }
     this.isManual = true;
     this.baseOps = []; // 手动会话从标准白顶姿态开始 (z2On 同款复位)
+    this.z2Marks = []; // 视图链清空 (z2On 复位为 false, 见下; 新打乱时按 z2On 重建)
     const wasZ2 = this.z2On;
     this.z2On = false; // 手动模式从白顶物理视角开始 (z2 按钮可随时切), 复位避免遗留翻转影响公式展示
     if (wasZ2) {
@@ -471,26 +488,46 @@ export default class BleCrossTrainer extends Vue {
 
   // ================= z2 姿态切换 (整体旋转, 同 CrossF2L 的 z2 按钮) =================
 
-  /** 展示层转动换名: z2On 时物理帧 → 3D 翻转帧 (z2 共轭: U↔D, R↔L; ' 与 2 后缀保留) */
+  /** 展示层转动换名: 核心帧记号 → 当前屏幕面 (视图链字符映射 C = baseOpsFaceCharMap
+   * (effectiveViewOps)): 核心 f 层当前显示在屏幕 C[f] 面。空链恒等 (蓝牙未翻转/标准姿态);
+   * 纯 z2 链 C 恰为 z2Move 映射 (U↔D, R↔L), 与旧展示行为一致; 混合链按共轭精确换名 */
   private displayMove(move: string): string {
-    return this.z2On ? z2Move(move) : move;
+    const map = baseOpsFaceCharMap(this.effectiveViewOps());
+    return (map[move.charAt(0)] || move.charAt(0)) + move.slice(1);
   }
 
-  /** 展示层公式换名 (打乱/最优解/用户解法): z2On 时逐记号 z2 共轭 */
+  /** 展示层公式换名 (打乱/最优解/蓝牙用户解法): 核心帧记号逐个换名到当前屏幕面 */
   private displayFormula(formula: string): string {
-    return this.z2On
-      ? formula
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean)
-          .map((m) => z2Move(m))
-          .join(" ")
-      : formula;
+    const map = baseOpsFaceCharMap(this.effectiveViewOps());
+    return formula
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((m) => (map[m.charAt(0)] || m.charAt(0)) + m.slice(1))
+      .join(" ");
   }
 
-  /** 打乱公式展示 (z2On 时换名到当前视角) */
+  /** 视图链单步记号 (BaseOp → 转动记号): 追加在打乱公式尾部, 重置按此完整重放 */
+  private opToken(op: BaseOp): string {
+    const n = ((op.times % 4) + 4) % 4;
+    if (n === 0) {
+      return "";
+    }
+    return op.axis + (n === 2 ? "2" : n === 3 ? "'" : "");
+  }
+
+  /** 打乱公式展示 (稳定): 打乱记号恒为生成时原串, 不随 z2/y/y' 换名改写;
+   * 视角操作按 effectiveViewOps 真实时序以记号追加在尾部 (z2/y/y'/鼠标整体转),
+   * 与「重置」重放串完全一致 —— 用这条完整公式打乱一次即可复现当前画面 (贴纸+持握) */
   get scrambleText(): string {
-    return this.displayFormula(this.scramble);
+    if (!this.scramble) {
+      return "";
+    }
+    const grip = this.effectiveViewOps()
+      .map((op) => this.opToken(op))
+      .filter(Boolean)
+      .join(" ");
+    return grip ? this.scramble + " " + grip : this.scramble;
   }
 
   /** Cross 最优解展示 */
@@ -498,19 +535,28 @@ export default class BleCrossTrainer extends Vue {
     return this.displayFormula(this.bestSolution);
   }
 
-  /** 基准态十字已完成且尚未拆散 (自动下轮直入观察态): 最优解暂无意义, 展示占位提示 */
+  /** 基准态十字已完成且尚未拆散 (自动下轮直入观察态): 最优解暂无意义, 展示占位提示。
+   * needBreak 语义即「本轮基准态十字已完成且尚未观察到拆散」(startSolving/resetRound/
+   * skipScramble/fallbackToTouch 按基准态核心帧统一设定, 观察到拆散后复位) */
   get bestWaitingScramble(): boolean {
-    return this.needBreak && hasAnyCrossDone(this.solveBaseState);
+    return this.needBreak;
   }
 
   /** XCross 四槽位最优解展示 */
-  get bestXDisplay(): { slot: string; formula: string; steps: number }[] {
-    return this.bestX.map((b) => ({ slot: b.slot, steps: b.steps, formula: this.displayFormula(b.formula) }));
+  get bestXDisplay(): { slot: string; formula: string; steps: number; raw: string }[] {
+    return this.bestX.map((b) => ({ slot: b.slot, steps: b.steps, formula: this.displayFormula(b.formula), raw: b.formula }));
   }
 
-  /** 用户解法展示 */
+  /** 用户解法展示: 手动 history 记录的是屏幕面记号, 原样展示 (与用户所见一致);
+   * 蓝牙 userMoves 为物理帧记号, 换名到当前屏幕面 (与最优解展示同系) */
   get userSolutionText(): string {
-    return this.displayFormula(this.userSolution);
+    return this.isManual ? this.userSolution : this.displayFormula(this.userSolution);
+  }
+
+  /** 预览按钮 (退一步/下一步/▶) 统一紧凑样式: 固定小高度, 不随 size 放大
+   * (原 size*0.4 在 xcross 四行区明显过高) */
+  get previewBtnStyle(): { [k: string]: string } {
+    return { height: "20px", minHeight: "20px", minWidth: "24px", padding: "0 4px", flex: "none" };
   }
 
   /** 3D 场景整体 z2 翻转 (fast=true 瞬间完成, 用于权威重绘后恢复翻转姿态) */
@@ -527,21 +573,49 @@ export default class BleCrossTrainer extends Vue {
    * 任意阶段切换均自洽; 换名后的转动/公式与翻转后的 3D 画面保持一致
    */
   toggleZ2(): void {
+    if (this.playingBest) {
+      this.finishBestPlay(); // 打断预览: 落定当前已播画面再翻转 (不再自动复原)
+    }
     // 排空在飞/排队中的镜像动画, 从静止姿态出发翻转 (同 CrossF2L rotateBase 前置 finish)
     this.world.cube.twister.finish();
+    this.syncObservedOps(); // 刷新整体转链 (finish 提交的 drop 回调可能未及触发)
+    // 手动: 翻转动画启动前先取当前核心帧输入 (group.twist 动画 drop 时才提交,
+    // 翻转后 serialize 读到的是翻转后画面)。z2 翻转=视图操作, 物理帧不变:
+    // 按翻转前视图链换算出的核心帧在翻转后同样有效
+    const physical = this.isManual ? this.mapStateForJudge(this.world.cube.serialize()) : "";
     this.z2On = !this.z2On;
+    // 翻转记入视图链时间线 (当前链末尾): 此后的整体转/核心帧换算/展示换名
+    // 均按含此翻转的完整链精确处理 (共轭场景不再依赖纯 z2 剥离假设)
+    this.z2Marks.push(this.observedOps.length);
+    // z2 翻转不入 history, 而 history.record 会合并相邻同面 —— 翻转前后的同向整体转
+    // (y·z2·y / y·z2·y') 会被错并成净链 (y2·z2) 或错误抵消, 共轭信息丢失 →
+    // 判定/展示/重放失真。插入 times=0 的 z 哨兵隔断合并: syncObservedOps 过滤之,
+    // moves/层转判定不受影响; exp 同步记 " z0" 保 record 合并分支的尾串裁剪对位
+    const hist = this.world.cube.history;
+    if (hist.list.length > 0) {
+      hist.list.push(new TwistAction("z", false, 0));
+      hist.exp += " z0";
+    }
     this.applyZ2Flip(false); // 平滑动画
-    // 目标十字随视角底色变化 (黄底⇄白底): 刷新提示语; 进行中按新目标重求最优解
-    // (判定双色自适应, 不受视角影响; 打乱等待期按打乱目标态重求)
+    // 目标十字随视角底色变化 (黄底⇄白底): 刷新提示语; 按新底色目标重求最优解
+    // (判定只认当前底色, 见 isTargetCrossDone; 打乱等待期按打乱目标态重求)
     if (this.phase === "observing" || this.phase === "solving") {
       this.statusText =
         this.trainMode === "xcross"
           ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
           : "十字进行中: 还原" + this.crossTargetText();
     }
-    const base = this.currentBestBase();
-    if (base) {
-      this.requestBest(this.mapStateForJudge(base));
+    // 手动: 按当前物理帧重求 (基准串不可用当前 observedOps 映射, 见 onManualTwist);
+    // 蓝牙: 基准态即物理帧, 直接重求 (目标随新 z2On 切换)
+    if (this.isManual) {
+      if (physical) {
+        this.requestBest(physical);
+      }
+    } else {
+      const base = this.currentBestBase();
+      if (base) {
+        this.requestBest(base);
+      }
     }
   }
 
@@ -556,6 +630,139 @@ export default class BleCrossTrainer extends Vue {
     }
     const physicalTimes = this.z2On ? -times : times;
     this.world.cube.twister.push(physicalTimes > 0 ? "y" : "y'");
+  }
+
+  /** 播放按钮: 在 3D 上动画预览该最优解 (展示帧记号), 从预览游标处续播到末尾。
+   * 播完不自动复原 —— 画面停留在预览态, 需还原时手动点「重置」。
+   * 纯视觉预览: 不入 history/不更新 predicted/不触发判定 (rebasing 屏蔽手动回调) */
+  playBest(formula: string): void {
+    if (this.playingBest || !formula || !formula.trim()) {
+      return;
+    }
+    const moves = this.bestMovesOf(formula);
+    const pos = this.bestStepPos[formula] || 0;
+    if (pos >= moves.length) {
+      return;
+    }
+    this.startBestPreview(formula, moves.slice(pos), 1);
+  }
+
+  /** 步进按钮: dir=+1 下一步 (应用下一条记号), dir=-1 退一步 (回退上一条记号)。
+   * 与 ▶ 同一预览机制, 游标共享 (▶ 续播 / 步进微调) */
+  stepBest(formula: string, dir: number): void {
+    if (this.playingBest || !formula || !formula.trim()) {
+      return;
+    }
+    const moves = this.bestMovesOf(formula);
+    const pos = this.bestStepPos[formula] || 0;
+    let token = "";
+    if (dir > 0) {
+      if (pos >= moves.length) {
+        return;
+      }
+      token = moves[pos];
+    } else {
+      if (pos <= 0) {
+        return;
+      }
+      token = this.inverseToken(moves[pos - 1]);
+    }
+    this.startBestPreview(formula, [token], dir);
+  }
+
+  /** 启动一次预览推进 (▶ 续播或单步): 共用播放队列机制, 游标按落定记号数推进 */
+  private startBestPreview(formula: string, tokens: string[], dir: number): void {
+    if (tokens.length === 0) {
+      return;
+    }
+    const cube = this.world.cube;
+    cube.twister.finish(); // 排空在飞动画, 从静止画面出发
+    this.bestPlayFormula = formula;
+    this.bestPlayDelta = dir;
+    this.playingBest = true;
+    this.rebasing = true; // 手动: 屏蔽播放动画 drop 回调的活体判定/计步
+    this.bestPlayQueue = tokens;
+    this.playNextBestMove();
+  }
+
+  /** 解法展示记号序列 (物理帧→当前屏幕面换名, 与展示文本同一记号) */
+  private bestMovesOf(formula: string): string[] {
+    return this.displayFormula(formula)
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  /** 预览游标 (模板绑定): 该解法已可视化推进的记号数 */
+  bestStepAt(formula: string): number {
+    return this.bestStepPos[formula] || 0;
+  }
+
+  /** 预览总步数 (模板绑定禁用态用) */
+  bestStepCount(formula: string): number {
+    return formula ? this.bestMovesOf(formula).length : 0;
+  }
+
+  /** 转动记号取反 (R↔R', R2 自逆) */
+  private inverseToken(token: string): string {
+    if (/2$/.test(token)) {
+      return token;
+    }
+    return token.indexOf("'") >= 0 ? token.replace("'", "") : token + "'";
+  }
+
+  /** 预览游标推进 (▶ 中断时游标=实际已播步数); 整对象替换保 Vue2 响应 */
+  private bumpStepPos(): void {
+    const formula = this.bestPlayFormula;
+    if (!formula) {
+      return;
+    }
+    const len = this.bestMovesOf(formula).length;
+    const pos = Math.max(0, Math.min(len, (this.bestStepPos[formula] || 0) + this.bestPlayDelta));
+    this.bestStepPos = { ...this.bestStepPos, [formula]: pos };
+  }
+
+  private playNextBestMove(): void {
+    const token = this.bestPlayQueue.shift();
+    if (token === undefined) {
+      this.finishBestPlay();
+      return;
+    }
+    const action = new TwistAction(token);
+    const rotates = this.world.cube.table.convert(action);
+    let ok = true;
+    for (const rotate of rotates) {
+      ok = rotate.group.twist((Math.PI / 2) * rotate.twist, false) && ok;
+    }
+    if (!ok) { // 组被锁 (动画未完/用户拖拽): 稍后重试
+      this.bestPlayQueue.unshift(token);
+      this.bestPlayTimer = window.setTimeout(() => this.playNextBestMove(), 60);
+      return;
+    }
+    this.bumpStepPos();
+    // 每步约 0.5s 动画 (frames=30), 完成后再起下一步; 超时由重试路径兜底
+    this.bestPlayTimer = window.setTimeout(() => this.playNextBestMove(), 620);
+  }
+
+  /** 预览结束/打断: 落定在飞尾帧, 画面停留在已播预览态 (不再自动复原, 重置按钮还原) */
+  private finishBestPlay(): void {
+    if (this.bestPlayTimer !== null) {
+      window.clearTimeout(this.bestPlayTimer);
+      this.bestPlayTimer = null;
+    }
+    this.world.cube.twister.finish(); // 提交在飞尾帧
+    this.cancelBestPlay();
+  }
+
+  private cancelBestPlay(): void {
+    if (this.bestPlayTimer !== null) {
+      window.clearTimeout(this.bestPlayTimer);
+      this.bestPlayTimer = null;
+    }
+    this.bestPlayQueue = [];
+    this.playingBest = false;
+    this.rebasing = false;
+    this.bestPlayFormula = "";
   }
 
   // ================= 校准 (调试): 引导转动实体魔方, 对比硬件上报记号 =================
@@ -744,34 +951,69 @@ export default class BleCrossTrainer extends Vue {
 
   // ================= 训练判定 =================
 
-  /** 状态提示里的十字目标描述 (按当前持握视角的底面中心色; 判定本身双色自适应) */
+  /** 状态提示里的十字目标描述 (按当前持握视角的底面中心色; 判定只认该底色, 见 isTargetCrossDone) */
   private crossTargetText(): string {
     return this.z2On ? "白色十字 (4 条白棱围住白色中心)" : "黄色十字 (4 条黄棱围住黄色中心)";
   }
 
-  /** 本轮训练目标是否达成: 十字双色自适应 —— 白色十字 (4 条白棱围住白色中心) 或
-   * 黄色十字 (4 条黄棱围住黄色中心) 任一完成即算 (用户按底色持握还原: 黄底还原黄十字,
-   * 白底还原白十字, 两种十字在状态串中位于不同面, 故都判定)。
-   * 黄十字 = 核心帧标准 D 面十字 (isCrossDone 直判); 白十字经训练帧变换呈现为 D 面十字
-   * (见 toTrainFrame)。xcross = 十字 + 围绕同一中心的任一 F2L 槽位 (角+棱) */
+  /** 当前目标十字 (z2On 选黄/白底) 是否达成。输入 state: 核心帧 (物理帧, 白中心恒在
+   * 核心 U 轴): 黄底 (z2On=false) 直接判定核心 D 面黄十字; 白底 (z2On=true) 经
+   * toTrainFrame (自逆帧变换 ρ∘r) 把白色十字 (核心 U 面) 转到 D 面判定。
+   * 判定只认当前底色对应的十字 —— 不做黄/白「任一完成即算」的双色判定,
+   * 否则按黄底练习时白十字恰好完成会误判成功 (忽略当前是什么底)。
+   * xcross = 十字 + 围绕同一中心的任一 F2L 槽位 (角+棱), 槽位与十字同帧判定 */
   private isTrainDone(state: string): boolean {
-    const train = toTrainFrame(state);
-    if (this.trainMode === "cross") {
-      return isCrossDone(train) || isCrossDone(state);
+    const sel = this.z2On ? toTrainFrame(state) : state;
+    if (this.trainMode === "xcross") {
+      return isCrossDone(sel) && f2lSlotsDone(sel).length > 0;
     }
-    if (isCrossDone(train)) {
-      return f2lSlotsDone(train).length > 0;
-    }
-    return isCrossDone(state) && f2lSlotsDone(state).length > 0;
+    return isCrossDone(sel);
   }
 
   /** 整体转序列 = 轮次基准持握 (baseOps) ⊕ 本轮 history 整体转 (时间序, 已合并同向)。
    * 打乱/重置只清 history (setup/syncScene), 基准持握经 baseOps 保留并继续参与映射 */
   private syncObservedOps(): void {
     const fromHistory = this.world.cube.history.list
-      .filter((a) => /^[xyz]$/.test(a.sign))
+      // times%4==0 的 z 哨兵 (toggleZ2 隔断跨翻转同面合并用) 不进视图链
+      .filter((a) => /^[xyz]$/.test(a.sign) && a.times % 4 !== 0)
       .map((a) => ({ axis: a.sign as BaseOp["axis"], times: a.reverse ? -a.times : a.times }));
     this.observedOps = [...this.baseOps, ...fromHistory];
+  }
+
+  /** 完整视图链 = observedOps ⊕ z2 翻转 (z2Marks 标记其在时间线中的插入位置, 越界截到
+   * 链尾保翻转奇偶): 整体转与 z2 翻转按真实时序复合, 供核心帧换算 (mapStateForJudge)
+   * 与展示换名 (displayFormula/displayMove) —— 对任意混合链数学精确成立。
+   * 输出经相邻同轴合并净化 (y·y→y2 / y·y'→消 / z2·z2→消): 旋转恒等变换,
+   * 避免 z2 往返/整体转往复后展示记号无限累积 (底色切回后公式仍挂翻转记号) */
+  private effectiveViewOps(): BaseOp[] {
+    const len = this.observedOps.length;
+    const raw: BaseOp[] = [];
+    let m = 0;
+    for (let i = 0; i <= len; i++) {
+      while (m < this.z2Marks.length && Math.min(this.z2Marks[m], len) === i) {
+        raw.push({ axis: "z", times: 2 });
+        m++;
+      }
+      if (i < len) {
+        raw.push(this.observedOps[i]);
+      }
+    }
+    // 净化: 相邻同轴合并 (同轴相邻可交换, 合并恒等), times%4==0 消除
+    const ops: BaseOp[] = [];
+    for (const op of raw) {
+      const last = ops[ops.length - 1];
+      if (last && last.axis === op.axis) {
+        const times = (((last.times + op.times) % 4) + 4) % 4;
+        if (times === 0) {
+          ops.pop();
+        } else {
+          ops[ops.length - 1] = { axis: op.axis, times };
+        }
+        continue;
+      }
+      ops.push({ axis: op.axis, times: op.times });
+    }
+    return ops;
   }
 
   /** 重放基准持握 (打乱 setup / 重置回正后恢复 y/y' 基准视角):
@@ -785,9 +1027,22 @@ export default class BleCrossTrainer extends Vue {
     this.world.dirty = true;
   }
 
-  /** 手动练习状态串 → 打乱姿态坐标系 (整体转只改面标签字符, 映射后中心恢复标准 URFDLB) */
+  /** 手动练习屏幕帧状态串 → 真物理核心帧 (位置置换, 中心恢复标准 URFDLB)。
+   * 沿完整视图链 (effectiveViewOps, 含 z2Marks 处的 z2 翻转) 做贴纸位置置换:
+   * S_core[i] = S_screen[R(i)], R 为姿态位置映射 (ops 按序取 -times 复合)。
+   * 对任意 z2/整体转混合链 (z2 先于/后于 y·x·z, 含 newScramble 重放的 z2→baseOps
+   * 顺序与共轭残留) 数学精确成立 —— 废除旧「z2 残留恒为纯 z2、按 z2On 奇偶
+   * z2Facelets 剥离」假设 (共轭会改变残留贴纸位移, 剥离错位表现为十字误判/
+   * F·R·L·B 面侧贴与中心不匹配) */
   mapStateForJudge(state: string): string {
-    return mapBaseOpsFacelets(state, this.observedOps);
+    return rotateFaceletsByOps(state, this.effectiveViewOps());
+  }
+
+  /** 当前目标十字 (按视角底色 z2On 选黄/白) 是否完成。输入 state: 核心帧 (物理帧,
+   * 中心恒 URFDLB, 与持握/翻转视角无关) —— 蓝牙=predicted/基准态裸串, 手动=
+   * mapStateForJudge 沿完整视图链换算串。白底 (z2On) 经 toTrainFrame 转训练帧判定 */
+  private isTargetCrossDone(state: string): boolean {
+    return isCrossDone(this.z2On ? toTrainFrame(state) : state);
   }
 
   /** 手动练习: 每次转层动画结束 (鼠标拧动/回弹) 后刷新步数并判定 */
@@ -799,11 +1054,10 @@ export default class BleCrossTrainer extends Vue {
     // 整体转 (观察期观察、还原期调整持握) 全量累积, 供状态串映射回打乱姿态
     this.syncObservedOps();
     // 整体转改变当前视角坐标系: 最优解按新视角重求。输入必须是对当前姿态串
-    // (serialize) 的判定系映射 —— 映射串位置=屏幕面、中心恢复标准, 解得记号对应
-    // 当前屏幕的面且步数=物理最优; 不可映射基准串 solveBaseState (字符换名映射
-    // 只适用于姿态串, 误用会得到另一个物理状态, 步数漂移如 5↔6 步)。
-    // z2On 时同样重算: 映射串仍带 z2 翻转残留 (z2 不入 observedOps), 由
-    // requestBestSolution 内部的 toTrainFrame 处理 —— 两级组合后中心恢复标准
+    // (serialize) 的核心帧换算 —— 沿完整视图链 (z2Marks ⊕ observedOps) 位置置换,
+    // 对任意 z2/整体转混合链精确成立, 解得记号对应当前屏幕的面且步数=物理最优;
+    // 不可映射基准串 solveBaseState (屏幕帧快照冻结于轮始, 用当前链换算会错位,
+    // 步数漂移如 5↔6 步)
     const sig = JSON.stringify(this.observedOps);
     if (sig !== this.bestRotationSig && this.solveBaseState) {
       this.bestRotationSig = sig;
@@ -833,11 +1087,11 @@ export default class BleCrossTrainer extends Vue {
     // 解法展示过滤整体转记号 (moves 已排除, 展示层对齐)
     this.moveCount = cube.history.moves;
     this.userSolution = manualSolutionOf(cube.history.exp);
-    // 整体转只改字符 (面标签), 按映射表改名回打乱姿态后判定 (中心恢复标准 URFDLB)
-    const state = mapBaseOpsFacelets(cube.serialize(), this.observedOps);
+    // 沿完整视图链位置置换换算成核心帧 (物理帧) 后判定 (中心恢复标准 URFDLB)
+    const state = this.mapStateForJudge(cube.serialize());
     if (this.needBreak) {
       // 同 judge: 起始态十字已完成时, 须先拆散才允许判定成功
-      if (hasAnyCrossDone(state)) {
+      if (this.isTargetCrossDone(state)) {
         return;
       }
       this.needBreak = false;
@@ -863,7 +1117,7 @@ export default class BleCrossTrainer extends Vue {
     if (this.phase === "solving") {
       if (this.needBreak) {
         // 起始态十字已完成: 须先观察到十字被拆散才允许判定成功
-        if (hasAnyCrossDone(state)) {
+        if (this.isTargetCrossDone(state)) {
           return;
         }
         this.needBreak = false;
@@ -889,17 +1143,22 @@ export default class BleCrossTrainer extends Vue {
   /** 基准态十字已完成 (自动下轮直入观察态等) 且观察到十字被拆散:
    * 求解基准切换为拆散后的实际状态并重求最优解 —— 原基准 (完成态) 的解恒为空串,
    * 不切换则整轮显示「十字已复原」误导; 切换后最优解仍相对新基准固定 (不随后续转动重算)。
-   * 常规轮 (匹配打乱/跳过) 基准为打乱态解有效, 不切换 */
-  private rebaseBestIfDoneBase(state: string): void {
-    if (!hasAnyCrossDone(this.solveBaseState)) {
-      return;
+   * 调用方仅在 needBreak 分支调用 (基准态十字已完成时才可能进入)。
+   * 手动: solveBaseState 刷新为当前屏幕帧快照 (syncScene/resetRound 复原用,
+   * solveBaseScreenFrame 同步置 true); 蓝牙: solveBaseState=物理帧。
+   * requestBest 入参统一核心帧 (与 onManualTwist 的 mapStateForJudge 输出同帧) */
+  private rebaseBestIfDoneBase(coreState: string): void {
+    if (this.isManual) {
+      this.solveBaseState = this.world.cube.serialize();
+      this.solveBaseScreenFrame = true;
+    } else {
+      this.solveBaseState = coreState;
     }
-    this.solveBaseState = state;
     this.bestSolution = "";
     this.bestReady = false;
     this.bestX = [];
     this.bestXReady = false;
-    this.requestBest(this.mapStateForJudge(state));
+    this.requestBest(coreState);
   }
 
   private startSolving(baseState?: string, screenFrame = false): void {
@@ -924,15 +1183,19 @@ export default class BleCrossTrainer extends Vue {
     // 已含两者姿态) —— resetRound 重绘时据此决定是否重放 z2 翻转 (屏幕帧已含, 重放会双重翻转)
     this.solveBaseState = baseState || this.scrambleTarget || this.predicted || "";
     this.solveBaseScreenFrame = screenFrame;
+    // 判定/求解统一在核心帧 (物理帧, 中心恒 URFDLB): 手动基准态为屏幕帧 (含 z2 翻转
+    // +baseOps 姿态), 沿完整视图链 (z2Marks ⊕ observedOps) 位置置换换算; 蓝牙基准态
+    // 本就是物理帧恒等。核心帧对任意 z2/整体转混合链精确成立 (废除纯 z2 剥离假设)
+    const coreBase = this.solveBaseScreenFrame
+      ? this.mapStateForJudge(this.solveBaseState)
+      : this.solveBaseState;
     // 起始态十字若已完成 (自动下轮直接开始等): 须先拆散十字, 成功判定才生效
-    this.needBreak = hasAnyCrossDone(this.solveBaseState);
+    this.needBreak = this.isTargetCrossDone(coreBase);
     // 记录请求最优解时的整体转签名: 手动练习后续整体转会改变当前视角坐标系, 需据此重求
     this.bestRotationSig = JSON.stringify(this.observedOps);
-    // 对打乱态预求最优解 (异步, 完成前结果区显示「求解中…」)。
-    // 各调用点均在打乱重置后 (observedOps 必为空), 此映射恒等; 整体转后的重求
-    // 在 onManualTwist —— 按当前姿态串的判定系映射求解 (记号对应当前屏幕的面)
-    if (this.solveBaseState) {
-      this.requestBest(this.mapStateForJudge(this.solveBaseState));
+    // 对打乱态预求最优解 (异步, 完成前结果区显示「求解中…」)。整体转后的重求在 onManualTwist
+    if (coreBase) {
+      this.requestBest(coreBase);
     }
   }
 
@@ -956,7 +1219,19 @@ export default class BleCrossTrainer extends Vue {
     this.bestReady = false;
     this.bestX = [];
     this.bestXReady = false;
+    this.bestStepPos = {}; // 预览游标清零 (新基准/新视角下旧预览步进状态无效)
     if (!this.showBest) {
+      return;
+    }
+    // 病态串防护: 非法状态串 (帧换算 bug 残留) 送入求解器会触发超长搜索阻塞主线程
+    // (表现为页面卡死) —— 求解前校验 54 长度/URFDLB 字符/六中心互异, 不合法即放弃
+    if (
+      !/^[URFDLB]{54}$/.test(state) ||
+      new Set([4, 13, 22, 31, 40, 49].map((i) => state.charAt(i))).size !== 6
+    ) {
+      console.error("[BleCrossTrainer] 非法状态串, 跳过求解:", state);
+      this.bestReady = true;
+      this.bestXReady = true;
       return;
     }
     if (this.trainMode === "xcross") {
@@ -1117,6 +1392,9 @@ export default class BleCrossTrainer extends Vue {
       cube.twister.finish(); // 排空在飞整体转动画 (drop 未触发则 history 缺记录, 固化会漏)
       this.syncObservedOps(); // 刷新 observedOps (防最后一次转动回调未触发)
       this.baseOps = this.observedOps.slice();
+      // 重放链时序: z2 翻转 (若开) 先于 y/y' 基准持握重放 —— z2Marks 记录该时序,
+      // 后续核心帧换算按 [z2, ...baseOps, ...history] 复合 (共轭精确, 见 effectiveViewOps)
+      this.z2Marks = this.z2On ? [0] : [];
       this.running = false;
       // 贴纸复位: cube.reset 只归位 index 不清贴纸, 而本组件 syncScene 用 stick 改写过
       // 贴纸 (上轮基准态) —— 不复位的话 setup 作用于残留布局, 姿态链路全错。
@@ -1169,29 +1447,38 @@ export default class BleCrossTrainer extends Vue {
       window.clearTimeout(this.resultTimer); // success 展示窗内重置: 取消自动下轮
       this.resultTimer = null;
     }
+    this.bestStepPos = {}; // 预览游标清零 (回轮起点后预览从头可播; 重置不重算最优解, 旧解仍有效)
     if (this.isManual && this.solveBaseState && this.solveBaseScreenFrame) {
-      // 重置保留本轮 y/y' 持握: 本轮整体转 (observedOps 超出 baseOps 的尾部) 吸收为
-      // 新轮基准, 与 z2/y/y' 按钮「跨打乱/重置保留」语义一致。重基准复用 newScramble
-      // 的姿态链 (复位贴纸 → setup(打乱公式) → z2 重放 → baseOps 重放),
-      // solveBaseState=serialize 由构造保证 —— 不可用字符换名近似: C_W[S@g]=S@(g∘w)
-      // 而物理新姿态是 S@(w∘g), 需共轭 g⁻¹wg, z2 与 y 不可交换, 直接换名得到错误
-      // 物理态 (表现为重置后最优步数漂移/贴纸错乱)。仅限手动原生轮 (屏幕帧基准);
-      // 蓝牙回落轮 (物理帧) 基准串无法重放, 保持旧行为 (回基准姿态, 本轮 y 不保留)
-      this.world.cube.twister.finish(); // 排空在飞整体转动画 (history 缺记录会漏吸收)
+      // 完整公式 = 打乱记号 + 视图链记号 (z2/y/y' 按 effectiveViewOps 真实时序, 同 scrambleText):
+      // 复位贴纸后整体重放一次即精确复现当前画面 (贴纸+持握)。共轭场景 (如 y·z2·y') 亦精确 ——
+      // 旧「吸收整体转→z2 重放→baseOps 重放」会把轮内 z2 的共轭位置坍缩到链首
+      this.world.cube.twister.finish(); // 排空在飞整体转动画 (history 缺记录会漏链)
       this.syncObservedOps();
-      const roundOps = this.observedOps.slice(this.baseOps.length);
-      if (roundOps.length > 0) {
-        this.baseOps = this.observedOps.slice();
-        this.rebasing = true; // 屏蔽 setup 快转 drop 回调的活体判定 (防中间态误判成功)
-        this.syncScene(SOLVED_FACELETS); // 复位贴纸 (cube.reset 不清贴纸坑, newScramble 同款)
-        this.world.cube.twister.setup(this.scramble);
-        if (this.z2On) {
-          this.applyZ2Flip(true);
+      const chain = this.effectiveViewOps();
+      const tokens = chain
+        .map((op) => this.opToken(op))
+        .filter(Boolean);
+      const complete = tokens.length > 0 ? this.scramble + " " + tokens.join(" ") : this.scramble;
+      this.rebasing = true; // 屏蔽 setup 快转 drop 回调的活体判定 (防中间态误判成功)
+      this.syncScene(SOLVED_FACELETS); // 复位贴纸 (cube.reset 不清贴纸坑, newScramble 同款)
+      this.world.cube.twister.setup(complete); // 完整公式一次打乱 (z2/y/y' 记号 setup 原生支持)
+      // 链字段按重放时序重建: z2 翻转保留链中相对位置 (mark = 前方非翻转记号数,
+      // 与 effectiveViewOps 互逆)。仅 times%4==2 的 z 项视为 z2 翻转 (姿态等价);
+      // 其余 z 轴项 (真实整体转 z/z', 含净化合并产物) 留在 nonZ 原样重放, 丢进
+      // marks 会错标为固定 z2 (z'≠z2, 姿态错)
+      const nonZ: BaseOp[] = [];
+      const marks: number[] = [];
+      for (const op of chain) {
+        if (op.axis === "z" && ((op.times % 4) + 4) % 4 === 2) {
+          marks.push(nonZ.length);
+        } else {
+          nonZ.push(op);
         }
-        this.applyBaseOrientation();
-        this.rebasing = false;
-        this.solveBaseState = this.world.cube.serialize();
       }
+      this.baseOps = nonZ;
+      this.z2Marks = marks;
+      this.rebasing = false;
+      this.solveBaseState = this.world.cube.serialize();
     }
     const base = this.solveBaseState;
     this.moveCount = 0;
@@ -1212,15 +1499,20 @@ export default class BleCrossTrainer extends Vue {
     this.running = true;
     if (this.isManual) {
       // 手动/touch 回落轮: 回起点重新观察, 首次转动开始还原计时。
-      // 上方已把本轮整体转吸收为新基准 (重置保留 y/y' 持握), syncScene 清 history 后
-      // observedOps=baseOps; 最优解按 (可能已换名的) 基准态刷新 —— 无整体转时幂等,
-      // 有整体转时 best 输入与重置前的 requote 一致, 兜底保证 best 与基准始终配套
+      // 原生轮: 上方姿态链重建后 solveBaseState=屏幕帧, observedOps=baseOps;
+      // 蓝牙回落轮: solveBaseState=物理帧, syncScene 后已重放 z2 翻转 → 视图链=[z2?@0]。
+      // 两种路径下实时 serialize 与视图链均配套: 核心帧换算/最优解按当前 3D 姿态刷新
+      // (无整体转时幂等, 有整体转时与重置前 requote 一致, 兜底保证 best 与基准配套)
       this.syncObservedOps();
-      this.bestRotationSig = JSON.stringify(this.observedOps);
-      if (this.solveBaseState) {
-        this.requestBest(this.mapStateForJudge(this.solveBaseState));
+      if (!this.solveBaseScreenFrame) {
+        this.z2Marks = this.z2On ? [0] : []; // 蓝牙回落轮链重建; 原生轮已在上方按重放时序精确重建
       }
-      this.needBreak = hasAnyCrossDone(base || SOLVED_FACELETS);
+      this.bestRotationSig = JSON.stringify(this.observedOps);
+      const coreLive = this.mapStateForJudge(this.world.cube.serialize());
+      if (coreLive) {
+        this.requestBest(coreLive);
+      }
+      this.needBreak = this.isTargetCrossDone(coreLive || SOLVED_FACELETS);
       this.phase = "observing";
       this.observeStart = Date.now();
       this.solveStart = 0;
@@ -1238,7 +1530,7 @@ export default class BleCrossTrainer extends Vue {
     }
     this.previewPending = true; // 首次转动时再对齐实物镜像轨道
     // 成功判定守卫按实物实际状态重设 (实物十字已完成时须先拆散才允许再次判定成功)
-    this.needBreak = hasAnyCrossDone(this.predicted || SOLVED_FACELETS);
+    this.needBreak = this.isTargetCrossDone(this.predicted || SOLVED_FACELETS);
     this.statusText = "已重置: 3D 回到本轮打乱态, 计时/步数清零 (首次转动对齐实物镜像)";
     this.link.requestFacelets().catch(() => undefined);
   }
@@ -1270,12 +1562,14 @@ export default class BleCrossTrainer extends Vue {
     if (this.z2On) {
       this.applyZ2Flip(true);
     }
+    this.z2Marks = this.z2On ? [0] : []; // 视图链重建: [z2?(当前奇偶)@0], 与重放翻转一致
     this.phase = "observing";
     this.observeStart = Date.now();
     this.solveStart = 0;
     this.running = true; // 驱动观察计时显示
     this.bestRotationSig = "[]";
-    this.needBreak = hasAnyCrossDone(base);
+    // base 为蓝牙轮物理帧: isTargetCrossDone 现已模式无关 (统一核心帧语义, 白底经训练帧)
+    this.needBreak = this.isTargetCrossDone(base);
     if (base !== this.solveBaseState) {
       // 基准变化 (打乱匹配中断开/无基准): 最优解按新基准重求 (requestBest 内清残留)
       this.solveBaseState = base;
@@ -1301,7 +1595,16 @@ export default class BleCrossTrainer extends Vue {
       !this.bestReady &&
       !this.bestXReady
     ) {
-      this.requestBest(this.mapStateForJudge(base));
+      // 手动: 基准串不可直接映射 (屏幕帧快照冻结于轮始), 按当前 3D 姿态实时取核心帧重求
+      // (沿完整视图链位置置换); 蓝牙: 基准态即物理帧
+      if (this.isManual) {
+        const live = this.mapStateForJudge(this.world.cube.serialize());
+        if (live) {
+          this.requestBest(live);
+        }
+      } else {
+        this.requestBest(base);
+      }
     }
   }
 
@@ -1323,8 +1626,16 @@ export default class BleCrossTrainer extends Vue {
     this.bestX = [];
     this.bestXReady = false;
     if (this.phase === "solving" && this.solveBaseState) {
-      // 手动练习整体转后按当前视角坐标系重求 (BLE 模式 observedOps 为空, 映射恒等)
-      this.requestBest(this.mapStateForJudge(this.solveBaseState));
+      // 手动: 按当前 3D 姿态实时取核心帧重求 (沿完整视图链位置置换);
+      // 蓝牙: 基准态即物理帧 (observedOps 为空, 换算恒等)
+      if (this.isManual) {
+        const live = this.mapStateForJudge(this.world.cube.serialize());
+        if (live) {
+          this.requestBest(live);
+        }
+      } else {
+        this.requestBest(this.solveBaseState);
+      }
     }
   }
 
@@ -1342,7 +1653,7 @@ export default class BleCrossTrainer extends Vue {
     this.previewPending = true; // 3D 保持打乱预览态 (练习起点), 首次转动时再对齐实物
     this.startSolving(base);
     // 起点为打乱目标态 (十字未完成), needBreak 须按实物实际状态设置
-    this.needBreak = hasAnyCrossDone(physical);
+    this.needBreak = this.isTargetCrossDone(physical);
     this.statusText = "已按打乱态开始: 把实物拧到 3D 显示的状态 (或直接还原十字), 判定以实物为准";
   }
 
@@ -1376,6 +1687,9 @@ export default class BleCrossTrainer extends Vue {
    * z2On 的翻转姿态由调用方随后 applyZ2Flip 恢复 */
   private syncScene(facelets: string): void {
     const cube = this.world.cube;
+    if (this.playingBest) {
+      this.cancelBestPlay(); // 打断预览: 新打乱/重置/权威重绘即将整体重建画面
+    }
     cube.twister.finish();
     cube.reset();
     cube.history.clear(); // 手动模式按 history 计步/展示解法: 重绘即重置 (蓝牙模式不读 history)
