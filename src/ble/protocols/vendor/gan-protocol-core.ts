@@ -399,7 +399,22 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
         }
         // Probably something went wrong and buffer is no longer evicted, so forcibly disconnect the cube
         if (conn && this.moveBuffer.length > 16) {
-            conn.disconnect();
+            // 原库行为: 强制断连 (快速失败)。训练场景断连体验极差 (转动中蓝牙突然断开、
+            // 需手动重连), 改为跳档自愈: 丢包补漏失败时接受 serial 跳号, 丢弃断档从积压
+            // 头部继续弹出; 被丢弃的转动由魔方周期 facelets 权威帧经上层状态校正自愈
+            // (推演与权威帧不符时重绘 3D 并以实体为准)。仍连续的部分照常逐个弹出,
+            // 弹到下一个断档处自然停下交回常规补漏流程。
+            console.warn("[gan] moveBuffer 积压 >16 (丢包补漏失败): 跳档自愈, 替代原库断连");
+            let head = this.moveBuffer[0] as GanCubeMoveEvent;
+            this.lastSerial = (head.serial - 1) & 0xFF;
+            while (this.moveBuffer.length > 0) {
+                let bh = this.moveBuffer[0] as GanCubeMoveEvent;
+                if (((bh.serial - this.lastSerial) & 0xFF) != 1) {
+                    break;
+                }
+                evictedEvents.push(this.moveBuffer.shift()!);
+                this.lastSerial = bh.serial;
+            }
         }
         return evictedEvents;
     }
@@ -690,7 +705,22 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
         }
         // Probably something went wrong and buffer is no longer evicted, so forcibly disconnect the cube
         if (conn && this.moveBuffer.length > 16) {
-            conn.disconnect();
+            // 原库行为: 强制断连 (快速失败)。训练场景断连体验极差 (转动中蓝牙突然断开、
+            // 需手动重连), 改为跳档自愈: 丢包补漏失败时接受 serial 跳号, 丢弃断档从积压
+            // 头部继续弹出; 被丢弃的转动由魔方周期 facelets 权威帧经上层状态校正自愈
+            // (推演与权威帧不符时重绘 3D 并以实体为准)。仍连续的部分照常逐个弹出,
+            // 弹到下一个断档处自然停下交回常规补漏流程。
+            console.warn("[gan] moveBuffer 积压 >16 (丢包补漏失败): 跳档自愈, 替代原库断连");
+            let head = this.moveBuffer[0] as GanCubeMoveEvent;
+            this.lastSerial = (head.serial - 1) & 0xFF;
+            while (this.moveBuffer.length > 0) {
+                let bh = this.moveBuffer[0] as GanCubeMoveEvent;
+                if (((bh.serial - this.lastSerial) & 0xFF) != 1) {
+                    break;
+                }
+                evictedEvents.push(this.moveBuffer.shift()!);
+                this.lastSerial = bh.serial;
+            }
         }
         return evictedEvents;
     }

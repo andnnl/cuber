@@ -96,8 +96,7 @@
             <v-btn
               x-small
               @click="resetRound"
-              :disabled="phase !== 'observing' && phase !== 'solving' && phase !== 'success'"
-              title="重置本轮 (3D 回本轮打乱态, 计时/步数清零; 蓝牙连接后任意阶段可点)"
+              title="重置本轮 (3D 回本轮打乱态, 计时/步数清零; 打乱匹配中重置=跳过匹配直接开始; 空闲/未连接时无本轮可重置)"
               :style="{height: size * 0.55 + 'px'}"
             >重置</v-btn>
             <v-btn
@@ -109,16 +108,14 @@
             >z2</v-btn>
             <v-btn
               x-small
-              :disabled="!isManual"
               @click="rotateWholeY(1)"
-              title="整体旋转 y (手动练习: 调整持握方向, 判定/最优解/步数自动换算, 打乱/重置后持握方向保留; 蓝牙模式不可用)"
+              title="整体旋转 y (调整观察视角: 手动练习=持握方向, 判定/最优解/步数自动换算; 蓝牙=纯屏幕视角, 3D 独立转动不影响镜像与判定, 新一轮开始时回正)"
               :style="{height: size * 0.55 + 'px'}"
             >y</v-btn>
             <v-btn
               x-small
-              :disabled="!isManual"
               @click="rotateWholeY(-1)"
-              title="整体旋转 y' (手动练习: 调整持握方向, 判定/最优解/步数自动换算, 打乱/重置后持握方向保留; 蓝牙模式不可用)"
+              title="整体旋转 y' (调整观察视角: 手动练习=持握方向, 判定/最优解/步数自动换算; 蓝牙=纯屏幕视角, 3D 独立转动不影响镜像与判定, 新一轮开始时回正)"
               :style="{height: size * 0.55 + 'px'}"
             >y'</v-btn>
             <v-btn
@@ -250,6 +247,14 @@
                 >{{ gifRecording ? '⏹' : 'GIF' }}</v-btn>
               </div>
             </template>
+          </div>
+
+          <!-- 行3.4: 实时步骤 (还原中): 随转动即时显示已拧步骤 -->
+          <div v-if="phase === 'solving' && liveStepsText" style="margin-top: 5px; padding: 5px 8px; background: #f5f8fc; border: 1px solid #dce6f2; border-radius: 6px; font-size: 12px; line-height: 1.7;">
+            <div style="display: flex; gap: 6px; min-width: 0;">
+              <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">已拧 {{ moveCount }}步</span>
+              <span style="flex: 1; min-width: 0; word-break: break-all; color: #333;">{{ liveStepsText }}</span>
+            </div>
           </div>
 
           <!-- 行3.5: 结果对比 (完成后): 你的解法 + 成败计数 -->

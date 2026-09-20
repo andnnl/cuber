@@ -177,7 +177,17 @@ export default class CubeGroup extends THREE.Group {
       this.tween = tweener.tween(this.angle, angle, duration, (value: number) => {
         this.angle = value;
         if (Math.abs(this.angle - angle) < 1e-6) {
-          this.drop();
+          try {
+            this.drop();
+          } catch (e) {
+            // drop 中断 (归位异常/回调链异常) 也必须释放层锁并复位持锁标记,
+            // 否则 group 永久持锁 → 后续 twist 全部排队失败 → 3D 永久冻结;
+            // 归位不完整由后续 syncScene/cube.reset 修正
+            this.holding = false;
+            this.tween = undefined;
+            this.cube.unlock(this.axis, this.layer);
+            console.error("[CubeGroup] drop 异常, 已强制解锁兜底", e);
+          }
           return true;
         }
         return false;

@@ -57,11 +57,29 @@ export class Tweener {
     // 队列式逐个处理: 处理前先 shift 出数组。tween 完成回调内可能嵌套
     // finish()/新建 tween (如训练器观察期重放), 若处理中仍留在数组里,
     // 嵌套 finish 会把「正在回调中的 tween」二次 finish (drop 重入),
-    // 回调返回后的移除也会索引错位误删新建 tween, 导致其永不推进、group 永久持锁
+    // 回调返回后的移除也会索引错位误删新建 tween, 导致其永不推进、group 永久持锁。
+    // 回调抛异常同样致命: tween 已 shift, 异常会同时跳过回队与 drop 归位解锁,
+    // group 永久持锁 → 后续 twist 全部排队失败 → 3D 永久冻结。
+    // 故逐个隔离异常: 出错时强制 finish (走 drop 归位+解锁) 兜底, 不影响其余 tween。
     let guard = this.tweens.length;
     while (guard-- > 0 && this.tweens.length > 0) {
       const tween = this.tweens.shift();
-      if (tween && !tween.update()) {
+      if (!tween) {
+        continue;
+      }
+      let done: boolean;
+      try {
+        done = tween.update();
+      } catch (e) {
+        console.error("[Tweener] tween 回调异常, 强制完成兜底", e);
+        done = true;
+        try {
+          tween.finish();
+        } catch (e2) {
+          console.error("[Tweener] tween 强制完成仍异常", e2);
+        }
+      }
+      if (!done) {
         this.tweens.push(tween);
       }
     }
@@ -72,15 +90,23 @@ export class Tweener {
     if (tween) {
       for (let i = 0; i < this.tweens.length; i++) {
         if (this.tweens[i] == tween) {
-          tween.finish();
           this.tweens.splice(i, 1);
+          try {
+            tween.finish();
+          } catch (e) {
+            console.error("[Tweener] finish 异常", e);
+          }
           return;
         }
       }
     } else {
       const tweens = this.tweens.splice(0, this.tweens.length);
       for (const tween of tweens) {
-        tween.finish();
+        try {
+          tween.finish();
+        } catch (e) {
+          console.error("[Tweener] finish 排空异常, 跳过继续", e);
+        }
       }
     }
   }
