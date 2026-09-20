@@ -88,4 +88,87 @@ export const BLE_THEME_CSS = `
 .help-dialog .help-body {
   color: #444;
 }
+/* ===== 训练记录弹窗 ===== */
+.rec-dialog .rec-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.rec-dialog .rec-stat-label {
+  font-size: 12px;
+  color: #6b7688;
+}
+.rec-dialog .rec-select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #d8e0ec;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #455a64;
+  outline: none;
+}
+.rec-dialog .rec-stats {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.rec-dialog .rec-stat {
+  flex: 1;
+  text-align: center;
+  background: #f4f6fa;
+  border: 1px solid #e3e8f0;
+  border-radius: 8px;
+  padding: 6px 2px;
+}
+.rec-dialog .rec-stat-v {
+  font-size: 14px;
+  font-weight: bold;
+  color: #3b4a63;
+}
+.rec-dialog .rec-stat-k {
+  font-size: 11px;
+  color: #8a94a6;
+  margin-top: 2px;
+}
+.rec-dialog .rec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.rec-dialog .rec-table th,
+.rec-dialog .rec-table td {
+  border-bottom: 1px solid #eef1f6;
+  padding: 4px 4px;
+  text-align: center;
+  color: #45515f;
+}
+.rec-dialog .rec-table th {
+  color: #8a94a6;
+  font-weight: 600;
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+}
+.rec-dialog .rec-table tbody tr:hover {
+  background: #f6f8fc;
+}
+.rec-dialog .rec-table .rec-nowrap {
+  white-space: nowrap;
+}
+.rec-dialog .rec-table .rec-ok {
+  color: #26c281;
+  font-weight: bold;
+}
+.rec-dialog .rec-table .rec-bad {
+  color: #e05252;
+  font-weight: bold;
+}
+.rec-dialog .rec-table tr.rec-fail td {
+  color: #9aa3b2;
+}
+.rec-dialog .rec-table tr.rec-fail td.rec-ok,
+.rec-dialog .rec-table tr.rec-fail td.rec-bad {
+  color: inherit;
+}
 `;

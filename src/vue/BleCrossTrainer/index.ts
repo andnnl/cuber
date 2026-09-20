@@ -1,7 +1,12 @@
 import { Component, Provide, Ref, Vue } from "vue-property-decorator";
 import World from "../../cuber/world";
 import { TwistAction } from "../../cuber/twister";
-import { FACE } from "../../cuber/define";
+import { COLORS, FACE } from "../../cuber/define";
+import GIF from "../../common/gif";
+import Util from "../../common/util";
+import Cubelet from "../../cuber/cubelet";
+import CubeGroup from "../../cuber/group";
+import * as THREE from "three";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
@@ -37,6 +42,23 @@ function slotToPhysical(slot: string): string {
 // 54 串位置 → (cubelet 初始索引, FACE) 写入映射。
 // 遍历顺序与 Cube.serialize() 完全一致 (URFDLB 六组各 9 字符), 先 reset 再逐贴纸
 // stick 即可把 3D 场景设置为任意 54 串状态 (蓝牙魔方接入时镜像用)。
+
+/** 一轮训练记录: t=时间戳, mode=练习模式, ok=是否成功;
+ * obs=观察用时秒 (手动模式, 蓝牙 null), solve=还原用时秒 (放弃=当时已用时, 无 null);
+ * best=最优解步数 (-1 无), steps=用户实际步数 (HTM 口径) */
+type TrainRecord = {
+  t: number;
+  mode: "cross" | "xcross";
+  ok: boolean;
+  obs: number | null;
+  solve: number | null;
+  best: number;
+  steps: number;
+};
+
+const RECORDS_KEY = "bleTrainRecords";
+const RECORDS_MAX = 500; // 本地缓存上限, 防膨胀
+
 type FaceletTarget = [number, FACE];
 const FACELET_TARGETS: FaceletTarget[] = (() => {
   const targets: FaceletTarget[] = [];
@@ -78,6 +100,78 @@ const FACELET_TARGETS: FaceletTarget[] = (() => {
   }
   return targets;
 })();
+
+// ---- 无关块可视化 (半透明/隐藏) 材质基础设施 ----
+// serialize→getColor 按贴纸材质身份反查色字符: 换成未注册材质会得 "?" 破坏序列化
+// (判定/求解/重绘全挂)。因此可视化一律「替换贴纸材质」: 半透明/更透明=同色低透明度
+// 材质 (visible 恒 true, 反查表仍能读色); 所需块高亮=同色无光照纯亮材质 (Basic, 实心)。
+// VIS_MAT_COLORS 注册 自定义材质→色字符, getColor 原型补丁优先查表保 serialize 恒真实
+const VIS_MAT_COLORS = new Map<THREE.Material, string>();
+const VIS_GHOST_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
+const VIS_SOFT_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
+const VIS_BRIGHT_MATS: { [color: string]: THREE.MeshBasicMaterial } = {};
+const VIS_GHOST_OPACITY = 0.18;
+// 「隐藏无关」档: 比半透明更透明, 隐约可见而非完全消失
+const VIS_SOFT_OPACITY = 0.06;
+// 塑料体 (frame) 处理: 半透明档直接 frame.visible=false (黑骨架完全隐去, 透过薄纱
+// 贴纸直接见背后块色); 隐藏档骨架同 0.06 隐约 (CORE.clone)
+const VIS_FRAME_SOFT = ((): THREE.MeshPhongMaterial => {
+  const mat = Cubelet.CORE.clone() as THREE.MeshPhongMaterial;
+  mat.transparent = true;
+  mat.opacity = VIS_SOFT_OPACITY;
+  mat.depthWrite = false;
+  return mat;
+})();
+
+function visMaterialOf(color: string, mode: "ghost" | "soft" | "bright"): THREE.Material {
+  if (mode === "bright") {
+    // 所需块高亮: 无光照纯色 (Basic), 在半透明无关块后依然鲜亮醒目
+    let mat = VIS_BRIGHT_MATS[color];
+    if (!mat) {
+      mat = new THREE.MeshBasicMaterial();
+      VIS_BRIGHT_MATS[color] = mat;
+      VIS_MAT_COLORS.set(mat, color);
+    }
+    const lamber = Cubelet.LAMBERS[color];
+    if (lamber) {
+      mat.color.copy(lamber.color);
+    }
+    return mat;
+  }
+  const table = mode === "ghost" ? VIS_GHOST_MATS : VIS_SOFT_MATS;
+  let mat = table[color];
+  if (!mat) {
+    mat = new THREE.MeshLambertMaterial({
+      transparent: true,
+      opacity: mode === "ghost" ? VIS_GHOST_OPACITY : VIS_SOFT_OPACITY,
+      depthWrite: false,
+    });
+    table[color] = mat;
+    VIS_MAT_COLORS.set(mat, color);
+  }
+  // 配色可随时在菜单修改 (直接改 LAMBERS 色值): 每次取用时同步, 避免半透明块颜色过期
+  const lamber = Cubelet.LAMBERS[color];
+  if (lamber) {
+    mat.color.copy(lamber.color);
+  }
+  return mat;
+}
+
+// getColor 原型补丁 (模块加载时一次性): 自定义可视化材质反查色字符, 其余走原实现
+const _visOrigGetColor = Cubelet.prototype.getColor;
+if (!(Cubelet.prototype as { __visPatched?: boolean }).__visPatched) {
+  (Cubelet.prototype as { __visPatched?: boolean }).__visPatched = true;
+  Cubelet.prototype.getColor = function (this: Cubelet, face: FACE): string {
+    const sticker = this.stickers[this.getFace(face)];
+    if (sticker) {
+      const mapped = VIS_MAT_COLORS.get(sticker.material as THREE.Material);
+      if (mapped) {
+        return mapped;
+      }
+    }
+    return _visOrigGetColor.call(this, face);
+  };
+}
 
 @Component({
   template: require("./index.html"),
@@ -153,10 +247,22 @@ export default class BleCrossTrainer extends Vue {
   // 成功/失败计数: 完成 +1, solving 中点「新打乱」放弃本轮算失败 +1
   successCount = 0;
   failCount = 0;
+  // ---- 训练记录: 每轮一条 (观察/还原用时、最优/实际步数、成败), localStorage 持久化 ----
+  records: TrainRecord[] = [];
+  recDialog = false;
+  recLimit = 20; // 统计/表格取最近 N 条 (10/20/50/100)
   // 正确后自动进入下一打乱 (localStorage 持久化, 值 "1"/"0")
   autoNext = true;
   // 是否显示推荐的最优解 (localStorage 持久化, 值 "1"/"0"): 关闭时不求解也不展示, 避免剧透
   showBest = true;
+  // ---- 无关块可视化: 色块半透明 / 隐藏无关 (独立开关, 都开时无关块取更透明档) ----
+  // 半透明模式: 朝向当前屏幕 F/R/U 三面的块变半透明 (含中心块), 透视背后块色,
+  // 转动落定后按当前姿态重算 (localStorage "bleVisGhost")
+  visGhost = false;
+  // 隐藏模式: 本轮不需要的块变得更透明 (隐约可见非消失; 中心块不淡化) (localStorage "bleVisHide")
+  visHide = false;
+  // xcross 模式下保留显示的 F2L 槽位 (棱块+角块), 与屏幕四下槽位同帧 (localStorage "bleVisSlot")
+  visSlot = "FL";
   statusText = "未连接魔方: 点「新打乱」免蓝牙直接练习";
 
   // ---- 计时 (data 属性 + rAF/interval 双刷新, 不能用 computed: 依赖不变会缓存冻结) ----
@@ -254,6 +360,17 @@ export default class BleCrossTrainer extends Vue {
     });
     this.autoNext = window.localStorage.getItem("bleAutoNext") !== "0";
     this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
+    this.visGhost = window.localStorage.getItem("bleVisGhost") === "1";
+    this.visHide = window.localStorage.getItem("bleVisHide") === "1";
+    this.loadRecords(); // 训练记录 (localStorage)
+    const savedRecLimit = parseInt(window.localStorage.getItem("bleRecLimit") || "", 10);
+    if (savedRecLimit === 10 || savedRecLimit === 20 || savedRecLimit === 50 || savedRecLimit === 100) {
+      this.recLimit = savedRecLimit;
+    }
+    const savedVisSlot = window.localStorage.getItem("bleVisSlot");
+    if (savedVisSlot === "FL" || savedVisSlot === "FR" || savedVisSlot === "BL" || savedVisSlot === "BR") {
+      this.visSlot = savedVisSlot;
+    }
     const savedMode = window.localStorage.getItem("bleTrainMode");
     if (savedMode === "xcross") {
       this.trainMode = "xcross";
@@ -265,6 +382,10 @@ export default class BleCrossTrainer extends Vue {
     this.link.onEvent((e) => this.handleEvent(e));
     // 手动练习: 每次转层动画结束 (含鼠标拧动/回弹) 后判定
     this.world.callbacks.push(() => this.onManualTwist());
+    // 无关块可视化: 每次转层落定 (所有模式: 手动拧动/蓝牙镜像/setup 快转/z2 翻转/预览播放)
+    // 后按当前状态重算所需块并重刷贴纸材质
+    this.world.callbacks.push(() => this.applyVisibility());
+    this.applyVisibility(); // 初始求解态也按存档偏好刷一次
     this.resize();
     this.loop();
     // 计时显示兜底刷新 (切后台时 rAF 暂停, interval 仍触发)
@@ -578,6 +699,7 @@ export default class BleCrossTrainer extends Vue {
     }
     // 排空在飞/排队中的镜像动画, 从静止姿态出发翻转 (同 CrossF2L rotateBase 前置 finish)
     this.world.cube.twister.finish();
+    CubeGroup.durationScale = 1; // 非镜像动画恒常速 (清掉镜像提速残留)
     this.syncObservedOps(); // 刷新整体转链 (finish 提交的 drop 回调可能未及触发)
     // 手动: 翻转动画启动前先取当前核心帧输入 (group.twist 动画 drop 时才提交,
     // 翻转后 serialize 读到的是翻转后画面)。z2 翻转=视图操作, 物理帧不变:
@@ -629,6 +751,7 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     const physicalTimes = this.z2On ? -times : times;
+    CubeGroup.durationScale = 1; // 非镜像动画恒常速 (清掉镜像提速残留)
     this.world.cube.twister.push(physicalTimes > 0 ? "y" : "y'");
   }
 
@@ -677,6 +800,7 @@ export default class BleCrossTrainer extends Vue {
     }
     const cube = this.world.cube;
     cube.twister.finish(); // 排空在飞动画, 从静止画面出发
+    CubeGroup.durationScale = 1; // 非镜像动画恒常速 (清掉镜像提速残留)
     this.bestPlayFormula = formula;
     this.bestPlayDelta = dir;
     this.playingBest = true;
@@ -805,7 +929,7 @@ export default class BleCrossTrainer extends Vue {
     const mark = move === expected ? "✓ 一致" : move === z2Move(expected) ? "(z2 换名)" : "✗ 不匹配";
     console.log(`[校准] 期望 ${expected}, 实际收到 ${move} ${mark}`);
     this.calibLog.push({ expected, actual: move });
-    this.world.cube.twister.push(move); // 原样镜像, 便于肉眼对比 3D 与实体
+    this.mirrorPush(move); // 原样镜像, 便于肉眼对比 3D 与实体
     if (this.calibStep < this.calibSteps.length - 1) {
       this.calibStep++;
       this.statusText = this.calibSteps[this.calibStep].tip;
@@ -894,6 +1018,26 @@ export default class BleCrossTrainer extends Vue {
     this.judge(raw);
   }
 
+  /** 上次镜像转动事件时刻 (自适应提速用) */
+  private lastMirrorAt = 0;
+
+  /** 转动镜像推送 (蓝牙事件/校准): 按物理转动节奏自适应提速。
+   * 常速单步动画 30 帧 ≈500ms; 快拧时下一步事件会提前到达, 引擎对同组在途动画
+   * 走 CubeGroup.cancel 掐断-瞬移-重启 (twist 的 holding 分支), 表现为大幅跳变
+   * 「3D 跟不上」。按事件间隔等比缩短时长 (间隔 250ms → 动画 250ms), 让每步
+   * 播完再接下一步, cancel 不再发生, 任意转速下平滑跟随; 慢拧 (>500ms/步) 恒常速。
+   * 辅助因子: 跨轴连发需等锁会排队 (同轴不同层可并行), 按积压深度再加速 */
+  private mirrorPush(move: string): void {
+    const now = Date.now();
+    const interval = this.lastMirrorAt ? now - this.lastMirrorAt : 500;
+    this.lastMirrorAt = now;
+    const byRate = Math.min(1, interval / 500);
+    const backlog = this.world.cube.twister.length;
+    const byBacklog = backlog > 0 ? Math.pow(0.55, backlog) : 1;
+    CubeGroup.durationScale = Math.max(0.067, Math.min(byRate, byBacklog));
+    this.world.cube.twister.push(move);
+  }
+
   /** 物理转动事件: 校准记录 / 推演状态 (物理帧) + 判定 + 3D 动画镜像 (展示层按 z2On 换名) */
   private onMoveEvent(move: string): void {
     if (this.calibStep >= 0) {
@@ -940,12 +1084,12 @@ export default class BleCrossTrainer extends Vue {
             this.applyZ2Flip(true);
           }
         }
-        this.world.cube.twister.push(this.displayMove(move));
+        this.mirrorPush(this.displayMove(move));
       }
       this.judge(next);
     } else {
       // 尚未收到权威状态, 仅镜像动画
-      this.world.cube.twister.push(this.displayMove(move));
+      this.mirrorPush(this.displayMove(move));
     }
   }
 
@@ -1332,6 +1476,7 @@ export default class BleCrossTrainer extends Vue {
       this.completedSlots = [];
     }
     this.successCount++;
+    this.recordTrain(true); // 训练记录: 本轮成功 (观察/还原用时, 最优/实际步数)
     this.statusText = "✅ " + (this.trainMode === "xcross" ? "XCross 完成!" : "十字完成!");
     this.elapsedText = this.computeElapsed(); // 固化最终还原用时
     if (this.isManual) {
@@ -1370,6 +1515,7 @@ export default class BleCrossTrainer extends Vue {
     // solving 中主动放弃本轮: 计一次失败
     if (this.phase === "solving") {
       this.failCount++;
+      this.recordTrain(false); // 训练记录: 本轮放弃 (失败, 还原用时=当时已用时)
       this.running = false;
     }
     if (this.resultTimer !== null) {
@@ -1400,6 +1546,7 @@ export default class BleCrossTrainer extends Vue {
       // 贴纸 (上轮基准态) —— 不复位的话 setup 作用于残留布局, 姿态链路全错。
       // CrossF2L 无此问题 (从不用 stick, 贴纸恒为出厂标准色)。复位后 setup 即作用于
       // 标准初态, 与 CrossF2L startRound 的 setup(exp) 语义完全一致
+      this.rebasing = true; // 屏蔽 finish/setup 快转 drop 回调的活体判定: 放弃已计失败, 防中间态再误判成功 (resetRound 同款)
       this.syncScene(SOLVED_FACELETS);
       cube.twister.setup(formula);
       if (this.z2On) {
@@ -1408,6 +1555,7 @@ export default class BleCrossTrainer extends Vue {
       this.applyBaseOrientation(); // 再重放 y/y' 基准持握
       this.syncObservedOps(); // observedOps = baseOps (供 startSolving 记录整体转签名)
       this.startSolving(cube.serialize(), true); // 基准态=屏幕帧 (已含 z2+baseOps 重放)
+      this.rebasing = false; // 重放完毕, 恢复活体判定 (此后 phase 已切 observing)
       this.phase = "observing";
       this.observeStart = Date.now();
       this.solveStart = 0;
@@ -1608,6 +1756,131 @@ export default class BleCrossTrainer extends Vue {
     }
   }
 
+  /** 「色块半透明」勾选变更: 独立开关 (淡化朝向 F/R/U 的块; 与「隐藏无关」可同开, 无关块取更透明档), 持久化并立即重刷 */
+  saveVisGhost(): void {
+    window.localStorage.setItem("bleVisGhost", this.visGhost ? "1" : "0");
+    this.applyVisibility();
+  }
+
+  /** 「隐藏无关」勾选变更: 独立开关 (无关块更透明, 隐约可见; 与「色块半透明」可同开), 持久化并立即重刷 */
+  saveVisHide(): void {
+    window.localStorage.setItem("bleVisHide", this.visHide ? "1" : "0");
+    this.applyVisibility();
+  }
+
+  /** XCross 槽位选择变更: 持久化并重刷 (所需棱块+角块随槽位变化) */
+  saveVisSlot(): void {
+    window.localStorage.setItem("bleVisSlot", this.visSlot);
+    this.applyVisibility();
+  }
+
+  /** 块可视化 (两个独立开关, 目标: 不转动魔方也能透视看到十字相关块与目标槽位):
+   * 「半透明」= 无关块半透明 (opacity 0.18) —— 所有方向无关块一律淡化, 视线无死角;
+   * 「隐藏无关」= 无关块更透明 (opacity 0.06, 隐约可见), 中心块不淡化;
+   * 开启任一开关时: 十字所需块 (4 棱 / xcross 另加槽位棱角) 贴纸换无光照纯亮材质。
+   * 核心约束: serialize→getColor 按材质身份反查色字符, 换未注册材质会得 "?" 破坏序列化
+   * —— 故一律用「注册材质 + visible 恒 true」, getColor 补丁查表保 serialize 恒真实。
+   * 挂载点: 每次 drop 回调 (所有模式的转层落定) + syncScene (重绘后) + 开关/槽位变更。 */
+  private applyVisibility(): void {
+    const ghost = this.visGhost;
+    const hide = this.visHide;
+    const active = ghost || hide;
+    const cube = this.world.cube;
+    const s = cube.serialize();
+    // 状态串 → 位置×世界面 色表 (FACELET_TARGETS 与 serialize 同序分解, 任意姿态成立)
+    const posColors: string[][] = [];
+    for (let p = 0; p < 27; p++) {
+      posColors.push(["", "", "", "", "", ""]);
+    }
+    for (let i = 0; i < 54; i++) {
+      const target = FACELET_TARGETS[i];
+      posColors[target[0]][target[1]] = s[i];
+    }
+    // 训练底色 (与判定 isTrainDone / 求解 toTrainFrame 同帧语义): 黄底训练 = 核心 D 中心;
+    // 白底 (z2On) 训练 = 核心 U 中心 —— 白中心恒在核心 U 轴, z2 切白底后高亮 4 条白棱。
+    // 不能用世界帧 s[31]: 持握 (z2/y) 会改世界帧中心分布, 与训练目标底色无关
+    const core = this.mapStateForJudge(s);
+    const bottom = this.z2On ? core[4] : core[31];
+    // 所需块位置集: 十字 = 含底色的 4 条棱; xcross 另加所选槽位 (屏幕帧:
+    // 前s[22]/右s[13]/后s[49]/左s[40] 中心色) 的棱+角
+    const needed = new Set<number>();
+    if (active) {
+      const bySig = new Map<string, number>();
+      for (let p = 0; p < 27; p++) {
+        const colors = posColors[p].filter(Boolean);
+        if (colors.length >= 2) {
+          bySig.set(colors.slice().sort().join(""), p);
+        }
+      }
+      const find = (...colors: string[]): number => {
+        const p = bySig.get(colors.slice().sort().join(""));
+        return p === undefined ? -1 : p;
+      };
+      for (const side of [s[13], s[22], s[40], s[49]]) {
+        const p = find(bottom, side);
+        if (p >= 0) {
+          needed.add(p);
+        }
+      }
+      if (this.trainMode === "xcross") {
+        const front = s[22];
+        const pairs: { [slot: string]: string[] } = {
+          FL: [front, s[40]],
+          FR: [front, s[13]],
+          BL: [s[49], s[40]],
+          BR: [s[49], s[13]],
+        };
+        const pair = pairs[this.visSlot] || pairs.FL;
+        const edge = find(pair[0], pair[1]);
+        if (edge >= 0) {
+          needed.add(edge);
+        }
+        const corner = find(bottom, pair[0], pair[1]);
+        if (corner >= 0) {
+          needed.add(corner);
+        }
+      }
+    }
+    // 逐块刷材质。等级: 无关块→淡化 (hide 开取更透明档, 涵盖半透明); 所需块→高亮;
+    // 中心块/未开启→标准色。getFace(世界面)→局部面: 块姿态任意时也能定位到正确贴纸
+    for (let p = 0; p < 27; p++) {
+      const piece = cube.cubelets[p];
+      if (!piece || !piece.exist) {
+        continue;
+      }
+      const colors = posColors[p].filter(Boolean);
+      const irrelevant = active && colors.length > 1 && !needed.has(p);
+      const isNeeded = active && colors.length > 1 && needed.has(p);
+      const mode: "normal" | "ghost" | "soft" | "bright" = irrelevant ? (hide ? "soft" : "ghost") : isNeeded ? "bright" : "normal";
+      // 塑料体 (frame): 半透明模式下所有块 (含高亮块) 的骨架一律完全隐去, 场景只剩贴纸层
+      // —— 用户明确要求零可见骨架 (灰板/黑板都不要); 隐藏档 (半透明关) 无关块骨架同 0.06
+      // 隐约, 其余实心; 关闭时按 hollow 偏好恢复
+      const frame = piece.frame;
+      if (ghost) {
+        frame.visible = false;
+      } else if (active) {
+        frame.visible = true;
+        frame.material = mode === "soft" ? VIS_FRAME_SOFT : this.preferance.hollow ? Cubelet.TRANS : Cubelet.CORE;
+      } else {
+        frame.visible = true;
+        frame.material = this.preferance.hollow ? Cubelet.TRANS : Cubelet.CORE;
+      }
+      for (let w = 0; w < 6; w++) {
+        const color = posColors[p][w];
+        if (!color) {
+          continue;
+        }
+        const sticker = piece.stickers[piece.getFace(w as FACE)];
+        if (!sticker) {
+          continue;
+        }
+        sticker.visible = true;
+        sticker.material = mode === "normal" ? Cubelet.LAMBERS[color] : visMaterialOf(color, mode);
+      }
+    }
+    this.world.dirty = true;
+  }
+
   /** 手动 MAC 输入变更: 持久化, 下次复用避免再次输入 (空串清除保存值) */
   saveManualMac(): void {
     const v = this.manualMac.trim();
@@ -1637,6 +1910,7 @@ export default class BleCrossTrainer extends Vue {
         this.requestBest(this.solveBaseState);
       }
     }
+    this.applyVisibility(); // cross↔xcross 所需块集不同 (xcross 另加槽位棱+角), 重刷可视化
   }
 
   /** 跳过打乱匹配, 直接开始十字 (不想拧打乱公式 / 持握方向不一致匹配不上时的兜底):
@@ -1698,6 +1972,7 @@ export default class BleCrossTrainer extends Vue {
       cube.stick(target[0], target[1], facelets[i]);
     }
     cube.dirty = true;
+    this.applyVisibility(); // stick 已把全部贴纸复位为标准材质: 按当前偏好重刷可视化
   }
 
   // ================= 计时 =================
@@ -1824,6 +2099,231 @@ export default class BleCrossTrainer extends Vue {
       this.elapsedText = this.computeElapsed();
     }
     this.viewport?.draw();
+    if (this.gifRecording) {
+      // 按 GIF 帧延迟采样 (80ms/帧 ≈ 12.5fps, 与播放速率一致; 逐 rAF 录帧文件会过大)
+      const now = performance.now();
+      if (now - this.gifLast >= BleCrossTrainer.GIF_DELAY * 10) {
+        this.gifLast = now;
+        this.recordGif();
+      }
+      // 一键演示: 自动播放结束后停留 ~0.5s 尾帧, 再自动打包下载
+      if (this.gifAuto && this.gifPlayStarted && !this.playingBest) {
+        if (this.gifPlayEndAt === 0) {
+          this.gifPlayEndAt = now;
+        } else if (now - this.gifPlayEndAt > 500) {
+          this.finishGif();
+        }
+      }
+    }
+  }
+
+  // ================= 训练记录 =================
+
+  loadRecords(): void {
+    try {
+      const raw = window.localStorage.getItem(RECORDS_KEY);
+      this.records = raw ? (JSON.parse(raw) as TrainRecord[]) : [];
+    } catch {
+      this.records = [];
+    }
+  }
+
+  private saveRecords(): void {
+    try {
+      window.localStorage.setItem(RECORDS_KEY, JSON.stringify(this.records.slice(0, RECORDS_MAX)));
+    } catch {
+      // 存储满/被禁用等异常静默, 不影响训练
+    }
+  }
+
+  /** 结算一轮: 判定成功或 solving 放弃时记录 (最新在前, 上限截断)。
+   * obs=观察用时 (手动模式, 蓝牙无观察计时记 null); solve=还原用时 (放弃=当时已用时);
+   * best=最优解步数 (未就绪 -1); steps=用户实际步数 (HTM 化简口径) */
+  private recordTrain(ok: boolean): void {
+    const rec: TrainRecord = {
+      t: Date.now(),
+      mode: this.trainMode,
+      ok,
+      obs: this.isManual && this.observeStart && this.solveStart ? (this.solveStart - this.observeStart) / 1000 : null,
+      solve: this.solveStart ? (Date.now() - this.solveStart) / 1000 : null,
+      best: this.bestReady && this.bestSolution ? this.bestMovesOf(this.bestSolution).length : -1,
+      steps: this.moveCount,
+    };
+    this.records.unshift(rec);
+    if (this.records.length > RECORDS_MAX) {
+      this.records.length = RECORDS_MAX;
+    }
+    this.saveRecords();
+  }
+
+  /** 表格数据: 最近 N 条 (最新在上) */
+  get recordsView(): TrainRecord[] {
+    return this.records.slice(0, this.recLimit);
+  }
+
+  /** 最近 N 条统计: 成功率 + 平均观察/还原用时 + 平均最优/实际步数 */
+  get recStats(): { n: number; okRate: string; avgObs: string; avgSolve: string; avgBest: string; avgSteps: string } {
+    const rs = this.records.slice(0, this.recLimit);
+    const avg = (xs: number[]) => (xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : "-");
+    const obs = rs.map((r) => r.obs).filter((x): x is number => x !== null);
+    const solve = rs.map((r) => r.solve).filter((x): x is number => x !== null);
+    const best = rs.map((r) => r.best).filter((x) => x >= 0);
+    return {
+      n: rs.length,
+      okRate: rs.length ? Math.round((rs.filter((r) => r.ok).length / rs.length) * 100) + "%" : "-",
+      avgObs: avg(obs) + "s",
+      avgSolve: avg(solve) + "s",
+      avgBest: best.length ? (best.reduce((a, b) => a + b, 0) / best.length).toFixed(1) : "-",
+      avgSteps: avg(rs.map((r) => r.steps)),
+    };
+  }
+
+  fmtRecTime(t: number): string {
+    const d = new Date(t);
+    const pad = (x: number) => (x < 10 ? "0" + x : "" + x);
+    return d.getMonth() + 1 + "-" + d.getDate() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  fmtRecSec(v: number | null): string {
+    return v === null ? "-" : v.toFixed(1) + "s";
+  }
+
+  clearRecords(): void {
+    if (window.confirm("确定清空全部训练记录?")) {
+      this.records = [];
+      this.saveRecords();
+    }
+  }
+
+  saveRecLimit(): void {
+    try {
+      window.localStorage.setItem("bleRecLimit", String(this.recLimit));
+    } catch {
+      // 忽略
+    }
+  }
+
+  // ================= GIF 录制 (参考 Director: 独立 filmer 离屏渲染逐帧采样) =================
+
+  /** GIF 录制中 (按钮切停止态); 采样与落盘见 toggleGif/finishGif */
+  gifRecording = false;
+  gifFrames = 0;
+  /** 一键演示: 重置→自动播放最优解→播完自动下载 (播放为纯视觉预览, 不触发判定) */
+  private gifAuto = false;
+  private gifPlayStarted = false;
+  private gifPlayEndAt = 0;
+  private static GIF_PIXEL = 384;
+  private static GIF_DELAY = 8; // 每帧显示时长, 单位 1/100 秒 (8 = 80ms ≈ 12.5fps)
+  private filmer: THREE.WebGLRenderer | null = null;
+  private gif: GIF | null = null;
+  private gifPixels: Uint8Array | null = null;
+  private gifLast = 0;
+
+  /** 开始/停止 GIF 录制: 手动模式且有最优解时一键演示 (重置→自动播放→自动下载),
+   * 否则纯手动录制 (再点一次停止并下载) */
+  toggleGif(): void {
+    if (this.gifRecording) {
+      this.finishGif(); // 录制中再点 = 提前停止并下载
+      return;
+    }
+    const formula = this.isManual ? this.gifPlayTarget() : "";
+    if (formula) {
+      this.resetRound(); // 重置: 回打乱态 + 观察阶段, 预览游标/进度清零
+      this.startGif();
+      this.gifAuto = true; // startGif 复位演示标志, 须在其后置位 (loop 据此自动收尾)
+      window.setTimeout(() => {
+        if (!this.gifRecording) {
+          return;
+        }
+        this.gifPlayStarted = true;
+        this.playBest(formula);
+      }, 700); // 先录 ~8 帧打乱态静止, 再开始播放
+    } else {
+      this.startGif();
+    }
+  }
+
+  /** 一键演示的播放目标: Cross 用最优解; XCross 取第一个有解槽位 (原始记号, playBest 内部换名) */
+  private gifPlayTarget(): string {
+    if (this.trainMode === "xcross") {
+      const hit = this.bestX.find((b) => b.steps > 0 && b.formula);
+      return hit ? hit.formula : "";
+    }
+    return this.bestReady && this.bestSolution ? this.bestSolution : "";
+  }
+
+  private startGif(): void {
+    const pixel = BleCrossTrainer.GIF_PIXEL;
+    if (!this.filmer) {
+      this.filmer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false });
+      this.filmer.setPixelRatio(1);
+    }
+    this.filmer.setSize(pixel, pixel, true);
+    this.filmer.setClearColor(this.gifBackColor(), 1); // 背景色随页面实际底色 (录进 GIF)
+    this.gif = new GIF(COLORS);
+    this.gif.start(pixel, pixel, BleCrossTrainer.GIF_DELAY);
+    this.gifPixels = new Uint8Array(pixel * pixel * 4);
+    this.gifFrames = 0;
+    this.gifLast = 0;
+    this.gifAuto = false;
+    this.gifPlayStarted = false;
+    this.gifPlayEndAt = 0;
+    this.gifRecording = true;
+    this.recordGif(); // 首帧立即录制
+  }
+
+  /** 3D 区域实际底色: 沿 viewport 元素向上找第一个非透明背景, GIF 录同色背景 */
+  private gifBackColor(): number {
+    let node = (this.$refs.viewport as Vue)?.$el as HTMLElement | null;
+    while (node) {
+      const bg = getComputedStyle(node).backgroundColor;
+      if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+        const m = bg.match(/(\d+),\s*(\d+),\s*(\d+)/);
+        if (m) {
+          return (parseInt(m[1], 10) << 16) | (parseInt(m[2], 10) << 8) | parseInt(m[3], 10);
+        }
+      }
+      node = node.parentElement;
+    }
+    return 0xffffff;
+  }
+
+  /** 录一帧: 临时把世界切到离屏尺寸渲染读像素, 完成即恢复 (照 Director.record) */
+  private recordGif(): void {
+    if (!this.filmer || !this.gif || !this.gifPixels) {
+      return;
+    }
+    const pixel = BleCrossTrainer.GIF_PIXEL;
+    const width = this.world.width;
+    const height = this.world.height;
+    this.world.width = pixel;
+    this.world.height = pixel;
+    this.world.resize();
+    this.filmer.clear();
+    this.filmer.render(this.world.scene, this.world.camera);
+    const content = this.filmer.getContext();
+    content.readPixels(0, 0, pixel, pixel, content.RGBA, content.UNSIGNED_BYTE, this.gifPixels);
+    this.gif.add(this.gifPixels);
+    this.gifFrames++;
+    this.world.width = width;
+    this.world.height = height;
+    this.world.resize();
+  }
+
+  private finishGif(): void {
+    this.gifRecording = false;
+    this.gifAuto = false;
+    this.gifPlayStarted = false;
+    this.gifPlayEndAt = 0;
+    if (!this.gif || this.gifFrames === 0) {
+      this.gif = null;
+      return;
+    }
+    this.gif.finish();
+    const blob = new Blob([this.gif.out.getData()], { type: "image/gif" });
+    const url = URL.createObjectURL(blob);
+    Util.DOWNLOAD("blecross", "gif", url);
+    this.gif = null;
   }
 
   // ================= 帮助 =================

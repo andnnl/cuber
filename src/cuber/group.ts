@@ -6,6 +6,9 @@ import tweener, { Tween } from "./tweener";
 
 export default class CubeGroup extends THREE.Group {
   public static frames = 30;
+  /** 动画时长倍率 (1=正常): 转动镜像积压时置 <1 提速追赶 (蓝牙快拧 3D 跟不上),
+   * 其余所有动画入口 (按钮整体转/解法预览/z2 翻转) 前须复位为 1 */
+  public static durationScale = 1;
   public static readonly AXIS_VECTOR: { [key: string]: THREE.Vector3 } = {
     a: new THREE.Vector3(1, 1, 1),
     x: new THREE.Vector3(-1, 0, 0),
@@ -168,7 +171,9 @@ export default class CubeGroup extends THREE.Group {
       this.drop();
     } else {
       const d = Math.abs(delta) / (Math.PI / 2);
-      const duration = CubeGroup.frames * (2 - 2 / (d + 1));
+      // duration 单位=帧 (rAF tick): 常速四分之一转 30 帧 ≈500ms。
+      // durationScale 按镜像积压深度 <1 提速; 下限 2 帧防 0 时长 (elapsed=除零→NaN 不可控)
+      const duration = Math.max(2, CubeGroup.frames * (2 - 2 / (d + 1)) * CubeGroup.durationScale);
       this.tween = tweener.tween(this.angle, angle, duration, (value: number) => {
         this.angle = value;
         if (Math.abs(this.angle - angle) < 1e-6) {

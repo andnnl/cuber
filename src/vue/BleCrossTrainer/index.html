@@ -46,6 +46,7 @@
             </span>
             <span v-if="battery !== null" style="font-size: 12px; color: #888; white-space: nowrap;">🔋{{ battery }}%</span>
             <div style="flex: 1; min-width: 4px;"></div>
+            <v-btn x-small @click="recDialog = true" title="训练记录: 每轮的观察/还原用时、步数、成败 (本地保存)" :style="{height: size * 0.55 + 'px'}">📋</v-btn>
             <v-btn x-small @click="helpDialog = true" title="使用说明" :style="{height: size * 0.55 + 'px'}">?</v-btn>
           </div>
 
@@ -132,6 +133,29 @@
             <span v-else class="scramble-text muted">{{ phase === 'ready' ? (isManual ? '点「新打乱」开始' : '等待魔方状态...') : '—' }}</span>
           </div>
 
+          <!-- 行2.5: 无关块可视化: 色块半透明 / 隐藏无关贴纸 (+ xcross 槽位选择) -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; min-height: 16px;">
+            <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="色块半透明模式: 本轮无关的块全部变半透明 (不分方向, 视线无死角), 十字所需块高亮显示 —— 不转动魔方也能透视看到十字块在哪 (中心块不淡化; 与「隐藏无关」独立, 都勾选时无关块更透明)">
+              <input type="checkbox" v-model="visGhost" @change="saveVisGhost" style="width: 13px; height: 13px;" />半透明
+            </label>
+            <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="隐藏无关色块: 无关块变得更透明 (隐约可见而非完全消失), 同样高亮所需块 (中心块不淡化; 与「半透明」独立, 都勾选时无关块更透明)">
+              <input type="checkbox" v-model="visHide" @change="saveVisHide" style="width: 13px; height: 13px;" />隐藏无关
+            </label>
+            <div style="flex: 1;"></div>
+            <select
+              v-if="trainMode === 'xcross' && (visGhost || visHide)"
+              v-model="visSlot"
+              @change="saveVisSlot"
+              title="XCross: 选择要还原的 F2L 槽位 (一组棱块+角块), 半透明/隐藏时该槽位的块保持显示"
+              style="border: 1px solid #e3e8f0; border-radius: 4px; font-size: 12px; height: 22px; background: #fff; color: #333; padding: 0 2px; flex: none;"
+            >
+              <option value="FL">FL</option>
+              <option value="FR">FR</option>
+              <option value="BL">BL</option>
+              <option value="BR">BR</option>
+            </select>
+          </div>
+
           <!-- 行3: 流程状态 + 计时 + 步数 + 自动下轮勾选 -->
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
             <span :class="{'ok-text': phase === 'success'}" style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ statusText }}</span>
@@ -146,9 +170,9 @@
             <span v-if="phase === 'solving' || phase === 'success'" style="color: #888; white-space: nowrap;">步数 {{ moveCount }}</span>
           </div>
 
-          <!-- 行3.4: 最优解 (勾选即全程显示, 打乱等待期按打乱目标态预求解, 用于学习): Cross 单组 / XCross 四槽位 -->
+          <!-- 行3.4: 最优解 (勾选即全程显示, 打乱等待期按打乱目标态预求解, 用于学习): Cross 单组 / XCross 四槽位; 录制 GIF 期间强制显示 (防丢失停止入口) -->
           <div
-            v-if="showBest && (phase === 'scrambling' || phase === 'observing' || phase === 'solving' || phase === 'success')"
+            v-if="gifRecording || (showBest && (phase === 'scrambling' || phase === 'observing' || phase === 'solving' || phase === 'success'))"
             style="margin-top: 5px; padding: 5px 8px; background: #f0f4fb; border: 1px solid #d8e4f8; border-radius: 6px; font-size: 12px; line-height: 1.7;"
           >
             <!-- Cross 模式: 单组最优解 -->
@@ -176,6 +200,14 @@
                 title="播放剩余解法 (预览, 不自动复原; 需还原点「重置」)"
                 :style="previewBtnStyle"
               >▶</v-btn>
+              <v-btn
+                x-small
+                :color="gifRecording ? 'red' : undefined"
+                :dark="gifRecording"
+                @click="toggleGif"
+                :title="gifRecording ? '停止录制并下载 GIF (已录 ' + gifFrames + ' 帧)' : '一键演示 GIF: 自动重置→播放最优解→自动下载 (有最优解时; 录制中点击可提前停止)'"
+                :style="previewBtnStyle"
+              >{{ gifRecording ? '⏹' : 'GIF' }}</v-btn>
             </div>
             <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
             <template v-else>
@@ -207,6 +239,16 @@
                 >▶</v-btn>
               </div>
               <div v-if="!bestXReady" style="color: #999;">4 组槽位最优解求解中…</div>
+              <div style="display: flex; justify-content: flex-end; margin-top: 3px;">
+                <v-btn
+                  x-small
+                  :color="gifRecording ? 'red' : undefined"
+                  :dark="gifRecording"
+                  @click="toggleGif"
+                  :title="gifRecording ? '停止录制并下载 GIF (已录 ' + gifFrames + ' 帧)' : '一键演示 GIF: 自动重置→播放最优解→自动下载 (有最优解时; 录制中点击可提前停止)'"
+                  :style="previewBtnStyle"
+                >{{ gifRecording ? '⏹' : 'GIF' }}</v-btn>
+              </div>
             </template>
           </div>
 
@@ -278,6 +320,16 @@
           <div>&nbsp;&nbsp;与 z2 一样, 打乱/重置后持握方向保留不回正</div>
           <div>· 打乱等待中不想逐块对齐: 点「重置」跳过匹配, 3D 保持显示</div>
           <div>&nbsp;&nbsp;打乱态作为练习起点, 首次拧动后切换为实时镜像实物</div>
+          <div style="margin-top: 8px;"><b>块可视化</b></div>
+          <div>· 「半透明」: 无关块全部变半透明 (不分方向,</div>
+          <div>&nbsp;&nbsp;视线无死角), 十字所需块高亮显示 ——</div>
+          <div>&nbsp;&nbsp;不转动魔方也能透视看到十字块在哪;</div>
+          <div>&nbsp;&nbsp;转动后实时跟随</div>
+          <div>· 「隐藏无关」: 无关块变得更透明 (隐约可见</div>
+          <div>&nbsp;&nbsp;而非消失; 中心块不淡化), 效果更聚焦</div>
+          <div>· 两个开关独立: 都勾选时无关块取更透明档</div>
+          <div>· XCross 模式下右侧下拉可选 FL/FR/BL/BR 槽位:</div>
+          <div>&nbsp;&nbsp;该槽位的棱块+角块一并高亮/保留</div>
           <div style="margin-top: 8px;"><b>判定说明</b></div>
           <div>· 十字判定是纯状态判定: 白十字或黄十字任一完成即算 ——</div>
           <div>&nbsp;&nbsp;4 条棱围住同色中心、侧面贴纸与相邻中心对齐 (姿态无关)</div>
@@ -299,6 +351,56 @@
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn small text color="primary" @click="helpDialog = false">知道了</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 训练记录弹窗: 统计 (最近 N 条) + 明细表格 -->
+    <v-dialog v-model="recDialog" max-width="520">
+      <v-card class="help-dialog rec-dialog">
+        <v-card-title class="help-title">训练记录</v-card-title>
+        <v-card-text class="help-body">
+          <!-- 统计区: 范围选择 + 平均指标 -->
+          <div class="rec-toolbar">
+            <span class="rec-stat-label">统计范围</span>
+            <select class="rec-select" v-model.number="recLimit" @change="saveRecLimit">
+              <option :value="10">最近 10 条</option>
+              <option :value="20">最近 20 条</option>
+              <option :value="50">最近 50 条</option>
+              <option :value="100">最近 100 条</option>
+            </select>
+            <span class="rec-stat-label">共 {{ records.length }} 条</span>
+          </div>
+          <div class="rec-stats">
+            <div class="rec-stat"><div class="rec-stat-v">{{ recStats.okRate }}</div><div class="rec-stat-k">成功率</div></div>
+            <div class="rec-stat"><div class="rec-stat-v">{{ recStats.avgObs }}</div><div class="rec-stat-k">平均观察</div></div>
+            <div class="rec-stat"><div class="rec-stat-v">{{ recStats.avgSolve }}</div><div class="rec-stat-k">平均还原</div></div>
+            <div class="rec-stat"><div class="rec-stat-v">{{ recStats.avgBest }}</div><div class="rec-stat-k">平均最优步</div></div>
+            <div class="rec-stat"><div class="rec-stat-v">{{ recStats.avgSteps }}</div><div class="rec-stat-k">平均步数</div></div>
+          </div>
+          <!-- 明细表格: 最近 N 条 -->
+          <table class="rec-table" v-if="recordsView.length">
+            <thead>
+              <tr><th>时间</th><th>模式</th><th>结果</th><th>观察</th><th>还原</th><th>最优</th><th>步数</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in recordsView" :key="r.t + '-' + i" :class="{ 'rec-fail': !r.ok }">
+                <td class="rec-nowrap">{{ fmtRecTime(r.t) }}</td>
+                <td>{{ r.mode === 'xcross' ? 'X' : '十' }}</td>
+                <td :class="r.ok ? 'rec-ok' : 'rec-bad'">{{ r.ok ? '✔' : '✘' }}</td>
+                <td>{{ fmtRecSec(r.obs) }}</td>
+                <td>{{ fmtRecSec(r.solve) }}</td>
+                <td>{{ r.best >= 0 ? r.best : '-' }}</td>
+                <td>{{ r.steps }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else style="text-align: center; color: #9aa3b2; padding: 18px 0;">暂无记录, 完成一轮训练后自动保存</div>
+        </v-card-text>
+        <v-card-actions style="padding-top: 0;">
+          <v-btn small text color="error" @click="clearRecords" :disabled="!records.length">清空记录</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn small text color="primary" @click="recDialog = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
