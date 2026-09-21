@@ -129,7 +129,7 @@
               :title="calibStep >= 0 ? '点击取消校准' : '校准 (调试): 在白顶绿前零换算视角下, 按提示转 3 次实体魔方, 自动对比硬件上报记号是否对得上; 详细日志见控制台'"
               :style="{height: size * 0.55 + 'px'}"
             >{{ calibStep >= 0 ? '取消校准' : '校准' }}</v-btn>
-            <span v-if="scramble" class="scramble-text" :class="{muted: phase !== 'scrambling' && phase !== 'ready'}">{{ scrambleText }}</span>
+            <span v-if="scramble" class="scramble-text" :class="{muted: phase !== 'ready'}">{{ scrambleText }}</span>
             <span v-else class="scramble-text muted">{{ phase === 'ready' ? (isManual ? '点「新打乱」开始' : '等待魔方状态...') : '—' }}</span>
           </div>
 
@@ -203,7 +203,7 @@
 
           <!-- 行3.4: 最优解 (勾选即全程显示, 打乱等待期按打乱目标态预求解, 用于学习): Cross 单组 / XCross 四槽位; 录制 GIF 期间强制显示 (防丢失停止入口) -->
           <div
-            v-if="gifRecording || (showBest && (phase === 'scrambling' || phase === 'observing' || phase === 'solving' || phase === 'success'))"
+            v-if="gifRecording || (showBest && (phase === 'observing' || phase === 'solving' || phase === 'success'))"
             style="margin-top: 5px; padding: 5px 8px; background: #f0f4fb; border: 1px solid #d8e4f8; border-radius: 6px; font-size: 12px; line-height: 1.7;"
           >
             <!-- Cross 模式: 单组最优解 -->
@@ -355,11 +355,12 @@
           <div>· 公式字母对应方向: U上 D下 F前 B后 L左 R右</div>
           <div>· 转动/图案对不上时点「z2」按钮: 3D 魔方整体翻转</div>
           <div>&nbsp;&nbsp;(白顶 ⇄ 黄顶), 转动记号与公式自动同步换算, 再按切回</div>
-          <div>· y / y' 按钮 (仅手动练习): 整体旋转调整持握方向</div>
+          <div>· y / y' 按钮: 整体旋转调整持握方向 (手动/蓝牙均可用)</div>
           <div>&nbsp;&nbsp;判定/最优解/步数自动按新方向换算, 观察期不计步不结束观察;</div>
           <div>&nbsp;&nbsp;与 z2 一样, 打乱/重置后持握方向保留不回正</div>
-          <div>· 打乱等待中不想逐块对齐: 点「重置」跳过匹配, 3D 保持显示</div>
-          <div>&nbsp;&nbsp;打乱态作为练习起点, 首次拧动后切换为实时镜像实物</div>
+          <div>· 新打乱直接开轮: 3D 先显示打乱目标态, 照公式拧实物</div>
+          <div>&nbsp;&nbsp;(画面汇合到目标态) 或直接用鼠标复原十字均可判成功;</div>
+          <div>&nbsp;&nbsp;点「重置」随时回本轮起点</div>
           <div style="margin-top: 8px;"><b>块可视化</b></div>
           <div>· 「半透明」: 无关块全部变半透明 (不分方向,</div>
           <div>&nbsp;&nbsp;视线无死角), 十字所需块高亮显示 ——</div>
