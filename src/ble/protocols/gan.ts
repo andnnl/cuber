@@ -53,6 +53,8 @@ export class GanCubeLink {
   private info: DeviceInfo | null = null;
   private eventCb: ((e: LinkEvent) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
+  /** 通知帧串行队列: 协议驱动含异步补历史请求，共享 serial/buffer 状态不可并发改写 */
+  private notificationQueue: Promise<void> = Promise.resolve();
 
   constructor(transport: BleTransport, brand = "GAN") {
     this.transport = transport;
@@ -108,7 +110,8 @@ export class GanCubeLink {
       new Uint8Array(key.iv),
       macToSalt(mac)
     );
-    this.transport.onBytes((data) => this.handleBytes(data));
+    this.notificationQueue = Promise.resolve();
+    this.transport.onBytes((data) => this.enqueueBytes(data));
     this.transport.onDisconnect(() => {
       if (this.disconnectCb) {
         this.disconnectCb();
@@ -161,6 +164,14 @@ export class GanCubeLink {
       throw new Error("尚未连接");
     }
     await this.transport.write(this.encrypter.encrypt(message));
+  }
+
+  /** 复制传输层缓冲并按接收顺序解析；单帧异常不得毒化后续 Promise 链。 */
+  private enqueueBytes(data: Uint8Array): void {
+    const frame = data.slice();
+    this.notificationQueue = this.notificationQueue
+      .then(() => this.handleBytes(frame))
+      .catch(() => undefined);
   }
 
   /** 通知帧入口: 解密 → 协议驱动 → LinkEvent */

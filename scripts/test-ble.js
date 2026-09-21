@@ -262,6 +262,51 @@ async function main() {
     assert.strictEqual(lastFacelets.serial, 10, "FACELETS 应保留 GAN 事件序号");
   });
 
+  await test("通知帧严格按接收顺序解析，坏帧不阻断后续帧", async () => {
+    const transport = new MockGanCubeTransport();
+    const link = new gan.GanCubeLink(transport);
+    const seen = [];
+    link.onEvent((e) => {
+      if (e.type === "battery") seen.push(e.level);
+    });
+    await link.connect();
+    await flush();
+    seen.length = 0;
+
+    let releaseFirst;
+    const firstGate = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    link.encrypter = { decrypt: (data) => data };
+    link.driver = {
+      handleStateEvent: async (_conn, data) => {
+        if (data[0] === 1) await firstGate;
+        if (data[0] === 3) throw new Error("坏帧");
+        return [{ type: "BATTERY", batteryLevel: data[0] }];
+      },
+    };
+
+    const frame = (id) => {
+      const data = new Uint8Array(16);
+      data[0] = id;
+      return data;
+    };
+    transport.bytesCb(frame(1));
+    transport.bytesCb(frame(2));
+    await flush();
+    assert.deepStrictEqual(seen, [], "第二帧不能越过仍在解析的第一帧");
+    releaseFirst();
+    await flush();
+    await flush();
+    assert.deepStrictEqual(seen, [1, 2]);
+
+    transport.bytesCb(frame(3));
+    transport.bytesCb(frame(4));
+    await flush();
+    await flush();
+    assert.deepStrictEqual(seen, [1, 2, 4], "坏帧之后的通知仍须继续解析");
+  });
+
   await test("电量/硬件命令响应", async () => {
     const transport = new MockGanCubeTransport();
     const link = new gan.GanCubeLink(transport);
