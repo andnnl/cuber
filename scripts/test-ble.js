@@ -16,6 +16,7 @@ const moveDiff = req("move-diff.js");
 const facelets = req("facelets.js");
 const gan = req("protocols/gan.js");
 const registry = req("protocols/registry.js");
+const vendorCore = req("protocols/vendor/gan-protocol-core.js");
 const { MockGanCubeTransport } = req("mock-transport.js");
 
 let passed = 0;
@@ -35,6 +36,19 @@ function test(name, fn) {
         console.error(`    ${err && err.stack ? err.stack.split("\n").slice(0, 4).join("\n    ") : err}`);
       }
     );
+}
+
+function bufferedMove(serial) {
+  return {
+    type: "MOVE",
+    serial,
+    timestamp: serial,
+    localTimestamp: serial,
+    cubeTimestamp: null,
+    face: 1,
+    direction: 0,
+    move: "R",
+  };
 }
 
 async function main() {
@@ -165,6 +179,40 @@ async function main() {
   });
 
   console.log("== protocols ==");
+
+  for (const [name, Driver] of [
+    ["Gen3", vendorCore.GanGen3ProtocolDriver],
+    ["Gen4", vendorCore.GanGen4ProtocolDriver],
+  ]) {
+    await test(`${name}: 断档积压不批量重放旧 MOVE，并请求权威 facelets`, async () => {
+      const driver = new Driver();
+      driver.lastSerial = 1;
+      driver.moveBuffer = Array.from({ length: 17 }, (_, i) => bufferedMove(20 + i));
+      const sent = [];
+      let disconnected = false;
+      const conn = {
+        sendCommandMessage: async (msg) => sent.push(Array.from(msg)),
+        disconnect: async () => {
+          disconnected = true;
+        },
+      };
+
+      const stale = await driver.evictMoveBuffer(conn);
+      assert.deepStrictEqual(stale, []);
+      assert.strictEqual(driver.moveBuffer.length, 0);
+      assert.strictEqual(driver.lastSerial, 36);
+      assert.strictEqual(disconnected, false);
+      assert.deepStrictEqual(
+        sent,
+        [Array.from(driver.createCommandMessage({ type: "REQUEST_FACELETS" }))],
+        "溢出恢复只应请求一次权威 facelets"
+      );
+
+      driver.moveBuffer.push(bufferedMove(37));
+      const fresh = await driver.evictMoveBuffer(conn);
+      assert.deepStrictEqual(fresh.map((e) => e.serial), [37]);
+    });
+  }
 
   await test("registry: 按 UUID 查协议, 大小写不敏感", () => {
     const meta = registry.findProtocolByService("6E400001-B5A3-F393-E0A9-E50E24DC4179");
