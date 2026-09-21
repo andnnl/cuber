@@ -232,6 +232,9 @@ export default class BleCrossTrainer extends Vue {
   // XCross 模式: 4 个槽位各自的最优解 (startSolving 时并行预求解)
   bestX: { slot: string; formula: string; steps: number }[] = [];
   bestXReady = false;
+  // 当前最优解结果绑定的视图链快照。异步求解期间视角可能继续变化，公式与槽位必须
+  // 使用请求发起时的同一快照，不能分别读取实时 effectiveViewOps 造成混帧。
+  private bestViewOps: BaseOp[] = [];
   // 本轮完成时已还原的 F2L 槽位 (xcross 模式结果高亮用)
   completedSlots: string[] = [];
   // 本轮最优解的求解基准态 (打乱目标态; skipScramble 时为当时状态), 模式切换重求用
@@ -628,13 +631,35 @@ export default class BleCrossTrainer extends Vue {
 
   /** 展示层公式换名 (打乱/最优解/蓝牙用户解法): 核心帧记号逐个换名到当前屏幕面 */
   private displayFormula(formula: string): string {
-    const map = baseOpsFaceCharMap(this.effectiveViewOps());
+    return this.displayFormulaWithOps(formula, this.effectiveViewOps());
+  }
+
+  private displayFormulaWithOps(formula: string, ops: BaseOp[]): string {
+    const map = baseOpsFaceCharMap(ops);
     return formula
       .trim()
       .split(/\s+/)
       .filter(Boolean)
       .map((m) => (map[m.charAt(0)] || m.charAt(0)) + m.slice(1))
       .join(" ");
+  }
+
+  /** 展示层槽位换名: 核心帧槽位 (FL/FR/BL/BR, 求解器/判定同帧) → 当前屏幕帧槽位名。
+   * 与 displayFormula 同一视图链字符映射 (核心 f 侧当前显示在屏幕 C[f] 面): 槽位标签
+   * 必须随视角同步换名 —— 否则下拉框标签指核心槽位而公式已换屏幕记号, 3D 上对不上号
+   * (如 y' 持握下核心 FR 槽显示在屏幕 BR 位置, 标签仍写 FR 即「公式不对应当前槽位」)。
+   * 字母按 F/B 在前 L/R 在后规范排序 (与 FL/FR/BL/BR 命名同序); 视图链含 x/z 整体转时
+   * 映射可出 U/D (如 "UR"), 仍按屏幕真实位置如实展示 */
+  private slotDisplayName(slot: string): string {
+    return this.slotDisplayNameWithOps(slot, this.effectiveViewOps());
+  }
+
+  private slotDisplayNameWithOps(slot: string, ops: BaseOp[]): string {
+    const map = baseOpsFaceCharMap(ops);
+    const a = map[slot.charAt(0)] || slot.charAt(0);
+    const b = map[slot.charAt(1)] || slot.charAt(1);
+    const rank: { [c: string]: number } = { F: 0, B: 0, U: 1, D: 1, L: 2, R: 2 };
+    return rank[a] <= rank[b] ? a + b : b + a;
   }
 
   /** 视图链单步记号 (BaseOp → 转动记号): 追加在打乱公式尾部, 重置按此完整重放 */
@@ -660,12 +685,11 @@ export default class BleCrossTrainer extends Vue {
     return grip ? this.scramble + " " + grip : this.scramble;
   }
 
-  /** Cross 最优解展示 */
-  /** 最优解展示: 蓝牙按当前屏幕视角换名 (displayFormula), 与预览播放记号同帧 ——
-   * 用户读记号以 3D 画面为准 (z2/y 翻转后按屏幕面拧实体), 文本与播放必须一致;
-   * 手动模式用户直接拖拽 3D, 解法为求解器核心帧记号, 无视图链时与屏幕恒等, 原样展示 */
+  /** Cross 最优解展示: 按当前屏幕视角换名 (displayFormula), 与预览播放记号同帧 ——
+   * 用户读记号以 3D 画面为准 (z2/y 翻转后按屏幕面拧), 文本与播放 (bestMovesOf 同款
+   * 换名) 一致; 空视图链时映射恒等 (与求解器核心帧记号相同) */
   get bestSolutionText(): string {
-    return this.isManual ? this.bestSolution : this.displayFormula(this.bestSolution);
+    return this.displayFormulaWithOps(this.bestSolution, this.bestViewOps);
   }
 
   /** 基准态十字已完成且尚未拆散 (自动下轮直入观察态): 最优解暂无意义, 展示占位提示。
@@ -677,12 +701,13 @@ export default class BleCrossTrainer extends Vue {
 
   /** XCross 四槽位最优解展示 */
   get bestXDisplay(): { slot: string; formula: string; steps: number; raw: string }[] {
+    // slot=屏幕帧槽位名 (slotDisplayName, 与 3D 画面/visSlot 下拉同帧, 完成高亮对比同帧);
     // formula=屏幕帧 (同 bestSolutionText, 文本与播放一致); raw=求解器原串,
     // 预览按钮/游标 (bestStepPos) 的 key 与播放输入恒用 raw
     return this.bestX.map((b) => ({
-      slot: b.slot,
+      slot: this.slotDisplayNameWithOps(b.slot, this.bestViewOps),
       steps: b.steps,
-      formula: this.isManual ? b.formula : this.displayFormula(b.formula),
+      formula: this.displayFormulaWithOps(b.formula, this.bestViewOps),
       raw: b.formula,
     }));
   }
@@ -730,10 +755,9 @@ export default class BleCrossTrainer extends Vue {
     this.world.cube.twister.finish();
     CubeGroup.durationScale = 1; // 非镜像动画恒常速 (清掉镜像提速残留)
     this.syncObservedOps(); // 刷新整体转链 (finish 提交的 drop 回调可能未及触发)
-    // 手动: 翻转动画启动前先取当前核心帧输入 (group.twist 动画 drop 时才提交,
-    // 翻转后 serialize 读到的是翻转后画面)。z2 翻转=视图操作, 物理帧不变:
-    // 按翻转前视图链换算出的核心帧在翻转后同样有效
-    const physical = this.isManual ? this.mapStateForJudge(this.world.cube.serialize()) : "";
+    // 翻转动画启动前先取当前核心帧输入 (group.twist 动画 drop 时才提交，翻转后
+    // serialize 才变)。手动和蓝牙都以当前 3D 状态重算，不再使用冻结的轮次基准态。
+    const physical = this.mapStateForJudge(this.world.cube.serialize());
     this.z2On = !this.z2On;
     // 翻转记入视图链时间线 (当前链末尾): 此后的整体转/核心帧换算/展示换名
     // 均按含此翻转的完整链精确处理 (共轭场景不再依赖纯 z2 剥离假设)
@@ -756,17 +780,8 @@ export default class BleCrossTrainer extends Vue {
           ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
           : "十字进行中: 还原" + this.crossTargetText();
     }
-    // 手动: 按当前物理帧重求 (基准串不可用当前 observedOps 映射, 见 onManualTwist);
-    // 蓝牙: 基准态即物理帧, 直接重求 (目标随新 z2On 切换)
-    if (this.isManual) {
-      if (physical) {
-        this.requestBest(physical);
-      }
-    } else {
-      const base = this.currentBestBase();
-      if (base) {
-        this.requestBest(base);
-      }
+    if (physical && this.currentBestBase()) {
+      this.requestBest(physical, this.effectiveViewOps());
     }
   }
 
@@ -849,7 +864,7 @@ export default class BleCrossTrainer extends Vue {
 
   /** 解法展示记号序列 (物理帧→当前屏幕面换名, 与展示文本同一记号) */
   private bestMovesOf(formula: string): string[] {
-    return this.displayFormula(formula)
+    return this.displayFormulaWithOps(formula, this.bestViewOps)
       .trim()
       .split(/\s+/)
       .filter(Boolean);
@@ -1232,21 +1247,19 @@ export default class BleCrossTrainer extends Vue {
 
   /** 手动练习: 每次转层动画结束 (鼠标拧动/回弹) 后刷新步数并判定 */
   private onManualTwist(): void {
-    if (!this.isManual || this.rebasing) {
+    if (this.rebasing) {
       return;
     }
     const cube = this.world.cube;
-    // 整体转 (观察期观察、还原期调整持握) 全量累积, 供状态串映射回打乱姿态
+    // 所有输入模式都在整体转落定后同步视图链并重算；层转不会改变签名，因而不会
+    // 触发持续重算。蓝牙 y/y' 过去只改显示字母不重求，是公式跨帧的来源之一。
     this.syncObservedOps();
-    // 整体转改变当前视角坐标系: 最优解按新视角重求。输入必须是对当前姿态串
-    // (serialize) 的核心帧换算 —— 沿完整视图链 (z2Marks ⊕ observedOps) 位置置换,
-    // 对任意 z2/整体转混合链精确成立, 解得记号对应当前屏幕的面且步数=物理最优;
-    // 不可映射基准串 solveBaseState (屏幕帧快照冻结于轮始, 用当前链换算会错位,
-    // 步数漂移如 5↔6 步)
     const sig = JSON.stringify(this.observedOps);
-    if (sig !== this.bestRotationSig && this.solveBaseState) {
-      this.bestRotationSig = sig;
-      this.requestBest(this.mapStateForJudge(cube.serialize()));
+    if (sig !== this.bestRotationSig && this.currentBestBase()) {
+      this.recomputeBestFromCurrent();
+    }
+    if (!this.isManual) {
+      return;
     }
     if (this.phase === "observing") {
       // 观察期整体转 (含 y 后 y' 合并抵消): 保留当前姿态继续观察, 不计步不结束观察
@@ -1417,10 +1430,32 @@ export default class BleCrossTrainer extends Vue {
     return this.solveBaseState;
   }
 
+  /** 以当前已经落定的 3D 画面重算。调用方若可能仍有在飞动画，应先 finish；
+   * world callback 内禁止再次 finish，避免 tweener 完成回调重入。 */
+  private recomputeBestFromCurrent(): void {
+    if (
+      this.phase !== "scrambling" &&
+      this.phase !== "observing" &&
+      this.phase !== "solving" &&
+      this.phase !== "success"
+    ) {
+      return;
+    }
+    this.syncObservedOps();
+    const viewOps = this.effectiveViewOps();
+    const core = this.mapStateForJudge(this.world.cube.serialize());
+    if (!core) {
+      return;
+    }
+    this.bestRotationSig = JSON.stringify(this.observedOps);
+    this.requestBest(core, viewOps);
+  }
+
   /** 按当前模式求解最优解 (cross 单组 / xcross 4 组槽位并行); 关闭「显示最优解」时不求。
    * 重算时机仅三处: 新打乱/跳过/自动下轮 (startSolving), 按 z2 (toggleZ2), 整体转 y/y'
    * (onManualTwist 视角签名变化) —— 其余转动不重算, 最优解相对本轮打乱态固定 */
-  private requestBest(state: string): void {
+  private requestBest(state: string, viewOps: BaseOp[] = this.effectiveViewOps()): void {
+    const requestViewOps = viewOps.map((op) => ({ ...op }));
     // 新请求周期先清残留: 避免异步求解期间短暂显示上一轮旧解; 关闭勾选时同样清,
     // 保证之后重新勾选 (saveShowBest) 能凭 bestReady=false 触发补求
     this.bestReqId++; // 作废在飞的慢速求解结果 (新基准下旧解无效)
@@ -1428,6 +1463,7 @@ export default class BleCrossTrainer extends Vue {
     this.bestReady = false;
     this.bestX = [];
     this.bestXReady = false;
+    this.bestViewOps = [];
     this.bestStepPos = {}; // 预览游标清零 (新基准/新视角下旧预览步进状态无效)
     if (!this.showBest) {
       return;
@@ -1444,9 +1480,9 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     if (this.trainMode === "xcross") {
-      this.requestBestXCross(state);
+      this.requestBestXCross(state, requestViewOps);
     } else {
-      this.requestBestSolution(state);
+      this.requestBestSolution(state, requestViewOps);
     }
   }
 
@@ -1454,7 +1490,7 @@ export default class BleCrossTrainer extends Vue {
   private bestReqId = 0;
   /** 上次请求最优解时的整体转签名 (observedOps 序列化): 变化则需按新视角重求 */
   private bestRotationSig = "[]";
-  private async requestBestSolution(state: string): Promise<void> {
+  private async requestBestSolution(state: string, viewOps: BaseOp[]): Promise<void> {
     const reqId = ++this.bestReqId;
     try {
       // 目标十字按当前持握视角底色: 黄底 (z2On=false) → 黄十字 = 核心帧标准 D 面, 直接求解;
@@ -1466,6 +1502,7 @@ export default class BleCrossTrainer extends Vue {
       }
       const best = ((solutions && solutions[0]) || "").trim();
       if (best.indexOf("error") !== 0) {
+        this.bestViewOps = viewOps.map((op) => ({ ...op }));
         this.bestSolution = best
           ? best.split(/\s+/).map((m) => (this.z2On ? z2Move(m) : m)).join(" ")
           : ""; // 空串 = 打乱态十字已复原, 最优 0 步
@@ -1480,7 +1517,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** XCross: 对 4 个槽位并行各求一组最优解 (仅 WASM 支持, 无 JS 回退) */
-  private async requestBestXCross(state: string): Promise<void> {
+  private async requestBestXCross(state: string, viewOps: BaseOp[]): Promise<void> {
     const reqId = ++this.bestReqId;
     try {
       const slots = ["FL", "FR", "BL", "BR"];
@@ -1508,6 +1545,7 @@ export default class BleCrossTrainer extends Vue {
       if (reqId !== this.bestReqId) {
         return;
       }
+      this.bestViewOps = viewOps.map((op) => ({ ...op }));
       this.bestX = results;
     } finally {
       if (reqId === this.bestReqId) {
@@ -1532,11 +1570,14 @@ export default class BleCrossTrainer extends Vue {
       this.userSolution = simplifyMoves(this.userMoves).join(" ");
       this.moveCount = this.userSolution ? this.userSolution.split(/\s+/).length : 0;
     }
-    // 已还原的 F2L 槽位跟随完成的十字: 白十字经训练帧判定后换回物理帧名 (FL↔FR, BL↔BR);
-    // 黄十字直接用核心帧槽位名
+    // 已还原的 F2L 槽位跟随完成的十字: 白十字经训练帧判定后换回物理帧名 (FL↔FR, BL↔BR),
+    // 黄十字直接用核心帧槽位名; 再经 slotDisplayName 换到屏幕帧 (与 bestXDisplay 标签
+    // 同帧, 完成高亮 indexOf 对比才对得上, 状态栏 "(FL/BR)" 也按屏幕所见)
     if (this.trainMode === "xcross") {
       const train = toTrainFrame(state);
-      this.completedSlots = isCrossDone(train) ? f2lSlotsDone(train).map(slotToPhysical) : f2lSlotsDone(state);
+      this.completedSlots = (
+        isCrossDone(train) ? f2lSlotsDone(train).map(slotToPhysical) : f2lSlotsDone(state)
+      ).map((slot) => this.slotDisplayName(slot));
     } else {
       this.completedSlots = [];
     }
@@ -2010,25 +2051,13 @@ export default class BleCrossTrainer extends Vue {
     }
   }
 
-  /** 练习模式切换: 持久化 + 重置最优解展示; solving 中切换则按本轮基准态重求 */
+  /** 练习模式切换: 持久化 + 重置最优解展示; 本轮进行中则重求 —— 最优解随模式变化
+   * (cross 单组 / xcross 4 槽位并行), 打乱等待期已按旧模式预求解 (newScramble),
+   * 故打乱等待/观察/还原/完成阶段切换都须按当前基准重算一次 */
   saveTrainMode(): void {
     window.localStorage.setItem("bleTrainMode", this.trainMode);
-    this.bestSolution = "";
-    this.bestReady = false;
-    this.bestX = [];
-    this.bestXReady = false;
-    if (this.phase === "solving" && this.solveBaseState) {
-      // 手动: 按当前 3D 姿态实时取核心帧重求 (沿完整视图链位置置换);
-      // 蓝牙: 基准态即物理帧 (observedOps 为空, 换算恒等)
-      if (this.isManual) {
-        const live = this.mapStateForJudge(this.world.cube.serialize());
-        if (live) {
-          this.requestBest(live);
-        }
-      } else {
-        this.requestBest(this.solveBaseState);
-      }
-    }
+    this.world.cube.twister.finish(); // 模式切换可发生在动画中，先落定再读取当前 3D 状态
+    this.recomputeBestFromCurrent();
     this.applyVisibility(); // cross↔xcross 所需块集不同 (xcross 另加槽位棱+角), 重刷可视化
   }
 
