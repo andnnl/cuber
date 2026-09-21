@@ -192,9 +192,9 @@
               >⏭</v-btn>
               <v-btn
                 x-small
-                :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) >= bestStepCount(bestSolution)"
+                :disabled="!bestReady || !bestSolution || playingBest"
                 @click="playBest(bestSolution)"
-                title="播放剩余解法 (预览, 不自动复原; 需还原点「重置」)"
+                title="从起点播放完整解法 (预览, 不自动复原; 需还原点「重置」)"
                 :style="previewBtnStyle"
               >▶</v-btn>
               <v-btn
@@ -229,9 +229,9 @@
                 >⏭</v-btn>
                 <v-btn
                   x-small
-                  :disabled="!b.formula || playingBest || bestStepAt(b.raw) >= bestStepCount(b.raw)"
+                  :disabled="!b.formula || playingBest"
                   @click="playBest(b.raw)"
-                  title="播放剩余解法 (预览, 不自动复原; 需还原点「重置」)"
+                  title="从起点播放完整解法 (预览, 不自动复原; 需还原点「重置」)"
                   :style="previewBtnStyle"
                 >▶</v-btn>
               </div>

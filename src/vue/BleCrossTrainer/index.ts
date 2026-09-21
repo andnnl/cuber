@@ -235,6 +235,9 @@ export default class BleCrossTrainer extends Vue {
   // 当前最优解结果绑定的视图链快照。异步求解期间视角可能继续变化，公式与槽位必须
   // 使用请求发起时的同一快照，不能分别读取实时 effectiveViewOps 造成混帧。
   private bestViewOps: BaseOp[] = [];
+  // 当前最优解结果绑定的核心状态快照；必须与 bestViewOps 来自同一次异步请求。
+  // 公式预览只使用这两个字段重建起点，不能读取随后变化的实时 3D/实体状态。
+  private bestBaseState = "";
   // 本轮完成时已还原的 F2L 槽位 (xcross 模式结果高亮用)
   completedSlots: string[] = [];
   // 本轮最优解的求解基准态 (打乱目标态; skipScramble 时为当时状态), 模式切换重求用
@@ -808,7 +811,7 @@ export default class BleCrossTrainer extends Vue {
     this.world.cube.twister.push(physicalTimes > 0 ? "y" : "y'");
   }
 
-  /** 播放按钮: 在 3D 上动画预览该最优解 (展示帧记号), 从预览游标处续播到末尾。
+  /** 播放按钮: 在 3D 上动画预览该最优解 (展示帧记号), 每次从求解快照第 1 步播放。
    * 播完不自动复原 —— 画面停留在预览态, 需还原时手动点「重置」。
    * 纯视觉预览: 不入 history/不更新 predicted/不触发判定 (rebasing 屏蔽手动回调) */
   playBest(formula: string): void {
@@ -816,21 +819,23 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     const moves = this.bestMovesOf(formula);
-    const pos = this.bestStepPos[formula] || 0;
-    if (pos >= moves.length) {
+    if (moves.length === 0 || !this.resetBestPreview(formula, true)) {
       return;
     }
-    this.startBestPreview(formula, moves.slice(pos), 1);
+    this.startBestPreview(formula, moves, 1);
   }
 
   /** 步进按钮: dir=+1 下一步 (应用下一条记号), dir=-1 退一步 (回退上一条记号)。
-   * 与 ▶ 同一预览机制, 游标共享 (▶ 续播 / 步进微调) */
+   * 首个 ⏭ 先恢复求解快照；其余步进沿用当前画面，⏮ 保持逐步回退。 */
   stepBest(formula: string, dir: number): void {
     if (this.playingBest || !formula || !formula.trim()) {
       return;
     }
     const moves = this.bestMovesOf(formula);
     const pos = this.bestStepPos[formula] || 0;
+    if (dir > 0 && pos === 0 && !this.resetBestPreview(formula, false)) {
+      return;
+    }
     let token = "";
     if (dir > 0) {
       if (pos >= moves.length) {
@@ -846,7 +851,27 @@ export default class BleCrossTrainer extends Vue {
     this.startBestPreview(formula, [token], dir);
   }
 
-  /** 启动一次预览推进 (▶ 续播或单步): 共用播放队列机制, 游标按落定记号数推进 */
+  /** 恢复当前最优解绑定的 3D 起点，不改变训练阶段、计时、步数或蓝牙权威状态。 */
+  private resetBestPreview(formula: string, clearAll: boolean): boolean {
+    if (!formula || !formula.trim() || !/^[URFDLB]{54}$/.test(this.bestBaseState)) {
+      return false;
+    }
+    this.rebasing = true;
+    try {
+      this.syncScene(this.bestBaseState);
+      for (const op of this.bestViewOps) {
+        for (const group of this.world.cube.table.groups[op.axis]) {
+          group.twist(op.times * (Math.PI / 2), true);
+        }
+      }
+      this.bestStepPos = clearAll ? {} : { ...this.bestStepPos, [formula]: 0 };
+      return true;
+    } finally {
+      this.rebasing = false;
+    }
+  }
+
+  /** 启动一次预览推进 (▶ 完整播放或单步): 共用播放队列机制, 游标按落定记号数推进 */
   private startBestPreview(formula: string, tokens: string[], dir: number): void {
     if (tokens.length === 0) {
       return;
@@ -1464,6 +1489,7 @@ export default class BleCrossTrainer extends Vue {
     this.bestX = [];
     this.bestXReady = false;
     this.bestViewOps = [];
+    this.bestBaseState = "";
     this.bestStepPos = {}; // 预览游标清零 (新基准/新视角下旧预览步进状态无效)
     if (!this.showBest) {
       return;
@@ -1502,6 +1528,7 @@ export default class BleCrossTrainer extends Vue {
       }
       const best = ((solutions && solutions[0]) || "").trim();
       if (best.indexOf("error") !== 0) {
+        this.bestBaseState = state;
         this.bestViewOps = viewOps.map((op) => ({ ...op }));
         this.bestSolution = best
           ? best.split(/\s+/).map((m) => (this.z2On ? z2Move(m) : m)).join(" ")
@@ -1545,6 +1572,7 @@ export default class BleCrossTrainer extends Vue {
       if (reqId !== this.bestReqId) {
         return;
       }
+      this.bestBaseState = state;
       this.bestViewOps = viewOps.map((op) => ({ ...op }));
       this.bestX = results;
     } finally {

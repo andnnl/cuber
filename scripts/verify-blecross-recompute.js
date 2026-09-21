@@ -17,7 +17,7 @@ async page => {
       },
       solveXCross: async (state, slot) => {
         vm.__solveCalls.push({ mode: "xcross", state, slot });
-        return ["U R F D L B"];
+        return [{ FL: "U R", FR: "F D", BL: "L B", BR: "U2 R2" }[slot]];
       },
     };
     vm.trainMode = "cross";
@@ -139,6 +139,142 @@ async page => {
   });
   if (formulaFrame.actual !== formulaFrame.expected) {
     throw new Error(`公式屏幕换名执行帧错误: ${JSON.stringify(formulaFrame)}`);
+  }
+
+  await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.trainMode = "cross";
+    vm.requestBest(vm.mapStateForJudge(vm.world.cube.serialize()), vm.effectiveViewOps());
+  });
+  await page.waitForFunction(() => window.__bleCross.bestReady && window.__bleCross.bestSolution);
+
+  const snapshotReady = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    return typeof vm.bestBaseState === "string" && /^[URFDLB]{54}$/.test(vm.bestBaseState);
+  });
+  if (!snapshotReady) {
+    throw new Error("求解结果没有保存公式预览所需的核心状态快照");
+  }
+
+  const waitForPreviewEnd = () =>
+    page.waitForFunction(() => !window.__bleCross.playingBest, null, { timeout: 10000 });
+  const previewExpected = (formula, count) =>
+    page.evaluate(({ formula, count }) => {
+      const vm = window.__bleCross;
+      const shown = vm.bestMovesOf(formula).slice(0, count).join(" ");
+      vm.rebasing = true;
+      vm.syncScene(vm.bestBaseState);
+      for (const op of vm.bestViewOps) {
+        for (const group of vm.world.cube.table.groups[op.axis]) {
+          group.twist(op.times * (Math.PI / 2), true);
+        }
+      }
+      if (shown) {
+        vm.world.cube.twister.push(shown);
+        vm.world.cube.twister.finish();
+      }
+      const state = vm.world.cube.serialize();
+      vm.rebasing = false;
+      return state;
+    }, { formula, count });
+
+  const crossFormula = await page.evaluate(() => window.__bleCross.bestSolution);
+  const crossCount = await page.evaluate(f => window.__bleCross.bestMovesOf(f).length, crossFormula);
+  const crossExpected = await previewExpected(crossFormula, crossCount);
+  const trainingBefore = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    return { moves: vm.moveCount, predicted: vm.predicted, phase: vm.phase };
+  });
+  await page.evaluate(formula => {
+    const vm = window.__bleCross;
+    vm.rebasing = true;
+    vm.syncScene(vm.bestBaseState);
+    vm.world.cube.twister.setup("R2 F");
+    vm.rebasing = false;
+    vm.bestStepPos = { [formula]: 2 };
+    vm.playBest(formula);
+  }, crossFormula);
+  await waitForPreviewEnd();
+  const crossReplay = await page.evaluate(formula => {
+    const vm = window.__bleCross;
+    return {
+      state: vm.world.cube.serialize(),
+      pos: vm.bestStepAt(formula),
+      moves: vm.moveCount,
+      predicted: vm.predicted,
+      phase: vm.phase,
+    };
+  }, crossFormula);
+  if (crossReplay.state !== crossExpected || crossReplay.pos !== crossCount) {
+    throw new Error(`播放没有从求解快照第 1 步重播: ${JSON.stringify(crossReplay)}`);
+  }
+  if (
+    crossReplay.moves !== trainingBefore.moves ||
+    crossReplay.predicted !== trainingBefore.predicted ||
+    crossReplay.phase !== trainingBefore.phase
+  ) {
+    throw new Error(`公式预览改动了训练状态: ${JSON.stringify({ trainingBefore, crossReplay })}`);
+  }
+
+  const crossPlayButton = page.getByRole("button", { name: "▶", exact: true });
+  if (await crossPlayButton.isDisabled()) {
+    throw new Error("完整播放结束后播放按钮被禁用，无法再次点击重播");
+  }
+  await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.rebasing = true;
+    vm.world.cube.twister.setup("B2");
+    vm.rebasing = false;
+  });
+  await crossPlayButton.click();
+  await waitForPreviewEnd();
+  const clickedReplay = await page.evaluate(() => window.__bleCross.world.cube.serialize());
+  if (clickedReplay !== crossExpected) {
+    throw new Error("再次点击播放按钮没有从求解快照重播");
+  }
+
+  const firstExpected = await previewExpected(crossFormula, 1);
+  const baseExpected = await previewExpected(crossFormula, 0);
+  await page.evaluate(formula => {
+    const vm = window.__bleCross;
+    vm.rebasing = true;
+    vm.syncScene(vm.bestBaseState);
+    vm.world.cube.twister.setup("L2 B");
+    vm.rebasing = false;
+    vm.bestStepPos = {};
+    vm.stepBest(formula, 1);
+  }, crossFormula);
+  await waitForPreviewEnd();
+  const firstState = await page.evaluate(() => window.__bleCross.world.cube.serialize());
+  if (firstState !== firstExpected) {
+    throw new Error("首个向前单步没有先恢复求解快照");
+  }
+  await page.evaluate(formula => window.__bleCross.stepBest(formula, -1), crossFormula);
+  await waitForPreviewEnd();
+  const back = await page.evaluate(formula => ({
+    state: window.__bleCross.world.cube.serialize(),
+    pos: window.__bleCross.bestStepAt(formula),
+  }), crossFormula);
+  if (back.state !== baseExpected || back.pos !== 0) {
+    throw new Error(`回退首步后没有回到求解快照: ${JSON.stringify(back)}`);
+  }
+
+  await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.trainMode = "xcross";
+    vm.requestBest(vm.mapStateForJudge(vm.world.cube.serialize()), vm.effectiveViewOps());
+  });
+  await page.waitForFunction(() => window.__bleCross.bestXReady && window.__bleCross.bestX.length === 4);
+  const xFormulas = await page.evaluate(() => window.__bleCross.bestX.slice(0, 2).map(x => x.formula));
+  await page.evaluate(formula => window.__bleCross.playBest(formula), xFormulas[0]);
+  await waitForPreviewEnd();
+  const xSecondCount = await page.evaluate(f => window.__bleCross.bestMovesOf(f).length, xFormulas[1]);
+  const xSecondExpected = await previewExpected(xFormulas[1], xSecondCount);
+  await page.evaluate(formula => window.__bleCross.playBest(formula), xFormulas[1]);
+  await waitForPreviewEnd();
+  const xSecondActual = await page.evaluate(() => window.__bleCross.world.cube.serialize());
+  if (xSecondActual !== xSecondExpected) {
+    throw new Error("切换 XCross 槽位播放时叠加了上一槽位的预览状态");
   }
 
   const staleBase = await page.evaluate(() => {
