@@ -19,9 +19,18 @@ async page => {
     };
   });
   if (
-    background.presets.length !== 10 ||
-    !background.presets.includes("#FFFFFF") ||
-    !background.presets.includes("#121212") ||
+    JSON.stringify(background.presets) !== JSON.stringify([
+      "#FFFFFF",
+      "#F3F4F6",
+      "#FFF8E7",
+      "#FFFDE7",
+      "#E8F5E9",
+      "#465255",
+      "#48515E",
+      "#514B5B",
+      "#5D4C53",
+      "#121212",
+    ]) ||
     background.domPresets !== 10 ||
     !background.hasCustom ||
     background.style !== "rgb(18, 18, 18)" ||

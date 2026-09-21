@@ -74,10 +74,10 @@ const BLE_BACKGROUND_PRESETS: BackgroundPreset[] = [
   { name: "米白", value: "#FFF8E7" },
   { name: "淡黄", value: "#FFFDE7" },
   { name: "淡绿", value: "#E8F5E9" },
-  { name: "淡青", value: "#E0F7FA" },
-  { name: "淡蓝", value: "#EAF2FF" },
-  { name: "淡紫", value: "#F3E8FF" },
-  { name: "淡粉", value: "#FCE7F3" },
+  { name: "淡青", value: "#465255" },
+  { name: "淡蓝", value: "#48515E" },
+  { name: "淡紫", value: "#514B5B" },
+  { name: "淡粉", value: "#5D4C53" },
   { name: "暗黑", value: "#121212" },
 ];
 
