@@ -2,6 +2,115 @@ async page => {
   await page.goto("http://127.0.0.1:8080/?mode=blecross");
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
 
+  const liveFrame = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.isManual = false;
+    vm.phase = "solving";
+    vm.predicted = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    vm.solveBaseState = "";
+    vm.needBreak = true;
+    vm.userMoves = [];
+    vm.userDisplayMoves = [];
+    vm.observedOps = [];
+    vm.z2Marks = [];
+    vm.z2On = false;
+    vm.__mirrored = [];
+    vm.mirrorPush = move => vm.__mirrored.push(move);
+
+    vm.onMoveEvent("D");
+    const beforeZ2 = vm.liveStepsText;
+    vm.toggleZ2();
+    vm.world.cube.twister.finish();
+    const afterZ2 = vm.liveStepsText;
+    vm.onMoveEvent("D");
+    return {
+      beforeZ2,
+      afterZ2,
+      afterSecond: vm.liveStepsText,
+      mirrored: vm.__mirrored.slice(),
+    };
+  });
+  if (
+    liveFrame.beforeZ2 !== "D" ||
+    liveFrame.afterZ2 !== "D" ||
+    liveFrame.afterSecond !== "D U" ||
+    JSON.stringify(liveFrame.mirrored) !== JSON.stringify(["D", "U"])
+  ) {
+    throw new Error(`蓝牙步骤没有固定事件时视角: ${JSON.stringify(liveFrame)}`);
+  }
+
+  const segmented = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const reset = () => {
+      vm.userMoves = [];
+      vm.userDisplayMoves = [];
+      vm.predicted = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+      vm.phase = "solving";
+      vm.needBreak = true;
+      vm.observedOps = [];
+      vm.z2Marks = [];
+      vm.z2On = false;
+    };
+    reset();
+    vm.onMoveEvent("D");
+    vm.onMoveEvent("D");
+    const sameView = vm.liveStepsText;
+    reset();
+    vm.onMoveEvent("D");
+    vm.toggleZ2();
+    vm.world.cube.twister.finish();
+    vm.onMoveEvent("D");
+    return { sameView, splitView: vm.liveStepsText };
+  });
+  if (segmented.sameView !== "D2" || segmented.splitView !== "D U") {
+    throw new Error(`蓝牙显示步骤分段化简错误: ${JSON.stringify(segmented)}`);
+  }
+
+  const mixedView = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.userMoves = [];
+    vm.userDisplayMoves = [];
+    vm.predicted = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    vm.phase = "solving";
+    vm.needBreak = true;
+    vm.observedOps = [];
+    vm.z2Marks = [];
+    vm.z2On = false;
+    vm.onMoveEvent("R");
+    vm.rotateWholeY(1);
+    vm.world.cube.twister.finish();
+    const secondExpected = vm.displayMove("F");
+    vm.onMoveEvent("F");
+    const live = vm.liveStepsText;
+    vm.rotateWholeY(-1);
+    vm.world.cube.twister.finish();
+    const afterYBack = vm.liveStepsText;
+    vm.userSolution = vm.userMoves.join(" ");
+    vm.phase = "success";
+    const success = vm.userSolutionText;
+    vm.toggleZ2();
+    vm.world.cube.twister.finish();
+    return {
+      secondExpected,
+      live,
+      afterYBack,
+      success,
+      afterFinalZ2: vm.userSolutionText,
+    };
+  });
+  const expectedMixed = `R ${mixedView.secondExpected}`;
+  if (
+    mixedView.live !== expectedMixed ||
+    mixedView.afterYBack !== expectedMixed ||
+    mixedView.success !== expectedMixed ||
+    mixedView.afterFinalZ2 !== expectedMixed
+  ) {
+    throw new Error(`y/y′ 或完成态重写了蓝牙历史: ${JSON.stringify(mixedView)}`);
+  }
+
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+
   await page.evaluate(() => {
     const vm = window.__bleCross;
     vm.enterManual();
@@ -342,11 +451,12 @@ async page => {
       vm.world.cube.twister.finish();
       return {
         moves: vm.moveCount,
+        displayMoves: vm.userDisplayMoves.length,
         scene: vm.mapStateForJudge(vm.world.cube.serialize()),
         authoritative: vm.predicted,
       };
     });
-    if (resetStep.moves !== 1 || resetStep.scene !== resetStep.authoritative) {
+    if (resetStep.moves !== 1 || resetStep.displayMoves !== 1 || resetStep.scene !== resetStep.authoritative) {
       throw new Error(`第 ${round + 1} 次重置后的首转被重复消费: ${JSON.stringify(resetStep)}`);
     }
   }

@@ -56,6 +56,12 @@ type TrainRecord = {
   steps: number;
 };
 
+type DisplayMoveRecord = {
+  physical: string;
+  display: string;
+  viewSig: string;
+};
+
 const RECORDS_KEY = "bleTrainRecords";
 const RECORDS_MAX = 500; // 本地缓存上限, 防膨胀
 
@@ -224,6 +230,8 @@ export default class BleCrossTrainer extends Vue {
   moveCount = 0;
   // 本轮用户实际走的转动记号 (solving 阶段收集, 物理帧, 完成后化简展示 userSolutionText)
   private userMoves: string[] = [];
+  /** 蓝牙步骤的事件时屏幕记号；视角切换后历史不得重解释。 */
+  private userDisplayMoves: DisplayMoveRecord[] = [];
   userSolution = "";
   // WASM 对打乱态求出的十字最优解 (startSolving 时异步预求解)
   bestSolution = "";
@@ -624,12 +632,15 @@ export default class BleCrossTrainer extends Vue {
 
   // ================= z2 姿态切换 (整体旋转, 同 CrossF2L 的 z2 按钮) =================
 
-  /** 展示层转动换名: 核心帧记号 → 当前屏幕面 (视图链字符映射 C = baseOpsFaceCharMap
-   * (effectiveViewOps)): 核心 f 层当前显示在屏幕 C[f] 面。空链恒等 (蓝牙未翻转/标准姿态);
-   * 纯 z2 链 C 恰为 z2Move 映射 (U↔D, R↔L), 与旧展示行为一致; 混合链按共轭精确换名 */
-  private displayMove(move: string): string {
-    const map = baseOpsFaceCharMap(this.effectiveViewOps());
+  /** 核心帧单步记号 → 指定屏幕视角记号。所有单步/公式显示统一经此函数换名。 */
+  private displayMoveWithOps(move: string, ops: BaseOp[]): string {
+    const map = baseOpsFaceCharMap(ops);
     return (map[move.charAt(0)] || move.charAt(0)) + move.slice(1);
+  }
+
+  /** 展示层转动换名: 核心帧记号 → 当前屏幕面。 */
+  private displayMove(move: string): string {
+    return this.displayMoveWithOps(move, this.effectiveViewOps());
   }
 
   /** 展示层公式换名 (打乱/最优解/蓝牙用户解法): 核心帧记号逐个换名到当前屏幕面 */
@@ -638,12 +649,11 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private displayFormulaWithOps(formula: string, ops: BaseOp[]): string {
-    const map = baseOpsFaceCharMap(ops);
     return formula
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .map((m) => (map[m.charAt(0)] || m.charAt(0)) + m.slice(1))
+      .map((move) => this.displayMoveWithOps(move, ops))
       .join(" ");
   }
 
@@ -715,20 +725,41 @@ export default class BleCrossTrainer extends Vue {
     }));
   }
 
-  /** 用户解法展示: 手动 = manualSolutionOf(history) 屏幕记号原样; 蓝牙 = 物理帧
-   * userMoves 换名到当前屏幕视角 (同 liveStepsText, 与用户按屏幕面拧实体的读法一致) */
+  /** 蓝牙显示步骤按连续同视角片段分别化简，跨 z2/y/y' 边界不合并。 */
+  private fixedUserDisplayFormula(): string {
+    const result: string[] = [];
+    let segment: string[] = [];
+    let viewSig = "";
+    const flush = () => {
+      if (segment.length > 0) {
+        result.push(...simplifyMoves(segment));
+        segment = [];
+      }
+    };
+    for (const record of this.userDisplayMoves) {
+      if (segment.length > 0 && record.viewSig !== viewSig) {
+        flush();
+      }
+      viewSig = record.viewSig;
+      segment.push(record.display);
+    }
+    flush();
+    return result.join(" ");
+  }
+
+  /** 用户解法展示: 手动沿用 history；蓝牙使用每步事件发生时固定的屏幕记号。 */
   get userSolutionText(): string {
-    return this.isManual ? this.userSolution : this.displayFormula(this.userSolution);
+    return this.isManual ? this.userSolution : this.fixedUserDisplayFormula();
   }
 
   /** 还原过程中的实时步骤序列 (solving 期间随转动即时更新):
    * 手动 = userSolution (onManualTwist 每步从 history 化简重建, 屏幕记号);
-   * 蓝牙 = userMoves (MOVE 事件 = 物理帧) 实时化简后换名到当前屏幕视角 */
+   * 蓝牙 = MOVE 事件到达时固定的屏幕记号，后续视角切换不重写历史 */
   get liveStepsText(): string {
     if (this.isManual) {
       return this.userSolution;
     }
-    return this.displayFormula(simplifyMoves(this.userMoves).join(" "));
+    return this.fixedUserDisplayFormula();
   }
 
   /** 预览按钮 (退一步/下一步/▶) 统一紧凑样式: 固定小高度, 不随 size 放大
@@ -1130,6 +1161,9 @@ export default class BleCrossTrainer extends Vue {
       this.onCalibMove(move);
       return;
     }
+    const viewOps = this.effectiveViewOps().map((op) => ({ ...op }));
+    const displayMove = this.displayMoveWithOps(move, viewOps);
+    const viewSig = JSON.stringify(viewOps);
     if (this.phase === "observing" && !this.isManual) {
       // 自动下轮直接开始: 首次物理转动即开始还原计时 (该步计入还原)
       this.phase = "solving";
@@ -1152,7 +1186,8 @@ export default class BleCrossTrainer extends Vue {
       }
       this.predicted = next;
       if (this.phase === "solving") {
-        this.userMoves.push(move); // 物理帧记号 (与判定/求解同帧); 展示经 userSolutionText 换名
+        this.userMoves.push(move); // 物理帧记号 (与判定/求解同帧)
+        this.userDisplayMoves.push({ physical: move, display: displayMove, viewSig });
         // 步数按 HTM 口径实时化简 (魔方对 180° 转发 2 个 1/4 转事件, D2 应计 1 步)
         this.moveCount = simplifyMoves(this.userMoves).length;
       }
@@ -1166,11 +1201,11 @@ export default class BleCrossTrainer extends Vue {
           this.applyZ2Flip(true);
         }
       }
-      this.mirrorPush(this.displayMove(move));
+      this.mirrorPush(displayMove);
       this.judge(next);
     } else {
       // 尚未收到权威状态, 仅镜像动画
-      this.mirrorPush(this.displayMove(move));
+      this.mirrorPush(displayMove);
     }
   }
 
@@ -1412,6 +1447,7 @@ export default class BleCrossTrainer extends Vue {
     this.scrambleDiverged = false;
     this.moveCount = 0;
     this.userMoves = [];
+    this.userDisplayMoves = [];
     this.userSolution = "";
     this.completedSlots = [];
     this.bestSolution = "";
@@ -1797,6 +1833,7 @@ export default class BleCrossTrainer extends Vue {
     const base = this.solveBaseState;
     this.moveCount = 0;
     this.userMoves = [];
+    this.userDisplayMoves = [];
     this.userSolution = "";
     this.completedSlots = [];
     this.elapsedText = "";
@@ -1871,6 +1908,7 @@ export default class BleCrossTrainer extends Vue {
     this.scramble = "";
     this.moveCount = 0;
     this.userMoves = [];
+    this.userDisplayMoves = [];
     this.userSolution = "";
     this.completedSlots = [];
     this.elapsedText = "";
