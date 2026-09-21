@@ -132,7 +132,8 @@ const FACELET_TARGETS: FaceletTarget[] = (() => {
 
 // ---- 无关块可视化 (半透明/隐藏) 材质基础设施 ----
 // serialize→getColor 按贴纸材质身份反查色字符: 换成未注册材质会得 "?" 破坏序列化
-// (判定/求解/重绘全挂)。因此可视化一律「替换贴纸材质」: 半透明/更透明=同色低透明度
+// (判定/求解/重绘全挂)。因此可视化一律「替换贴纸材质」: 半透明=同色低透明度，
+// 隐藏=按真实色分别注册、但视觉统一为灰色低透明度
 // 材质 (visible 恒 true, 反查表仍能读色); 所需块高亮=同色无光照纯亮材质 (Basic, 实心)。
 // VIS_MAT_COLORS 注册 自定义材质→色字符, getColor 原型补丁优先查表保 serialize 恒真实
 const VIS_MAT_COLORS = new Map<THREE.Material, string>();
@@ -142,14 +143,16 @@ const VIS_SOFT_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
 const VIS_BRIGHT_MATS: { [color: string]: THREE.MeshBasicMaterial } = {};
 const VIS_GHOST_OPACITY = 0.18;
 const VIS_CENTER_OPACITY = 0.8;
-// 「隐藏无关」档: 比半透明更透明, 隐约可见而非完全消失
-const VIS_SOFT_OPACITY = 0.06;
+// 「隐藏无关」档: 无关贴纸统一灰化，保留轻微透明轮廓；真实色仍由材质注册表记录
+const VIS_SOFT_COLOR = 0x80868b;
+const VIS_SOFT_OPACITY = 0.1;
+const VIS_FRAME_SOFT_OPACITY = 0.06;
 // 塑料体 (frame) 处理: 半透明档直接 frame.visible=false (黑骨架完全隐去, 透过薄纱
 // 贴纸直接见背后块色); 隐藏档骨架同 0.06 隐约 (CORE.clone)
 const VIS_FRAME_SOFT = ((): THREE.MeshPhongMaterial => {
   const mat = Cubelet.CORE.clone() as THREE.MeshPhongMaterial;
   mat.transparent = true;
-  mat.opacity = VIS_SOFT_OPACITY;
+  mat.opacity = VIS_FRAME_SOFT_OPACITY;
   mat.depthWrite = false;
   return mat;
 })();
@@ -180,10 +183,15 @@ function visMaterialOf(color: string, mode: "ghost" | "center" | "soft" | "brigh
     table[color] = mat;
     VIS_MAT_COLORS.set(mat, color);
   }
-  // 配色可随时在菜单修改 (直接改 LAMBERS 色值): 每次取用时同步, 避免半透明块颜色过期
-  const lamber = Cubelet.LAMBERS[color];
-  if (lamber) {
-    mat.color.copy(lamber.color);
+  if (mode === "soft") {
+    // 每种真实色仍使用独立材质并注册到 VIS_MAT_COLORS，只统一视觉色以减少干扰
+    mat.color.setHex(VIS_SOFT_COLOR);
+  } else {
+    // 配色可随时在菜单修改 (直接改 LAMBERS 色值): 每次取用时同步, 避免半透明块颜色过期
+    const lamber = Cubelet.LAMBERS[color];
+    if (lamber) {
+      mat.color.copy(lamber.color);
+    }
   }
   return mat;
 }
@@ -302,11 +310,11 @@ export default class BleCrossTrainer extends Vue {
   autoNext = true;
   // 是否显示推荐的最优解 (localStorage 持久化, 值 "1"/"0"): 关闭时不求解也不展示, 避免剧透
   showBest = true;
-  // ---- 无关块可视化: 色块半透明 / 隐藏无关 (独立开关, 都开时无关块取更透明档) ----
+  // ---- 无关块可视化: 色块半透明 / 隐藏无关 (独立开关, 都开时无关块取灰色隐藏档) ----
   // 半透明模式: 无关块淡化、中心块 80% 不透明，透视背后块色，
   // 转动落定后按当前姿态重算 (localStorage "bleVisGhost")
   visGhost = false;
-  // 隐藏模式: 本轮不需要的块变得更透明 (隐约可见非消失; 中心块不淡化) (localStorage "bleVisHide")
+  // 隐藏模式: 本轮不需要的块变成灰色半透明 (隐约可见; 中心块不淡化) (localStorage "bleVisHide")
   visHide = false;
   // 仅 BLE Cross 3D 视口使用的背景色，不影响全局 Vuetify 暗黑主题
   backgroundColor = BLE_BACKGROUND_DEFAULT;
@@ -2013,13 +2021,13 @@ export default class BleCrossTrainer extends Vue {
     }
   }
 
-  /** 「色块半透明」勾选变更: 独立开关 (淡化朝向 F/R/U 的块; 与「隐藏无关」可同开, 无关块取更透明档), 持久化并立即重刷 */
+  /** 「色块半透明」勾选变更: 独立开关 (无关块保留原色淡化; 与「隐藏无关」可同开, 无关块取灰色隐藏档), 持久化并立即重刷 */
   saveVisGhost(): void {
     window.localStorage.setItem("bleVisGhost", this.visGhost ? "1" : "0");
     this.applyVisibility();
   }
 
-  /** 「隐藏无关」勾选变更: 独立开关 (无关块更透明, 隐约可见; 与「色块半透明」可同开), 持久化并立即重刷 */
+  /** 「隐藏无关」勾选变更: 独立开关 (无关贴纸灰色半透明, 隐约可见; 与「色块半透明」可同开), 持久化并立即重刷 */
   saveVisHide(): void {
     window.localStorage.setItem("bleVisHide", this.visHide ? "1" : "0");
     this.applyVisibility();
@@ -2040,7 +2048,7 @@ export default class BleCrossTrainer extends Vue {
 
   /** 块可视化 (两个独立开关, 目标: 不转动魔方也能透视看到十字相关块与目标槽位):
    * 「半透明」= 无关块半透明 (opacity 0.18)，6 个中心块 opacity 0.80;
-   * 「隐藏无关」= 无关块更透明 (opacity 0.06, 隐约可见), 中心块不淡化;
+   * 「隐藏无关」= 无关贴纸统一灰色 (opacity 0.10)，骨架 0.06 隐约可见，中心块不淡化;
    * 开启任一开关时: 十字所需块 (4 棱 / xcross 另加槽位棱角) 贴纸换无光照纯亮材质。
    * 核心约束: serialize→getColor 按材质身份反查色字符, 换未注册材质会得 "?" 破坏序列化
    * —— 故一律用「注册材质 + visible 恒 true」, getColor 补丁查表保 serialize 恒真实。

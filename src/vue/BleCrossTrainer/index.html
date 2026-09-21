@@ -135,10 +135,10 @@
 
           <!-- 行2.5: 无关块可视化: 色块半透明 / 隐藏无关贴纸 (+ xcross 槽位选择) -->
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; min-height: 16px;">
-            <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="色块半透明模式: 本轮无关的块全部变半透明 (不分方向, 视线无死角), 6 个中心块不透明度为 80%, 十字所需块高亮显示 —— 不转动魔方也能透视看到十字块在哪 (与「隐藏无关」独立, 都勾选时无关块更透明)">
+            <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="色块半透明模式: 本轮无关的块保留原色并变半透明 (不分方向, 视线无死角), 6 个中心块不透明度为 80%, 十字所需块高亮显示 —— 不转动魔方也能透视看到十字块在哪 (与「隐藏无关」独立, 都勾选时无关块使用灰色隐藏效果)">
               <input type="checkbox" v-model="visGhost" @change="saveVisGhost" style="width: 13px; height: 13px;" />半透明
             </label>
-            <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="隐藏无关色块: 无关块变得更透明 (隐约可见而非完全消失), 同样高亮所需块 (中心块不淡化; 与「半透明」独立, 都勾选时无关块更透明)">
+            <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="隐藏无关色块: 无关贴纸统一变成灰色半透明 (隐约可见而非完全消失), 同样高亮所需块 (中心块不灰化; 与「半透明」独立, 都勾选时使用灰色隐藏效果)">
               <input type="checkbox" v-model="visHide" @change="saveVisHide" style="width: 13px; height: 13px;" />隐藏无关
             </label>
             <v-menu offset-y eager :close-on-content-click="false">
@@ -365,9 +365,9 @@
           <div>&nbsp;&nbsp;不转动魔方也能透视看到十字块在哪;</div>
           <div>&nbsp;&nbsp;6 个中心块不透明度为 80%;</div>
           <div>&nbsp;&nbsp;转动后实时跟随</div>
-          <div>· 「隐藏无关」: 无关块变得更透明 (隐约可见</div>
-          <div>&nbsp;&nbsp;而非消失; 中心块不淡化), 效果更聚焦</div>
-          <div>· 两个开关独立: 都勾选时无关块取更透明档</div>
+          <div>· 「隐藏无关」: 无关贴纸统一变成灰色半透明</div>
+          <div>&nbsp;&nbsp;(隐约可见而非消失; 中心块不灰化), 效果更聚焦</div>
+          <div>· 两个开关独立: 都勾选时使用灰色隐藏效果</div>
           <div>· XCross 模式下右侧下拉可选 FL/FR/BL/BR 槽位:</div>
           <div>&nbsp;&nbsp;该槽位的棱块+角块一并高亮/保留</div>
           <div style="margin-top: 8px;"><b>判定说明</b></div>

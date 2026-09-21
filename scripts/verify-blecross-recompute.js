@@ -108,6 +108,58 @@ async page => {
     throw new Error(`半透明模式中心块不是 80% 或恢复异常: ${JSON.stringify(centerGhost)}`);
   }
 
+  const hideGray = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const before = vm.world.cube.serialize();
+    const centers = new Set([4, 10, 12, 14, 16, 22]);
+    vm.visGhost = false;
+    vm.visHide = true;
+    vm.applyVisibility();
+    const soft = [];
+    const centerStickers = [];
+    let coloredOpaque = 0;
+    vm.world.cube.cubelets.forEach((piece, position) => {
+      if (!piece || !piece.exist) return;
+      piece.stickers.filter(Boolean).forEach(sticker => {
+        const material = sticker.material;
+        const sample = {
+          color: material.color.getHex(),
+          opacity: material.opacity,
+          transparent: material.transparent,
+          depthWrite: material.depthWrite,
+        };
+        if (material.transparent && material.depthWrite === false) soft.push(sample);
+        if (centers.has(position)) centerStickers.push(sample);
+        if (!material.transparent && sample.color !== 0x80868b) coloredOpaque++;
+      });
+    });
+    const active = vm.world.cube.serialize();
+    vm.visHide = false;
+    vm.applyVisibility();
+    return {
+      soft,
+      centerStickers,
+      coloredOpaque,
+      before,
+      active,
+      restored: vm.world.cube.serialize(),
+    };
+  });
+  if (
+    hideGray.soft.length === 0 ||
+    hideGray.soft.some(
+      x => x.color !== 0x80868b || x.opacity !== 0.1 || !x.transparent || x.depthWrite !== false
+    ) ||
+    hideGray.centerStickers.length !== 6 ||
+    hideGray.centerStickers.some(x => x.color === 0x80868b || x.transparent || x.opacity !== 1) ||
+    hideGray.coloredOpaque === 0 ||
+    hideGray.active !== hideGray.before ||
+    hideGray.restored !== hideGray.before ||
+    hideGray.active.includes("?")
+  ) {
+    throw new Error(`隐藏无关贴纸没有统一灰化或破坏了真实状态: ${JSON.stringify(hideGray)}`);
+  }
+
   const liveFrame = await page.evaluate(() => {
     const vm = window.__bleCross;
     vm.isManual = false;
