@@ -283,9 +283,10 @@
             </template>
           </div>
 
-          <!-- 行3.4: 实时步骤 (还原中): 随转动即时显示已拧步骤 -->
-          <div v-if="phase === 'solving' && liveStepsText" style="margin-top: 5px; padding: 5px 8px; background: #f5f8fc; border: 1px solid #dce6f2; border-radius: 6px; font-size: 12px; line-height: 1.7;">
-            <div style="display: flex; gap: 6px; min-width: 0;">
+          <!-- 行3.4: 实时步骤 (还原中): 随转动即时显示已拧步骤。容器常驻占位 (固定高度),
+               避免 solving 进入/退出时行出现消失导致页面跳动 -->
+          <div style="margin-top: 5px; padding: 5px 8px; background: #f5f8fc; border: 1px solid #dce6f2; border-radius: 6px; font-size: 12px; line-height: 1.7;">
+            <div v-show="phase === 'solving'" style="display: flex; gap: 6px; min-width: 0; min-height: 20px;">
               <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">已拧 {{ moveCount }}步</span>
               <span style="flex: 1; min-width: 0; word-break: break-all; color: #333;">{{ liveStepsText }}</span>
             </div>
