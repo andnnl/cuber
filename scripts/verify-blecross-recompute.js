@@ -2,6 +2,36 @@ async page => {
   await page.goto("http://127.0.0.1:8080/?mode=blecross");
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
 
+  const centerGhost = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const centers = [4, 10, 12, 14, 16, 22];
+    const inspect = () =>
+      centers.map(position => {
+        const piece = vm.world.cube.cubelets[position];
+        const sticker = piece.stickers.find(Boolean);
+        return {
+          opacity: sticker.material.opacity,
+          transparent: sticker.material.transparent,
+          frameVisible: piece.frame.visible,
+        };
+      });
+    vm.visGhost = true;
+    vm.visHide = false;
+    vm.applyVisibility();
+    const ghost = inspect();
+    vm.visGhost = false;
+    vm.applyVisibility();
+    return { ghost, restored: inspect(), state: vm.world.cube.serialize() };
+  });
+  if (
+    centerGhost.ghost.length !== 6 ||
+    centerGhost.ghost.some(x => x.opacity !== 0.3 || !x.transparent || x.frameVisible) ||
+    centerGhost.restored.some(x => x.opacity !== 1 || x.transparent || !x.frameVisible) ||
+    centerGhost.state !== "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB"
+  ) {
+    throw new Error(`半透明模式中心块不是 30% 或恢复异常: ${JSON.stringify(centerGhost)}`);
+  }
+
   const liveFrame = await page.evaluate(() => {
     const vm = window.__bleCross;
     vm.isManual = false;
