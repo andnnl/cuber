@@ -71,6 +71,73 @@ export const BLE_THEME_CSS = `
   color: #1b9e5a;
   font-weight: bold;
 }
+/* BLE Cross 专用 3D 背景选择器 */
+.ble-bg-trigger {
+  height: 22px;
+  min-width: 42px;
+  padding: 2px 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  border: 1px solid #d8e0ec;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #596579;
+  cursor: pointer;
+}
+.ble-bg-current {
+  width: 22px;
+  height: 14px;
+  display: inline-block;
+  border: 1px solid rgba(45, 55, 72, 0.35);
+  border-radius: 3px;
+}
+.ble-bg-menu {
+  width: 174px;
+  padding: 9px;
+  border-radius: 8px !important;
+}
+.ble-bg-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: 7px;
+  justify-content: center;
+}
+.ble-bg-swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(45, 55, 72, 0.35);
+  border-radius: 5px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ble-bg-swatch.selected {
+  outline: 2px solid #5b6bf0;
+  outline-offset: 2px;
+}
+.ble-bg-custom {
+  margin-top: 10px;
+  height: 28px;
+  padding: 0 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #d8e0ec;
+  border-radius: 5px;
+  color: #455a64;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ble-bg-custom input[type='color'] {
+  width: 36px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
 /* 帮助弹窗 */
 .help-dialog {
   background: #ffffff !important;

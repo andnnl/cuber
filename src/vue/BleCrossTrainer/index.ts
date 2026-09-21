@@ -62,6 +62,29 @@ type DisplayMoveRecord = {
   viewSig: string;
 };
 
+type BackgroundPreset = {
+  name: string;
+  value: string;
+};
+
+const BLE_BACKGROUND_DEFAULT = "#FFFFFF";
+const BLE_BACKGROUND_PRESETS: BackgroundPreset[] = [
+  { name: "白色", value: "#FFFFFF" },
+  { name: "浅灰", value: "#F3F4F6" },
+  { name: "米白", value: "#FFF8E7" },
+  { name: "淡黄", value: "#FFFDE7" },
+  { name: "淡绿", value: "#E8F5E9" },
+  { name: "淡青", value: "#E0F7FA" },
+  { name: "淡蓝", value: "#EAF2FF" },
+  { name: "淡紫", value: "#F3E8FF" },
+  { name: "淡粉", value: "#FCE7F3" },
+  { name: "暗黑", value: "#121212" },
+];
+
+function normalizeBackgroundColor(value: string | null): string {
+  return value && /^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : BLE_BACKGROUND_DEFAULT;
+}
+
 const RECORDS_KEY = "bleTrainRecords";
 const RECORDS_MAX = 500; // 本地缓存上限, 防膨胀
 
@@ -285,6 +308,9 @@ export default class BleCrossTrainer extends Vue {
   visGhost = false;
   // 隐藏模式: 本轮不需要的块变得更透明 (隐约可见非消失; 中心块不淡化) (localStorage "bleVisHide")
   visHide = false;
+  // 仅 BLE Cross 3D 视口使用的背景色，不影响全局 Vuetify 暗黑主题
+  backgroundColor = BLE_BACKGROUND_DEFAULT;
+  readonly backgroundPresets = BLE_BACKGROUND_PRESETS;
   // xcross 模式下保留显示的 F2L 槽位 (棱块+角块), 与屏幕四下槽位同帧 (localStorage "bleVisSlot")
   visSlot = "FL";
   statusText = "未连接魔方: 点「新打乱」免蓝牙直接练习";
@@ -386,6 +412,9 @@ export default class BleCrossTrainer extends Vue {
     this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
     this.visGhost = window.localStorage.getItem("bleVisGhost") === "1";
     this.visHide = window.localStorage.getItem("bleVisHide") === "1";
+    this.backgroundColor = normalizeBackgroundColor(window.localStorage.getItem("bleBackgroundColor"));
+    // 统一修正旧值大小写，并把非法值持久化回默认值，刷新后的状态保持稳定
+    window.localStorage.setItem("bleBackgroundColor", this.backgroundColor);
     this.loadRecords(); // 训练记录 (localStorage)
     const savedRecLimit = parseInt(window.localStorage.getItem("bleRecLimit") || "", 10);
     if (savedRecLimit === 10 || savedRecLimit === 20 || savedRecLimit === 50 || savedRecLimit === 100) {
@@ -1994,6 +2023,13 @@ export default class BleCrossTrainer extends Vue {
   saveVisHide(): void {
     window.localStorage.setItem("bleVisHide", this.visHide ? "1" : "0");
     this.applyVisibility();
+  }
+
+  /** 设置 BLE Cross 专用 3D 背景色；严格限制为 6 位 RGB，非法值回退白色。 */
+  setBackgroundColor(value: string): void {
+    this.backgroundColor = normalizeBackgroundColor(value);
+    window.localStorage.setItem("bleBackgroundColor", this.backgroundColor);
+    this.world.dirty = true;
   }
 
   /** XCross 槽位选择变更: 持久化并重刷 (所需棱块+角块随槽位变化) */

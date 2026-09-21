@@ -2,6 +2,73 @@ async page => {
   await page.goto("http://127.0.0.1:8080/?mode=blecross");
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
 
+  const background = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    const before = vm.world.cube.serialize();
+    vm.setBackgroundColor("#121212");
+    await vm.$nextTick();
+    const wrapper = document.querySelector("[data-ble-background]");
+    return {
+      presets: vm.backgroundPresets.map(item => item.value),
+      domPresets: document.querySelectorAll("[data-ble-bg-preset]").length,
+      hasCustom: !!document.querySelector("[data-ble-bg-custom]"),
+      style: wrapper ? getComputedStyle(wrapper).backgroundColor : "missing",
+      saved: localStorage.getItem("bleBackgroundColor"),
+      gif: vm.gifBackColor(),
+      unchanged: before === vm.world.cube.serialize(),
+    };
+  });
+  if (
+    background.presets.length !== 10 ||
+    !background.presets.includes("#FFFFFF") ||
+    !background.presets.includes("#121212") ||
+    background.domPresets !== 10 ||
+    !background.hasCustom ||
+    background.style !== "rgb(18, 18, 18)" ||
+    background.saved !== "#121212" ||
+    background.gif !== 0x121212 ||
+    !background.unchanged
+  ) {
+    throw new Error(`BLE Cross 背景色预设或局部渲染异常: ${JSON.stringify(background)}`);
+  }
+
+  await page.evaluate(() => window.__bleCross.setBackgroundColor("#a1b2c3"));
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  const restoredBackground = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const wrapper = document.querySelector("[data-ble-background]");
+    return {
+      value: vm.backgroundColor,
+      style: wrapper ? getComputedStyle(wrapper).backgroundColor : "missing",
+      saved: localStorage.getItem("bleBackgroundColor"),
+    };
+  });
+  if (
+    restoredBackground.value !== "#A1B2C3" ||
+    restoredBackground.style !== "rgb(161, 178, 195)" ||
+    restoredBackground.saved !== "#A1B2C3"
+  ) {
+    throw new Error(`BLE Cross 自定义背景没有刷新恢复: ${JSON.stringify(restoredBackground)}`);
+  }
+
+  await page.evaluate(() => localStorage.setItem("bleBackgroundColor", "not-a-color"));
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  const invalidBackground = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const wrapper = document.querySelector("[data-ble-background]");
+    const result = {
+      value: vm.backgroundColor,
+      style: wrapper ? getComputedStyle(wrapper).backgroundColor : "missing",
+    };
+    vm.setBackgroundColor("#FFFFFF");
+    return result;
+  });
+  if (invalidBackground.value !== "#FFFFFF" || invalidBackground.style !== "rgb(255, 255, 255)") {
+    throw new Error(`BLE Cross 非法背景没有回退白色: ${JSON.stringify(invalidBackground)}`);
+  }
+
   const centerGhost = await page.evaluate(() => {
     const vm = window.__bleCross;
     const centers = [4, 10, 12, 14, 16, 22];

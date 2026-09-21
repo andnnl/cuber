@@ -2,7 +2,10 @@
   <div v-resize="onResize" style="user-select: none; touch-action: none; display: flex; flex-direction: column; height: 100vh; position: relative;">
     <setting />
     <!-- 3D 镜像魔方占据全屏 -->
-    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;">
+    <div
+      data-ble-background
+      :style="{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: backgroundColor}"
+    >
       <viewport ref="viewport"></viewport>
     </div>
 
@@ -138,6 +141,37 @@
             <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="隐藏无关色块: 无关块变得更透明 (隐约可见而非完全消失), 同样高亮所需块 (中心块不淡化; 与「半透明」独立, 都勾选时无关块更透明)">
               <input type="checkbox" v-model="visHide" @change="saveVisHide" style="width: 13px; height: 13px;" />隐藏无关
             </label>
+            <v-menu offset-y eager :close-on-content-click="false">
+              <template v-slot:activator="{ on, attrs }">
+                <button class="ble-bg-trigger" v-bind="attrs" v-on="on" title="选择 BLE Cross 3D 背景色">
+                  <span class="ble-bg-current" :style="{backgroundColor: backgroundColor}"></span>
+                  <span>▾</span>
+                </button>
+              </template>
+              <v-card class="ble-bg-menu">
+                <div class="ble-bg-grid">
+                  <button
+                    v-for="item in backgroundPresets"
+                    :key="item.value"
+                    data-ble-bg-preset
+                    class="ble-bg-swatch"
+                    :class="{selected: backgroundColor === item.value}"
+                    :style="{backgroundColor: item.value}"
+                    :title="item.name + ' ' + item.value"
+                    @click="setBackgroundColor(item.value)"
+                  ></button>
+                </div>
+                <label class="ble-bg-custom" title="打开系统调色器选择自定义背景色">
+                  <span>自定义</span>
+                  <input
+                    data-ble-bg-custom
+                    type="color"
+                    :value="backgroundColor"
+                    @input="setBackgroundColor($event.target.value)"
+                  />
+                </label>
+              </v-card>
+            </v-menu>
             <div style="flex: 1;"></div>
             <select
               v-if="trainMode === 'xcross' && (visGhost || visHide)"
