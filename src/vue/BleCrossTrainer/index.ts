@@ -337,6 +337,14 @@ export default class BleCrossTrainer extends Vue {
 
   // ---- 状态跟踪: predicted = 权威状态 + 未确认 move 推演; 权威 facelets 事件到来时校正 ----
   private predicted: string | null = null;
+  /** 最近接受的 BLE 物理事件序号（GAN 按 8 位循环）；用于 MOVE/FACELETS 去重与拒绝旧帧。 */
+  private bleEventSerial: number | null = null;
+  private bleMoveSerial: number | null = null;
+  private bleAuthoritativeSerial: number | null = null;
+  private bleAuthoritativePhase: "disconnected" | "ready" | "scrambling" | "observing" | "solving" | "success" | null = null;
+  /** FACELETS 先于同序号 MOVE 时暂缓判定，待 MOVE 完成计时/步骤归属后统一消费。 */
+  private bleAuthoritativePending = false;
+  private bleAuthoritativeTimer: any = null;
   // 手动→蓝牙接管标记: 手动练习中连接成功后, 首个权威状态以魔方当前状态直接开轮
   // (不强制打乱匹配), 消费后复位
   private takeoverPending = false;
@@ -472,6 +480,7 @@ export default class BleCrossTrainer extends Vue {
       window.clearTimeout(this.stateTimer);
       this.stateTimer = null;
     }
+    this.clearAuthoritativeTimer();
   }
 
   // ================= 连接 =================
@@ -570,6 +579,7 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     this.isManual = true;
+    this.resetBleReconciliation();
     this.baseOps = []; // 手动会话从标准白顶姿态开始 (z2On 同款复位)
     this.z2Marks = []; // 视图链清空 (z2On 复位为 false, 见下; 新打乱时按 z2On 重建)
     const wasZ2 = this.z2On;
@@ -633,8 +643,10 @@ export default class BleCrossTrainer extends Vue {
       // 连接后超时未收到 facelets: 手动 MAC 填错时加密失效收不到有效帧, 提示检查
       this.armStateWatchdog();
     } else if (s === "connecting") {
+      this.resetBleReconciliation();
       this.phase = "disconnected";
     } else {
+      this.resetBleReconciliation();
       this.calibStep = -1; // 断开时若在校准则终止
       if (this.isManual) {
         return; // 本就手动 (enterManual 断开在飞连接等): 不动练习会话
@@ -1072,12 +1084,14 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 校准中收到物理转动: 原样镜像动画 + 记录上报记号, 不参与训练判定 */
-  private onCalibMove(move: string): void {
+  private onCalibMove(move: string, mirror = true): void {
     const expected = this.calibSteps[this.calibStep].key;
     const mark = move === expected ? "✓ 一致" : move === z2Move(expected) ? "(z2 换名)" : "✗ 不匹配";
     console.log(`[校准] 期望 ${expected}, 实际收到 ${move} ${mark}`);
     this.calibLog.push({ expected, actual: move });
-    this.mirrorPush(move); // 原样镜像, 便于肉眼对比 3D 与实体
+    if (mirror) {
+      this.mirrorPush(move); // 原样镜像, 便于肉眼对比 3D 与实体
+    }
     if (this.calibStep < this.calibSteps.length - 1) {
       this.calibStep++;
       this.statusText = this.calibSteps[this.calibStep].tip;
@@ -1108,6 +1122,52 @@ export default class BleCrossTrainer extends Vue {
 
   // ================= 事件入口 =================
 
+  /** GAN 序号为 8 位循环计数；返回 serial 相对 reference 的旧/同/新关系。 */
+  private serialRelation(serial: number, reference: number): -1 | 0 | 1 {
+    const diff = ((serial & 0xff) - (reference & 0xff)) & 0xff;
+    return diff === 0 ? 0 : diff < 0x80 ? 1 : -1;
+  }
+
+  private clearAuthoritativeTimer(): void {
+    if (this.bleAuthoritativeTimer !== null) {
+      window.clearTimeout(this.bleAuthoritativeTimer);
+      this.bleAuthoritativeTimer = null;
+    }
+  }
+
+  /** 连接/输入源切换时清空序号域，避免上一条 BLE 会话污染新会话。 */
+  private resetBleReconciliation(): void {
+    this.clearAuthoritativeTimer();
+    this.bleEventSerial = null;
+    this.bleMoveSerial = null;
+    this.bleAuthoritativeSerial = null;
+    this.bleAuthoritativePhase = null;
+    this.bleAuthoritativePending = false;
+  }
+
+  /** FACELETS 先到时给同序号 MOVE 一个事件循环的对账窗口；没有 MOVE 则照常权威判定。 */
+  private deferAuthoritativeJudge(): void {
+    this.clearAuthoritativeTimer();
+    this.bleAuthoritativeTimer = window.setTimeout(() => {
+      this.bleAuthoritativeTimer = null;
+      if (!this.bleAuthoritativePending || !this.predicted) {
+        return;
+      }
+      this.bleAuthoritativePending = false;
+      this.judge(this.predicted);
+    }, 0);
+  }
+
+  private recordBleMove(move: string, displayMove: string, viewSig: string): void {
+    if (this.phase !== "solving") {
+      return;
+    }
+    this.userMoves.push(move); // 物理帧记号 (与判定/求解同帧)
+    this.userDisplayMoves.push({ physical: move, display: displayMove, viewSig });
+    // 步数按 HTM 口径实时化简 (魔方对 180° 转发 2 个 1/4 转事件, D2 应计 1 步)
+    this.moveCount = simplifyMoves(this.userMoves).length;
+  }
+
   private handleEvent(e: LinkEvent): void {
     if (e.type === "battery") {
       this.battery = e.level;
@@ -1120,21 +1180,39 @@ export default class BleCrossTrainer extends Vue {
         this.link.requestFacelets().catch(() => undefined);
         return;
       }
-      this.onAuthoritative(valid);
+      this.onAuthoritative(valid, e.serial);
       return;
     }
     if (e.type === "move") {
-      this.onMoveEvent(e.move);
+      this.onMoveEvent(e.move, e.serial);
       return;
     }
   }
 
   /** 权威状态到达 (连接时全量 / 周期同步 / Mock 每步都发)。状态恒为物理帧 (raw) */
-  private onAuthoritative(raw: string): void {
+  private onAuthoritative(raw: string, serial?: number): void {
     // 已收到状态帧 → MAC/加密链路正常, 关闭状态超时看门狗
     if (this.stateTimer !== null) {
       window.clearTimeout(this.stateTimer);
       this.stateTimer = null;
+    }
+    let awaitsMove = false;
+    if (serial !== undefined) {
+      const normalized = serial & 0xff;
+      const relation = this.bleEventSerial === null ? 1 : this.serialRelation(normalized, this.bleEventSerial);
+      if (relation < 0) {
+        return; // 迟到旧快照不能覆盖已推演/确认的新状态
+      }
+      const sameAuthoritative = this.bleAuthoritativeSerial === normalized;
+      awaitsMove = this.bleMoveSerial !== normalized;
+      if (relation > 0) {
+        this.bleEventSerial = normalized;
+      }
+      this.bleAuthoritativeSerial = normalized;
+      if (relation > 0 || !sameAuthoritative) {
+        this.bleAuthoritativePhase = this.phase;
+      }
+      this.bleAuthoritativePending = awaitsMove;
     }
     // 首包或与推演不符 (丢事件/被外力转动): 以实体为准重绘 3D, 并恢复 z2 翻转姿态;
     // 一致时不重绘 (保留进行中的镜像动画流畅性)。predicted 恒跟踪实体态 (镜像原则,
@@ -1150,6 +1228,7 @@ export default class BleCrossTrainer extends Vue {
     // 内 await requestFacelets 先于 CubeLink.setStatus 完成): 此时 phase 仍是
     // "connecting" 置的 "disconnected", 不能只认 "ready", 否则首包被丢弃永久卡等待
     if (this.calibStep >= 0) {
+      this.bleAuthoritativePending = false;
       return; // 校准中: 状态推演已同步, 跳过训练判定/自动开轮 (校准转层会改状态)
     }
     if (this.status === "connected" && (this.phase === "ready" || this.phase === "disconnected")) {
@@ -1162,9 +1241,14 @@ export default class BleCrossTrainer extends Vue {
       } else {
         this.newScramble();
       }
+      this.bleAuthoritativePending = false;
       return;
     }
-    this.judge(raw);
+    if (awaitsMove) {
+      this.deferAuthoritativeJudge();
+    } else {
+      this.judge(raw);
+    }
   }
 
   /** 上次镜像转动事件时刻 (自适应提速用) */
@@ -1188,21 +1272,66 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 物理转动事件: 校准记录 / 推演状态 (物理帧) + 判定 + 3D 动画镜像 (展示层按 z2On 换名) */
-  private onMoveEvent(move: string): void {
+  private onMoveEvent(move: string, serial?: number): void {
+    let coveredByAuthoritative = false;
+    if (serial !== undefined) {
+      const normalized = serial & 0xff;
+      const relation = this.bleEventSerial === null ? 1 : this.serialRelation(normalized, this.bleEventSerial);
+      coveredByAuthoritative =
+        relation === 0 &&
+        this.bleAuthoritativeSerial === normalized &&
+        this.bleMoveSerial !== normalized;
+      if (relation < 0 || (relation === 0 && !coveredByAuthoritative)) {
+        return; // 旧 MOVE 或已消费的重复通知
+      }
+      if (relation > 0) {
+        if (this.bleAuthoritativeSerial !== normalized) {
+          this.clearAuthoritativeTimer();
+          this.bleAuthoritativePending = false;
+        }
+        this.bleEventSerial = normalized;
+      }
+      this.bleMoveSerial = normalized;
+    }
     if (this.calibStep >= 0) {
       // 校准流程: 状态推演照常维护 (转层真实发生了), 但只记录上报记号, 不参与判定
-      if (this.predicted) {
+      if (this.predicted && !coveredByAuthoritative) {
         const next = applyFaceletMove(this.predicted, move);
         if (next) {
           this.predicted = next;
         }
       }
-      this.onCalibMove(move);
+      this.bleAuthoritativePending = false;
+      this.onCalibMove(move, !coveredByAuthoritative);
       return;
     }
     const viewOps = this.effectiveViewOps().map((op) => ({ ...op }));
     const displayMove = this.displayMoveWithOps(move, viewOps);
     const viewSig = JSON.stringify(viewOps);
+    if (coveredByAuthoritative) {
+      // FACELETS 已包含本次物理转动：只补齐该 MOVE 的阶段/计时/步骤语义，不能再推演或播放。
+      this.clearAuthoritativeTimer();
+      this.bleAuthoritativePending = false;
+      if (this.bleAuthoritativePhase === "observing" && this.phase === "observing" && !this.isManual) {
+        this.phase = "solving";
+        this.solveStart = Date.now();
+        this.timerStart = this.solveStart;
+        this.needBreak = this.isTargetCrossDone(this.predicted || SOLVED_FACELETS);
+        this.statusText =
+          this.trainMode === "xcross"
+            ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
+            : "十字进行中: 还原" + this.crossTargetText();
+      }
+      // FACELETS 已先把打乱终点切入 solving 时，该 MOVE 仍属于原 scrambling 阶段。
+      if (this.bleAuthoritativePhase !== "scrambling") {
+        this.recordBleMove(move, displayMove, viewSig);
+      }
+      this.previewPending = false; // 权威状态已经重绘到本步完成态，无需再切轨或补动画
+      if (this.predicted) {
+        this.judge(this.predicted);
+      }
+      return;
+    }
     if (this.phase === "observing" && !this.isManual) {
       // 自动下轮直接开始: 首次物理转动即开始还原计时 (该步计入还原)
       this.phase = "solving";
@@ -1224,12 +1353,7 @@ export default class BleCrossTrainer extends Vue {
         return;
       }
       this.predicted = next;
-      if (this.phase === "solving") {
-        this.userMoves.push(move); // 物理帧记号 (与判定/求解同帧)
-        this.userDisplayMoves.push({ physical: move, display: displayMove, viewSig });
-        // 步数按 HTM 口径实时化简 (魔方对 180° 转发 2 个 1/4 转事件, D2 应计 1 步)
-        this.moveCount = simplifyMoves(this.userMoves).length;
-      }
+      this.recordBleMove(move, displayMove, viewSig);
       // 实时镜像 (含打乱匹配阶段: 用户按公式拧动时 3D 跟随, 拧到位即打乱目标态;
       // 首次转动经 previewPending 从预览态/起点态对齐到实物镜像轨道, 避免错位叠加)
       if (this.previewPending) {

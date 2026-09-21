@@ -618,4 +618,140 @@ async page => {
       throw new Error(`第 ${round + 1} 次重置后的首转被重复消费: ${JSON.stringify(resetStep)}`);
     }
   }
+
+  const reordered = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    const base = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const afterR = "UUFUUFUUFRRRRRRRRRFFDFFDFFDDDBDDBDDBLLLLLLLLLUBBUBBUBB";
+    vm.autoNext = false;
+    vm.z2On = false;
+    vm.observedOps = [];
+    vm.z2Marks = [];
+    vm.isManual = false;
+    vm.status = "connected";
+    vm.phase = "observing";
+    vm.predicted = base;
+    vm.userMoves = [];
+    vm.userDisplayMoves = [];
+    vm.moveCount = 0;
+    vm.previewPending = true;
+    vm.syncScene(base);
+
+    // 真机可能先上报已包含本步的权威状态，再上报同序号 MOVE。
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 41 });
+    vm.handleEvent({ type: "move", move: "R", serial: 41 });
+    vm.world.cube.twister.finish();
+    const sameSerial = {
+      predicted: vm.predicted,
+      scene: vm.world.cube.serialize(),
+      moves: vm.moveCount,
+      displayMoves: vm.userDisplayMoves.length,
+      previewPending: vm.previewPending,
+    };
+
+    // 已消费 serial=41 后迟到的 serial=40 不得把状态回拉。
+    vm.handleEvent({ type: "facelets", facelets: base, serial: 40 });
+    vm.world.cube.twister.finish();
+    const afterStale = { predicted: vm.predicted, scene: vm.world.cube.serialize() };
+
+    // 8 位序号 255→0 是向前一步，不得误判为旧事件。
+    vm.bleEventSerial = null;
+    vm.bleMoveSerial = null;
+    vm.bleAuthoritativeSerial = null;
+    vm.bleAuthoritativePhase = null;
+    vm.phase = "observing";
+    vm.predicted = base;
+    vm.userMoves = [];
+    vm.userDisplayMoves = [];
+    vm.moveCount = 0;
+    vm.previewPending = false;
+    vm.syncScene(base);
+    vm.handleEvent({ type: "facelets", facelets: base, serial: 255 });
+    vm.handleEvent({ type: "move", move: "R", serial: 0 });
+    vm.world.cube.twister.finish();
+    const wrapped = {
+      predicted: vm.predicted,
+      scene: vm.world.cube.serialize(),
+      moves: vm.moveCount,
+      displayMoves: vm.userDisplayMoves.length,
+    };
+
+    // 真机两个通知可能跨浏览器任务到达；判定回调跑过后，同序号 MOVE 仍须对账而非丢弃。
+    vm.bleEventSerial = null;
+    vm.bleMoveSerial = null;
+    vm.bleAuthoritativeSerial = null;
+    vm.bleAuthoritativePhase = null;
+    vm.bleAuthoritativePending = false;
+    vm.phase = "observing";
+    vm.predicted = base;
+    vm.userMoves = [];
+    vm.userDisplayMoves = [];
+    vm.moveCount = 0;
+    vm.previewPending = true;
+    vm.syncScene(base);
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 73 });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    vm.handleEvent({ type: "move", move: "R", serial: 73 });
+    vm.world.cube.twister.finish();
+    const delayed = {
+      predicted: vm.predicted,
+      scene: vm.world.cube.serialize(),
+      moves: vm.moveCount,
+      displayMoves: vm.userDisplayMoves.length,
+      previewPending: vm.previewPending,
+    };
+
+    // 权威状态先命中打乱终点时，同序号 MOVE 仍属于打乱阶段，不能计入还原步骤。
+    vm.bleEventSerial = null;
+    vm.bleMoveSerial = null;
+    vm.bleAuthoritativeSerial = null;
+    vm.bleAuthoritativePhase = null;
+    vm.bleAuthoritativePending = false;
+    vm.phase = "scrambling";
+    vm.scrambleTarget = afterR;
+    vm.scramblePath = [base, afterR];
+    vm.predicted = base;
+    vm.userMoves = [];
+    vm.userDisplayMoves = [];
+    vm.moveCount = 0;
+    vm.previewPending = true;
+    vm.syncScene(base);
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 91 });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    vm.handleEvent({ type: "move", move: "R", serial: 91 });
+    vm.world.cube.twister.finish();
+    const scrambleFinish = {
+      phase: vm.phase,
+      predicted: vm.predicted,
+      scene: vm.world.cube.serialize(),
+      moves: vm.moveCount,
+      displayMoves: vm.userDisplayMoves.length,
+    };
+    return { base, afterR, sameSerial, afterStale, wrapped, delayed, scrambleFinish };
+  });
+  if (
+    reordered.sameSerial.predicted !== reordered.afterR ||
+    reordered.sameSerial.scene !== reordered.afterR ||
+    reordered.sameSerial.moves !== 1 ||
+    reordered.sameSerial.displayMoves !== 1 ||
+    reordered.sameSerial.previewPending ||
+    reordered.afterStale.predicted !== reordered.afterR ||
+    reordered.afterStale.scene !== reordered.afterR ||
+    reordered.wrapped.predicted !== reordered.afterR ||
+    reordered.wrapped.scene !== reordered.afterR ||
+    reordered.wrapped.moves !== 1 ||
+    reordered.wrapped.displayMoves !== 1 ||
+    reordered.delayed.predicted !== reordered.afterR ||
+    reordered.delayed.scene !== reordered.afterR ||
+    reordered.delayed.moves !== 1 ||
+    reordered.delayed.displayMoves !== 1 ||
+    reordered.delayed.previewPending ||
+    reordered.scrambleFinish.phase !== "solving" ||
+    reordered.scrambleFinish.predicted !== reordered.afterR ||
+    reordered.scrambleFinish.scene !== reordered.afterR ||
+    reordered.scrambleFinish.moves !== 0 ||
+    reordered.scrambleFinish.displayMoves !== 0
+  ) {
+    throw new Error(`BLE 乱序/旧帧/序号回绕对账失败: ${JSON.stringify(reordered)}`);
+  }
 }
