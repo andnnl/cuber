@@ -118,7 +118,7 @@ const VIS_CENTER_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
 const VIS_SOFT_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
 const VIS_BRIGHT_MATS: { [color: string]: THREE.MeshBasicMaterial } = {};
 const VIS_GHOST_OPACITY = 0.18;
-const VIS_CENTER_OPACITY = 0.3;
+const VIS_CENTER_OPACITY = 0.8;
 // 「隐藏无关」档: 比半透明更透明, 隐约可见而非完全消失
 const VIS_SOFT_OPACITY = 0.06;
 // 塑料体 (frame) 处理: 半透明档直接 frame.visible=false (黑骨架完全隐去, 透过薄纱
@@ -280,7 +280,7 @@ export default class BleCrossTrainer extends Vue {
   // 是否显示推荐的最优解 (localStorage 持久化, 值 "1"/"0"): 关闭时不求解也不展示, 避免剧透
   showBest = true;
   // ---- 无关块可视化: 色块半透明 / 隐藏无关 (独立开关, 都开时无关块取更透明档) ----
-  // 半透明模式: 无关块淡化、中心块 30% 透明，透视背后块色，
+  // 半透明模式: 无关块淡化、中心块 80% 不透明，透视背后块色，
   // 转动落定后按当前姿态重算 (localStorage "bleVisGhost")
   visGhost = false;
   // 隐藏模式: 本轮不需要的块变得更透明 (隐约可见非消失; 中心块不淡化) (localStorage "bleVisHide")
@@ -2003,7 +2003,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 块可视化 (两个独立开关, 目标: 不转动魔方也能透视看到十字相关块与目标槽位):
-   * 「半透明」= 无关块半透明 (opacity 0.18)，6 个中心块 opacity 0.30;
+   * 「半透明」= 无关块半透明 (opacity 0.18)，6 个中心块 opacity 0.80;
    * 「隐藏无关」= 无关块更透明 (opacity 0.06, 隐约可见), 中心块不淡化;
    * 开启任一开关时: 十字所需块 (4 棱 / xcross 另加槽位棱角) 贴纸换无光照纯亮材质。
    * 核心约束: serialize→getColor 按材质身份反查色字符, 换未注册材质会得 "?" 破坏序列化
@@ -2070,7 +2070,7 @@ export default class BleCrossTrainer extends Vue {
       }
     }
     // 逐块刷材质。等级: 无关块→淡化 (hide 开取更透明档, 涵盖半透明); 所需块→高亮;
-    // 半透明模式中心块→30%; 未开启→标准色。getFace(世界面)→局部面: 块姿态任意时也能定位到正确贴纸
+    // 半透明模式中心块→80%; 未开启→标准色。getFace(世界面)→局部面: 块姿态任意时也能定位到正确贴纸
     for (let p = 0; p < 27; p++) {
       const piece = cube.cubelets[p];
       if (!piece || !piece.exist) {
