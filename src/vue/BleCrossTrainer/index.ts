@@ -345,6 +345,8 @@ export default class BleCrossTrainer extends Vue {
   /** FACELETS 先于同序号 MOVE 时暂缓判定，待 MOVE 完成计时/步骤归属后统一消费。 */
   private bleAuthoritativePending = false;
   private bleAuthoritativeTimer: any = null;
+  /** 重置/新打乱后的轮次屏障：权威 FACELETS 到达前丢弃协议层补发的上一轮 MOVE。 */
+  private bleRoundSyncPending = false;
   // 手动→蓝牙接管标记: 手动练习中连接成功后, 首个权威状态以魔方当前状态直接开轮
   // (不强制打乱匹配), 消费后复位
   private takeoverPending = false;
@@ -1143,6 +1145,25 @@ export default class BleCrossTrainer extends Vue {
     this.bleAuthoritativeSerial = null;
     this.bleAuthoritativePhase = null;
     this.bleAuthoritativePending = false;
+    this.bleRoundSyncPending = false;
+  }
+
+  /**
+   * 建立新轮 BLE 基线。GAN 在通知断档后会随下一次拨动补发历史 MOVE；这些动作的
+   * serial 虽然递增，却属于按钮点击前，不能进入新一轮动画/计步。请求全量状态并在
+   * 返回前屏蔽 MOVE，随后以 FACELETS serial 作为新的事件起点。
+   */
+  private beginBleRoundSync(): void {
+    if (this.isManual || this.status !== "connected") {
+      return;
+    }
+    this.clearAuthoritativeTimer();
+    this.bleAuthoritativePending = false;
+    this.bleRoundSyncPending = true;
+    this.link.requestFacelets().catch(() => {
+      // 写请求失败时不能永久锁死实时转动；连接层仍会靠后续周期状态自愈。
+      this.bleRoundSyncPending = false;
+    });
   }
 
   /** FACELETS 先到时给同序号 MOVE 一个事件循环的对账窗口；没有 MOVE 则照常权威判定。 */
@@ -1180,17 +1201,49 @@ export default class BleCrossTrainer extends Vue {
         this.link.requestFacelets().catch(() => undefined);
         return;
       }
-      this.onAuthoritative(valid, e.serial);
+      const roundBaseline = this.bleRoundSyncPending;
+      if (roundBaseline) {
+        this.bleRoundSyncPending = false;
+        this.clearAuthoritativeTimer();
+        this.bleAuthoritativePending = false;
+        if (e.serial === undefined) {
+          this.bleEventSerial = null;
+          this.bleMoveSerial = null;
+          this.bleAuthoritativeSerial = null;
+          this.bleAuthoritativePhase = null;
+        } else {
+          const baseline = e.serial & 0xff;
+          this.bleEventSerial = baseline;
+          this.bleMoveSerial = baseline;
+          this.bleAuthoritativeSerial = null;
+          this.bleAuthoritativePhase = null;
+        }
+      }
+      this.onAuthoritative(valid, e.serial, roundBaseline);
+      if (roundBaseline && this.phase === "scrambling") {
+        // 新打乱是在请求返回前先展示的；若期间协议补发历史导致实体基线变化，必须
+        // 用同一公式重建目标和路径，不能继续沿用旧 predicted 计算出的目标态。
+        this.prepareScramble(valid, this.scramble);
+        this.requestBest(this.scrambleTarget);
+        this.syncScene(this.scrambleTarget);
+        if (this.z2On) {
+          this.applyZ2Flip(true);
+        }
+        this.previewPending = true;
+      }
       return;
     }
     if (e.type === "move") {
+      if (this.bleRoundSyncPending) {
+        return;
+      }
       this.onMoveEvent(e.move, e.serial);
       return;
     }
   }
 
   /** 权威状态到达 (连接时全量 / 周期同步 / Mock 每步都发)。状态恒为物理帧 (raw) */
-  private onAuthoritative(raw: string, serial?: number): void {
+  private onAuthoritative(raw: string, serial?: number, suppressJudge = false): void {
     // 已收到状态帧 → MAC/加密链路正常, 关闭状态超时看门狗
     if (this.stateTimer !== null) {
       window.clearTimeout(this.stateTimer);
@@ -1219,9 +1272,13 @@ export default class BleCrossTrainer extends Vue {
     // 无任何「虚构基准态」模式): 权威帧既是丢事件自愈, 也是 3D 与实体一致的最终保证
     if (raw !== this.predicted) {
       this.predicted = raw;
-      this.syncScene(raw);
-      if (this.z2On) {
-        this.applyZ2Flip(true);
+      // 轮次基线只更新内部实体态；重置/新打乱的 3D 仍保持本轮起点预览，首个
+      // 实时 MOVE 再通过 previewPending 从该基线对齐，避免按钮点击后立即被回拉。
+      if (!suppressJudge) {
+        this.syncScene(raw);
+        if (this.z2On) {
+          this.applyZ2Flip(true);
+        }
       }
     }
     // 连接后首个 facelets 可能在 setStatus("connected") 回调前到达 (GanCubeLink.connect
@@ -1241,6 +1298,10 @@ export default class BleCrossTrainer extends Vue {
       } else {
         this.newScramble();
       }
+      this.bleAuthoritativePending = false;
+      return;
+    }
+    if (suppressJudge) {
       this.bleAuthoritativePending = false;
       return;
     }
@@ -1906,6 +1967,26 @@ export default class BleCrossTrainer extends Vue {
     const base = this.predicted ?? SOLVED_FACELETS;
     const formula = this.world.cube.twister.scrambler();
     this.scramble = formula;
+    this.prepareScramble(base, formula);
+    this.phase = "scrambling";
+    this.requestBest(this.scrambleTarget); // 勾选最优解时打乱等待期即预求解 (相对本轮打乱态固定)
+    this.moveCount = 0;
+    this.running = false;
+    this.elapsedText = "";
+    // 点击即直接显示打乱最终态 (瞬时, 不逐步播放动画); 实物照公式拧,
+    // 拧到一致自动开始计时。打乱期间 3D 实时跟随转动 (previewPending 首转
+    // 从预览态切换到实物镜像轨道), 拧到位时镜像恰好为打乱目标态
+    this.syncScene(this.scrambleTarget);
+    if (this.z2On) {
+      this.applyZ2Flip(true);
+    }
+    this.previewPending = true;
+    this.statusText = "已显示打乱态: 照公式拧实物, 拧到一致后自动开始计时";
+    this.beginBleRoundSync();
+  }
+
+  /** 按指定实体基线构造打乱目标及逐步路径；轮次权威基线刷新时复用同一公式重建。 */
+  private prepareScramble(base: string, formula: string): void {
     this.scrambleTarget = applyFormulaFrom(base, formula);
     // 预计算公式路径态 (判定区分「按公式打乱」与「随手转动」, 见 judge scrambling 分支)
     this.scramblePath = [base];
@@ -1923,20 +2004,6 @@ export default class BleCrossTrainer extends Vue {
       pathCur = nxt;
       this.scramblePath.push(pathCur);
     }
-    this.phase = "scrambling";
-    this.requestBest(this.scrambleTarget); // 勾选最优解时打乱等待期即预求解 (相对本轮打乱态固定)
-    this.moveCount = 0;
-    this.running = false;
-    this.elapsedText = "";
-    // 点击即直接显示打乱最终态 (瞬时, 不逐步播放动画); 实物照公式拧,
-    // 拧到一致自动开始计时。打乱期间 3D 实时跟随转动 (previewPending 首转
-    // 从预览态切换到实物镜像轨道), 拧到位时镜像恰好为打乱目标态
-    this.syncScene(this.scrambleTarget);
-    if (this.z2On) {
-      this.applyZ2Flip(true);
-    }
-    this.previewPending = true;
-    this.statusText = "已显示打乱态: 照公式拧实物, 拧到一致后自动开始计时";
   }
 
   /** 重置本轮 (三模式统一): 计时/步数清零重新观察, 3D 回本轮基准态 (solveBaseState,
@@ -2049,8 +2116,7 @@ export default class BleCrossTrainer extends Vue {
     this.needBreak = this.isTargetCrossDone(this.predicted || SOLVED_FACELETS);
     this.statusText =
       "已重置回本轮基准态: 3D 显示打乱态, 转动即时从实物姿态继续镜像 (首次转动开始计时)";
-    // 不主动 requestFacelets: predicted 恒跟踪实体 (转动事件推演 + 周期权威帧校正自愈),
-    // 主动请求的迟到快照会与在飞转动事件竞争 (重置→立即转动→旧快照回拉 3D 的时序 bug)
+    this.beginBleRoundSync();
   }
 
   /** 蓝牙断开自动回落手动 (三模式统一: 会话不丢): 3D 回本轮起点态, 计时/步数清零,
@@ -2322,6 +2388,7 @@ export default class BleCrossTrainer extends Vue {
     // 3D 保持打乱目标态不重绘; 首次拧动经 previewPending 从实物拧动前态对齐镜像轨道
     this.previewPending = true;
     this.statusText = "已按打乱态开始: 把实物拧到 3D 显示的状态 (或直接还原十字), 判定以实物为准";
+    this.beginBleRoundSync();
   }
 
   /** 自动下轮: 生成新打乱公式开新一轮 (等同自动点「新打乱」)——3D 显示打乱目标态,

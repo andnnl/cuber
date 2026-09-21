@@ -754,4 +754,127 @@ async page => {
   ) {
     throw new Error(`BLE 乱序/旧帧/序号回绕对账失败: ${JSON.stringify(reordered)}`);
   }
+
+  const roundBoundary = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const base = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const afterR = "UUFUUFUUFRRRRRRRRRFFDFFDFFDDDBDDBDDBLLLLLLLLLUBBUBBUBB";
+    const afterRUF = "UUUUUULLDFBBFRRFRRFFRFFRDDRRRUDDBDDBFFDLLDLLBLLLUBBUBB";
+    const actualFirst = "BUUBUULLDFBBFRRFRRUFRUFRLDRFRUFDBDDBLLFLLFBDDLLDUBDUBR";
+    vm.autoNext = false;
+    vm.z2On = false;
+    vm.observedOps = [];
+    vm.z2Marks = [];
+    vm.isManual = false;
+    vm.status = "connected";
+    vm.phase = "solving";
+    vm.solveBaseState = base;
+    vm.solveBaseScreenFrame = false;
+    vm.predicted = afterR;
+    vm.userMoves = ["R"];
+    vm.userDisplayMoves = [{ physical: "R", display: "R", viewSig: "[]" }];
+    vm.moveCount = 1;
+    vm.bleEventSerial = 100;
+    vm.bleMoveSerial = 100;
+    vm.bleAuthoritativeSerial = 100;
+    vm.syncScene(afterR);
+
+    vm.resetRound();
+    const preview = vm.world.cube.serialize();
+
+    // 真机在重置边界可能随下一通知补发按钮点击前的历史 MOVE；基线 FACELETS
+    // 到达前不得把这些动作当成新一轮首步播放或计数。
+    vm.handleEvent({ type: "move", move: "U", serial: 101 });
+    vm.handleEvent({ type: "move", move: "F", serial: 102 });
+    vm.world.cube.twister.finish();
+    const beforeBaseline = {
+      scene: vm.world.cube.serialize(),
+      moves: vm.moveCount,
+      displayMoves: vm.userDisplayMoves.length,
+      phase: vm.phase,
+    };
+
+    // 权威帧确认按钮点击时的实体基线（已包含补发历史）。Gen2/Gen3/Gen4 协议层
+    // 仍可能在下一通知里把基线前的 MOVE 再补发一次，序号不超过基线的都须丢弃。
+    vm.handleEvent({ type: "facelets", facelets: afterRUF, serial: 102 });
+    const baseline = {
+      predicted: vm.predicted,
+      scene: vm.world.cube.serialize(),
+      moves: vm.moveCount,
+      phase: vm.phase,
+    };
+    vm.handleEvent({ type: "move", move: "U", serial: 101 });
+    vm.handleEvent({ type: "move", move: "F", serial: 102 });
+    vm.handleEvent({ type: "move", move: "L", serial: 103 });
+    vm.handleEvent({ type: "facelets", facelets: actualFirst, serial: 103 });
+    vm.world.cube.twister.finish();
+    return {
+      base,
+      preview,
+      beforeBaseline,
+      baseline,
+      predicted: vm.predicted,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      actualFirst,
+      moves: vm.moveCount,
+      displayMoves: vm.userDisplayMoves.length,
+      phase: vm.phase,
+    };
+  });
+  if (
+    roundBoundary.preview !== roundBoundary.base ||
+    roundBoundary.beforeBaseline.scene !== roundBoundary.preview ||
+    roundBoundary.beforeBaseline.moves !== 0 ||
+    roundBoundary.beforeBaseline.displayMoves !== 0 ||
+    roundBoundary.beforeBaseline.phase !== "observing" ||
+    roundBoundary.baseline.predicted !== "UUUUUULLDFBBFRRFRRFFRFFRDDRRRUDDBDDBFFDLLDLLBLLLUBBUBB" ||
+    roundBoundary.baseline.scene !== roundBoundary.preview ||
+    roundBoundary.baseline.moves !== 0 ||
+    roundBoundary.baseline.phase !== "observing" ||
+    roundBoundary.predicted !== roundBoundary.actualFirst ||
+    roundBoundary.scene !== roundBoundary.actualFirst ||
+    roundBoundary.moves !== 1 ||
+    roundBoundary.displayMoves !== 1 ||
+    roundBoundary.phase !== "solving"
+  ) {
+    throw new Error(`BLE 重置边界的补发历史污染新一轮: ${JSON.stringify(roundBoundary)}`);
+  }
+
+  const scrambleBoundary = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const base = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const afterR = "UUFUUFUUFRRRRRRRRRFFDFFDFFDDDBDDBDDBLLLLLLLLLUBBUBBUBB";
+    vm.autoNext = false;
+    vm.showBest = false;
+    vm.z2On = false;
+    vm.isManual = false;
+    vm.status = "connected";
+    vm.phase = "observing";
+    vm.predicted = base;
+    vm.bleEventSerial = 120;
+    vm.bleMoveSerial = 120;
+    vm.bleAuthoritativeSerial = 120;
+    vm.newScramble();
+    vm.handleEvent({ type: "move", move: "R", serial: 121 });
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 121 });
+    vm.world.cube.twister.finish();
+    return {
+      predicted: vm.predicted,
+      pathBase: vm.scramblePath[0],
+      pathTarget: vm.scramblePath[vm.scramblePath.length - 1],
+      target: vm.scrambleTarget,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      moves: vm.moveCount,
+      phase: vm.phase,
+    };
+  });
+  if (
+    scrambleBoundary.predicted !== scrambleBoundary.pathBase ||
+    scrambleBoundary.pathTarget !== scrambleBoundary.target ||
+    scrambleBoundary.scene !== scrambleBoundary.target ||
+    scrambleBoundary.moves !== 0 ||
+    scrambleBoundary.phase !== "scrambling"
+  ) {
+    throw new Error(`BLE 新打乱边界没有按权威基线重建: ${JSON.stringify(scrambleBoundary)}`);
+  }
 }
