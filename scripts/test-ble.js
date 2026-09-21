@@ -253,10 +253,13 @@ async function main() {
     const formula = "R U R' U2 F' L D2 B";
     transport.applyFormula(formula);
     await flush();
-    const moves = events.filter((e) => e.type === "move").map((e) => e.move);
+    const moveEvents = events.filter((e) => e.type === "move");
+    const moves = moveEvents.map((e) => e.move);
     assert.deepStrictEqual(moves, ["R", "U", "R'", "U", "U", "F'", "L", "D", "D", "B"]);
+    assert.strictEqual(moveEvents[0].serial, 1, "MOVE 应保留 GAN 事件序号");
     const lastFacelets = [...events].reverse().find((e) => e.type === "facelets");
     assert.strictEqual(lastFacelets.facelets, moveDiff.applyFormula(formula));
+    assert.strictEqual(lastFacelets.serial, 10, "FACELETS 应保留 GAN 事件序号");
   });
 
   await test("电量/硬件命令响应", async () => {

@@ -188,9 +188,9 @@ export class GanCubeLink {
 function toLinkEvent(e: GanCubeEvent): LinkEvent | null {
   switch (e.type) {
     case "FACELETS":
-      return { type: "facelets", facelets: e.facelets };
+      return { type: "facelets", facelets: e.facelets, serial: e.serial };
     case "MOVE":
-      return { type: "move", move: e.move };
+      return { type: "move", move: e.move, serial: e.serial };
     case "BATTERY":
       return { type: "battery", level: e.batteryLevel };
     case "HARDWARE":

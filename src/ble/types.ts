@@ -4,8 +4,8 @@
 
 /** 魔方事件 (已解码, 面序为项目 serialize 同款 URFDLB×9 布局) */
 export type LinkEvent =
-  | { type: "facelets"; facelets: string }
-  | { type: "move"; move: string }
+  | { type: "facelets"; facelets: string; serial?: number }
+  | { type: "move"; move: string; serial?: number }
   | { type: "battery"; level: number }
   | { type: "hardware"; name?: string; softwareVersion?: string };
 
