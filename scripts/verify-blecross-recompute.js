@@ -634,6 +634,7 @@ async page => {
       vm.status = "connected";
       vm.phase = "observing";
       vm.predicted = base;
+      vm.solveBaseState = "";
       vm.moveCount = 0;
       vm.userSolution = "";
       vm.bleEventSerial = serial;
@@ -857,9 +858,12 @@ async page => {
       predicted: vm.predicted,
       scene: vm.mapStateForJudge(vm.world.cube.serialize()),
     };
+    const newScramble = vm.newScramble.bind(vm);
+    vm.newScramble = () => {};
     vm.onLinkStatus("connected");
     vm.handleEvent({ type: "facelets", facelets: afterR, serial: 41 });
     vm.world.cube.twister.finish();
+    vm.newScramble = newScramble;
     return {
       afterR,
       beforeConnected,
@@ -888,6 +892,7 @@ async page => {
     vm.status = "connected";
     vm.phase = "solving";
     vm.predicted = base;
+    vm.solveBaseState = "";
     vm.baseOps = [];
     vm.observedOps = [];
     vm.z2Marks = [];
@@ -920,5 +925,108 @@ async page => {
     authoritativeViewHeal.after.shownR !== authoritativeViewHeal.before.shownR
   ) {
     throw new Error(`BLE 权威自愈丢失完整视角: ${JSON.stringify(authoritativeViewHeal)}`);
+  }
+
+  const bleRoundVisualReset = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    const base = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const afterR = "UUFUUFUUFRRRRRRRRRFFDFFDFFDDDBDDBDDBLLLLLLLLLUBBUBBUBB";
+    const afterRU = "UUUUUUFFFUBBRRRRRRRRRFFDFFDDDBDDBDDBFFDLLLLLLLLLUBBUBB";
+    const requestFacelets = vm.link.requestFacelets.bind(vm.link);
+    const scrambler = vm.world.cube.twister.scrambler.bind(vm.world.cube.twister);
+    vm.link.requestFacelets = async () => {};
+    vm.autoNext = false;
+    vm.isManual = false;
+    vm.status = "connected";
+    vm.phase = "observing";
+    vm.predicted = base;
+    vm.z2On = false;
+    vm.baseOps = [];
+    vm.observedOps = [];
+    vm.z2Marks = [];
+    vm.bleEventSerial = 70;
+    vm.bleMoveSerial = 70;
+    vm.bleAuthoritativeSerial = 70;
+    vm.bleSessionBaselinePending = false;
+    vm.syncScene(base);
+    vm.rotateWholeY(1);
+    vm.world.cube.twister.finish();
+    const viewBeforeNew = JSON.stringify(vm.effectiveViewOps());
+
+    vm.world.cube.twister.scrambler = () => "R";
+    vm.newScramble();
+    vm.world.cube.twister.finish();
+    const afterNew = {
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      target: vm.scrambleTarget,
+      history: vm.world.cube.history.moves,
+      view: JSON.stringify(vm.effectiveViewOps()),
+    };
+
+    vm.bleRoundSyncPending = false;
+    vm.handleEvent({ type: "move", move: "U", serial: 71, recovered: false });
+    vm.world.cube.twister.finish();
+    const afterBleMove = {
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      history: vm.world.cube.history.moves,
+    };
+
+    vm.resetRound();
+    vm.world.cube.twister.finish();
+    const afterReset = {
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      history: vm.world.cube.history.moves,
+      moves: vm.moveCount,
+      view: JSON.stringify(vm.effectiveViewOps()),
+    };
+
+    vm.rebasing = true;
+    vm.syncScene(base);
+    vm.world.cube.twister.setup("F");
+    const afterF = vm.world.cube.serialize();
+    vm.syncScene(base);
+    vm.rebasing = false;
+    vm.predicted = base;
+    vm.phase = "success";
+    vm.world.cube.twister.scrambler = () => "F";
+    vm.nextRoundDirect();
+    vm.world.cube.twister.finish();
+    const afterAutoNext = {
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      target: vm.scrambleTarget,
+      history: vm.world.cube.history.moves,
+    };
+    // 新轮 FACELETS 与实体账本存在漂移时，只能校正实体账本/事件序号；旧的延迟
+    // baseline heal 不得在 160ms 后把虚拟打乱画面覆盖回实体状态。
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 80 });
+    await new Promise(resolve => setTimeout(resolve, 220));
+    vm.world.cube.twister.finish();
+    const afterAuthoritative = {
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      predicted: vm.predicted,
+    };
+
+    vm.link.requestFacelets = requestFacelets;
+    vm.world.cube.twister.scrambler = scrambler;
+    return { afterR, afterRU, afterF, viewBeforeNew, afterNew, afterBleMove, afterReset, afterAutoNext, afterAuthoritative };
+  });
+  if (
+    bleRoundVisualReset.afterNew.scene !== bleRoundVisualReset.afterR ||
+    bleRoundVisualReset.afterNew.target !== bleRoundVisualReset.afterR ||
+    bleRoundVisualReset.afterNew.history !== 0 ||
+    bleRoundVisualReset.afterNew.view !== bleRoundVisualReset.viewBeforeNew ||
+    bleRoundVisualReset.afterBleMove.scene !== bleRoundVisualReset.afterRU ||
+    bleRoundVisualReset.afterBleMove.history !== 1 ||
+    bleRoundVisualReset.afterReset.scene !== bleRoundVisualReset.afterR ||
+    bleRoundVisualReset.afterReset.history !== 0 ||
+    bleRoundVisualReset.afterReset.moves !== 0 ||
+    bleRoundVisualReset.afterReset.view !== bleRoundVisualReset.viewBeforeNew ||
+    bleRoundVisualReset.afterAutoNext.scene !== bleRoundVisualReset.afterF ||
+    bleRoundVisualReset.afterAutoNext.target !== bleRoundVisualReset.afterF ||
+    bleRoundVisualReset.afterAutoNext.history !== 0 ||
+    bleRoundVisualReset.afterAuthoritative.scene !== bleRoundVisualReset.afterF ||
+    bleRoundVisualReset.afterAuthoritative.predicted !== bleRoundVisualReset.afterR
+  ) {
+    throw new Error(`BLE 新打乱/重置没有与手动路径统一: ${JSON.stringify(bleRoundVisualReset)}`);
   }
 }
