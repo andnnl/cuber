@@ -78,6 +78,56 @@ async page => {
     throw new Error(`BLE Cross 非法背景没有回退白色: ${JSON.stringify(invalidBackground)}`);
   }
 
+  const observationRecords = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const realNow = Date.now;
+    const saveRecords = vm.saveRecords.bind(vm);
+    vm.records = [];
+    vm.recLimit = 20;
+    vm.saveRecords = () => {};
+    try {
+      Date.now = () => 15000;
+      vm.isManual = false;
+      vm.observeStart = 10000;
+      vm.solveStart = 12500;
+      vm.recordTrain(true);
+
+      Date.now = () => 25000;
+      vm.isManual = true;
+      vm.observeStart = 20000;
+      vm.solveStart = 22000;
+      vm.recordTrain(true);
+
+      Date.now = () => 30000;
+      vm.observeStart = 0;
+      vm.solveStart = 0;
+      vm.recordTrain(false);
+
+      return {
+        bluetoothObs: vm.records[2].obs,
+        manualObs: vm.records[1].obs,
+        missingObs: vm.records[0].obs,
+        formattedBluetooth: vm.fmtRecSec(vm.records[2].obs),
+        formattedMissing: vm.fmtRecSec(vm.records[0].obs),
+        avgObs: vm.recStats.avgObs,
+      };
+    } finally {
+      Date.now = realNow;
+      vm.saveRecords = saveRecords;
+      vm.records = [];
+    }
+  });
+  if (
+    observationRecords.bluetoothObs !== 2.5 ||
+    observationRecords.manualObs !== 2 ||
+    observationRecords.missingObs !== null ||
+    observationRecords.formattedBluetooth !== "2.5s" ||
+    observationRecords.formattedMissing !== "-" ||
+    observationRecords.avgObs !== "2.3s"
+  ) {
+    throw new Error(`训练记录观察用时异常: ${JSON.stringify(observationRecords)}`);
+  }
+
   const centerGhost = await page.evaluate(() => {
     const vm = window.__bleCross;
     const centers = [4, 10, 12, 14, 16, 22];

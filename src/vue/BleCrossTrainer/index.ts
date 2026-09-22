@@ -44,7 +44,7 @@ function slotToPhysical(slot: string): string {
 // stick 即可把 3D 场景设置为任意 54 串状态 (蓝牙魔方接入时镜像用)。
 
 /** 一轮训练记录: t=时间戳, mode=练习模式, ok=是否成功;
- * obs=观察用时秒 (手动模式, 蓝牙 null), solve=还原用时秒 (放弃=当时已用时, 无 null);
+ * obs=观察用时秒 (无观察阶段为 null), solve=还原用时秒 (放弃=当时已用时, 无 null);
  * best=最优解步数 (-1 无), steps=用户实际步数 (HTM 口径) */
 type TrainRecord = {
   t: number;
@@ -309,7 +309,7 @@ export default class BleCrossTrainer extends Vue {
   elapsedText = "";
   private timerTick: any = null;
   private resultTimer: any = null;
-  // 手动练习: 观察用时与还原用时分开计 (observing 起点 / 首次转动起点)
+  // 观察用时与还原用时分开计 (observing 起点 / 首次转动起点)
   observeStart = 0;
   solveStart = 0;
   // 完成后展示: 观察用时 (蓝牙模式为空不显示)
@@ -2509,14 +2509,15 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 结算一轮: 判定成功或 solving 放弃时记录 (最新在前, 上限截断)。
-   * obs=观察用时 (手动模式, 蓝牙无观察计时记 null); solve=还原用时 (放弃=当时已用时);
+   * obs=观察用时 (无观察阶段记 null); solve=还原用时 (放弃=当时已用时);
    * best=最优解步数 (未就绪 -1); steps=用户实际步数 (HTM 化简口径) */
   private recordTrain(ok: boolean): void {
+    const observed = this.observeStart > 0 && this.solveStart >= this.observeStart;
     const rec: TrainRecord = {
       t: Date.now(),
       mode: this.trainMode,
       ok,
-      obs: this.isManual && this.observeStart && this.solveStart ? (this.solveStart - this.observeStart) / 1000 : null,
+      obs: observed ? (this.solveStart - this.observeStart) / 1000 : null,
       solve: this.solveStart ? (Date.now() - this.solveStart) / 1000 : null,
       best: this.bestReady && this.bestSolution ? this.bestMovesOf(this.bestSolution).length : -1,
       steps: this.moveCount,
