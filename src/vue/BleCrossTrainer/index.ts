@@ -246,7 +246,7 @@ export default class BleCrossTrainer extends Vue {
   private scanCbRegistered = false;
 
   // ---- 训练状态机: disconnected → ready → observing → solving → success (→ observing) ----
-  // 打乱后统一进入 observing (目标态预览): 首次层转 (实体拧动或鼠标) 才进入 solving 计时
+  // 打乱后统一进入 observing: 首次层转 (实体拧动或鼠标) 才进入 solving 计时
   phase: "disconnected" | "ready" | "observing" | "solving" | "success" = "disconnected";
   // 练习模式: cross = 只还原十字; xcross = 十字 + 任一 F2L 槽位 (localStorage "bleTrainMode")
   trainMode: "cross" | "xcross" = "cross";
@@ -279,10 +279,6 @@ export default class BleCrossTrainer extends Vue {
   // 起始态十字已完成时置位 (自动下轮直接开始/完成态跳过): 须先观察到十字被拆散,
   // 成功判定才生效, 防止尚未打乱就再次误判成功
   private needBreak = false;
-  // 打乱目标态预览中 (新打乱/重置后): 3D 显示打乱目标态 (与实体当前态无关的预览画面)。
-  // 第一次实体拧动时「预览交接」: 3D 对齐到实体拧动前态再叠加镜像 (照公式拧=画面汇合到
-  // 打乱目标态); 鼠标拧动则直接在预览画面上叠加 (照画面复原十字即判成功)。层转落定后清零
-  private previewPending = false;
   // 成功/失败计数: 完成 +1, solving 中点「新打乱」放弃本轮算失败 +1
   successCount = 0;
   failCount = 0;
@@ -1143,7 +1139,7 @@ export default class BleCrossTrainer extends Vue {
       this.onAuthoritative(valid, e.serial, roundBaseline);
       if (roundBaseline && this.scramble && (this.phase === "observing" || this.phase === "solving")) {
         // 轮次基线刷新: 守卫按实体基线重算 (实体停在十字完成态须先拆散才判成功)。
-        // 不再平移重建打乱目标: 统一模型判定恒按画面 (不与存储目标比对), 预览交接
+        // 不再平移重建打乱目标: 统一模型判定恒按画面 (不与存储目标比对), 画面恒镜像
         // 首转对齐实体前态后画面自然汇合; 平移反而破坏「重置基准/最优解不变」契约
         this.needBreak = this.isTargetCrossDone(valid);
       }
@@ -1186,7 +1182,7 @@ export default class BleCrossTrainer extends Vue {
     // 与推演不符 (丢事件/被外力转动): 校正实体跟踪。3D 是否整幅对齐分两种:
     // - 实体静止 >2.5s (无在飞动画/无新步竞争): 快照必然新鲜 → 3D 对齐实体 (自愈) 并按画面判一次
     // - 转动中 / 轮次基线 (suppressJudge) / 连接开轮前: 仅校正推演不重绘 —— 转动中的画面
-    //   由镜像动画跟进, 轮次基线时 3D 保持打乱目标态预览 (首次拧动再交接), 避免点击后被回拉
+    //   由镜像动画跟进 (3D 恒镜像实体轨道, 自愈重绘也是对齐实体, 无预览概念)
     if (raw !== this.predicted) {
       const connectPending = this.status === "connected" && (this.phase === "ready" || this.phase === "disconnected");
       const heal = !suppressJudge && idle > 2500 && !connectPending;
@@ -1249,9 +1245,8 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 物理转动事件: 蓝牙拧动 = 「机械手」, 与鼠标拧 3D 完全同路径 (统一模型)。
-   * predicted 仅作实体跟踪 (AUTH 自愈用, 不做判定源); 预览交接 (previewPending) 时
-   * 3D 先整幅对齐实体拧动前态再叠加本步镜像 —— 画面从实体真实起点出发, 照公式拧=
-   * 画面汇合到打乱目标态; 判定不在此处, 由镜像落定回调 onManualTwist 统一按画面执行 */
+   * predicted 仅作实体跟踪 (AUTH 自愈用, 不做判定源); 3D 恒镜像实体轨道, 拧动恒在
+   * 当前画面上平滑叠加镜像; 判定不在此处, 由镜像落定回调 onManualTwist 统一按画面执行 */
   private onMoveEvent(move: string, serial?: number): void {
     this.lastBleMoveAt = Date.now();
     let coveredByAuthoritative = false;
@@ -1277,7 +1272,7 @@ export default class BleCrossTrainer extends Vue {
     }
     console.log(
       `[BT] MOVE ${move} s=${serial === undefined ? "-" : serial & 0xff} rel=${rel} cov=${coveredByAuthoritative ? 1 : 0} ` +
-        `ph=${this.phase} pp=${this.previewPending ? 1 : 0} pred=${this.predicted}`
+        `ph=${this.phase} pred=${this.predicted}`
     );
     if (this.calibStep >= 0) {
       // 校准流程: 状态推演照常维护 (转层真实发生了), 但只记录上报记号, 不参与判定
@@ -1324,19 +1319,8 @@ export default class BleCrossTrainer extends Vue {
           ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
           : "十字进行中: 还原" + this.crossTargetText();
     }
-    // 预览交接: 新打乱/重置后 3D 显示打乱目标态 (预览), 首次实体拧动时整幅对齐实体
-    // 拧动前态再叠加镜像 (画面=实体起点, 照公式拧=画面汇合到打乱目标态)。鼠标先动过
-    // (层转落定已清 previewPending) 则不重绘, 保持画面连续直接叠加 (判定恒按画面)
-    if (this.previewPending && prev) {
-      this.previewPending = false;
-      this.syncScene(prev, "align");
-      if (this.z2On) {
-        this.applyZ2Flip(true);
-      }
-      this.observedOps = [];
-      this.z2Marks = this.z2On ? [0] : [];
-      console.log(`[BT] ALIGN 预览交接: 3D ← 实体前态 + ${displayMove}`);
-    }
+    // 3D 恒镜像实体轨道: 画面无预览/交接概念 (真机实证 2026-09-22: 预览交接首拧瞬移
+    // =「错乱」根因), 实体拧动恒在当前画面上平滑叠加镜像
     if (prev) {
       this.mirrorPush(displayMove);
     } else {
@@ -1477,8 +1461,6 @@ export default class BleCrossTrainer extends Vue {
     if (this.phase !== "solving") {
       return;
     }
-    // 层转落定: 预览期结束 (此后画面跟随输入连续叠加, 不再整幅对齐)
-    this.previewPending = false;
     // history 自动合并相邻同面 (R,R→R2 / R,R'→抵消), moves 排除整体转, 即 HTM 口径;
     // 两输入源同池, 解法展示过滤整体转记号 (蓝牙镜像步已是屏幕记号, 展示原样)
     this.moveCount = cube.history.moves;
@@ -1819,10 +1801,12 @@ export default class BleCrossTrainer extends Vue {
     this.scrambleTarget = applyFormulaFrom(base, formula);
     console.log(`[BT] SCRAMBLE base=${base} formula="${formula}" target=${this.scrambleTarget}`);
     // 蓝牙轮次无手动基准持握: 清掉手动遗留 (observedOps=旧 baseOps⊕history),
-    // 防 displayMove 换名错位 (链与画面必须配套重建)
+    // 防 displayMove 换名错位 (链与画面必须配套重建)。history 同步清零: 已拧步骤/
+    // 解法从本轮零起累计 (上轮旧账不带入), toggleZ2 链重建源 (history 整体转) 亦干净
     this.baseOps = [];
     this.observedOps = [];
     this.z2Marks = this.z2On ? [0] : [];
+    this.world.cube.history.clear();
     this.moveCount = 0;
     this.userSolution = "";
     this.completedSlots = [];
@@ -1834,26 +1818,22 @@ export default class BleCrossTrainer extends Vue {
     this.solveBaseState = this.scrambleTarget;
     this.solveBaseScreenFrame = false;
     this.running = true; // 驱动观察计时显示
-    // 点击即直接显示打乱最终态并立即开轮 (用户定义 2026-09-22: 「打乱好就是已经
-    // 开新一轮的状态」): 3D 显示打乱目标态预览, 首次实体拧动时预览交接对齐实体前态
-    // (照公式拧=画面汇合到目标态); 鼠标直接在预览画面叠加复原 (判定均按画面十字)
-    this.syncScene(this.scrambleTarget, "scramble");
-    if (this.z2On) {
-      this.applyZ2Flip(true);
-    }
-    this.previewPending = true;
+    // 3D 恒镜像实体轨道 (真机实证 2026-09-22: 旧「新打乱重绘打乱目标态+首拧预览交接
+    // 对齐实体前态」= 画面凭空瞬移, 用户观感「错乱」—— 3D 单轨道无法同时显示两个
+    // 无关姿态, 任何切换都是跳变)。打乱目标只存在于公式文本, 照公式拧实物时画面
+    // 自然汇合到目标态; 鼠标直接在当前画面叠加复原 (判定均按画面十字)
     this.bestRotationSig = JSON.stringify(this.observedOps);
     // 守卫按实体基线: 上轮复原后实体停在十字完成态, 不拆散不得判成功
     // (真机实证 2026-09-22: 开轮瞬间 0 步误判成功 → 自动下轮无限循环)
     this.needBreak = this.isTargetCrossDone(base);
     this.requestBest(this.scrambleTarget); // 对打乱目标态预求最优解 (相对本轮打乱态固定)
-    this.statusText = "已开轮: 照公式拧实物或直接复原十字均可, 判定以画面为准 (首次转动开始计时)";
+    this.statusText = "已开轮: 照公式拧实物 (画面汇合到打乱态) 或直接复原十字均可, 首次转动开始计时";
     this.beginBleRoundSync();
   }
 
-  /** 重置本轮 (三模式统一): 计时/步数清零重新观察, 3D 回本轮基准态 (solveBaseState,
-   * 与最优解基准一致, 重置不重算最优解)。手动=打乱重放态; 蓝牙=基准态原样显示,
-   * 与实体当前态的差异由 previewPending 首转对齐消化, 判定守卫 needBreak 按实体计算 */
+  /** 重置本轮 (三模式统一): 计时/步数清零重新观察。手动=3D 回本轮基准态 (打乱重放,
+   * 与最优解基准一致, 重置不重算最优解); 蓝牙=3D 恒镜像实体轨道不重绘 (与实体不一致
+   * 的虚拟画面=跳变错乱源), 守卫 needBreak 按实体计算 */
   resetRound(): void {
     console.log(
       `[BT] RESET 点击 ph=${this.phase} manual=${this.isManual} pred=${this.predicted} base=${this.solveBaseState} z2On=${this.z2On}`
@@ -1903,26 +1883,21 @@ export default class BleCrossTrainer extends Vue {
       this.rebasing = false;
       this.solveBaseState = this.world.cube.serialize();
     }
-    // 蓝牙: 3D 回基准态 (solveBaseState, 与最优解基准一致, 重置不重算) —— 用户要求
-    // 重置=回本轮起点。基准态与实体当前态可能不同 (随手拨后重置): 首次实体拧动经
-    // previewPending 预览交接整幅对齐实体前态, 判定恒按画面 (与手动同路径)。
-    // 手动: 上方重放后基准=当前屏幕帧, base 即本轮起点
+    // 手动: 上方重放后基准=当前屏幕帧, base 即本轮起点 (回起点重放)
+    // 蓝牙: base 仅作 roundSync/守卫参考, 3D 不重绘 (恒镜像实体轨道)
+    // 手动 (含蓝牙回落): 3D 回本轮起点 = 公式框完整公式对应的打乱态 (用户定义的重置
+    // 语义)。syncScene 内清空 history, 手动计数干净。手动基准态为屏幕帧 (newScramble
+    // 已含 z2 翻转+基准持握, stick 绝对重现, 勿再重放 z2 否则双重翻转)
+    // 蓝牙在线: 3D 恒镜像实体轨道, 重置不重绘画面 (与实体不一致的虚拟画面=跳变错乱源,
+    // 真机实证 2026-09-22), 仅计时/步数清零重新观察
     const base = this.solveBaseState;
     this.moveCount = 0;
     this.userSolution = "";
     this.completedSlots = [];
     this.elapsedText = "";
     this.observeText = "";
-    if (base) {
-      // 3D 回本轮起点 = 公式框完整公式对应的打乱态 (用户定义的重置语义, 2026-09-22)。
-      // syncScene 内清空 history, 手动计数干净。手动基准态为屏幕帧 (newScramble 已含
-      // z2 翻转+基准持握, stick 绝对重现, 勿再重放 z2 否则双重翻转); 蓝牙基准态为
-      // 物理帧, 需重放 z2 翻转显示。实体与画面起点可能不同 (随手拨后重置): 判定源
-      // =3D 落定画面 (onManualTwist 落定回调), 照画面复原十字即判成功, 无幻影问题
+    if (base && this.isManual) {
       this.syncScene(base, "reset");
-      if (this.z2On && !this.solveBaseScreenFrame) {
-        this.applyZ2Flip(true);
-      }
     }
     this.running = true;
     if (this.isManual) {
@@ -1947,26 +1922,25 @@ export default class BleCrossTrainer extends Vue {
       this.statusText = "已重置回打乱态: 可整体转动观察, 首次转动开始还原计时";
       return;
     }
-    // 观察态重开 (蓝牙重置统一): 首次转动才开始还原计时, 与轮首约定一致
+    // 观察态重开 (蓝牙重置统一): 首次转动才开始还原计时, 与轮首约定一致。
+    // 3D 未重绘 (恒镜像实体轨道)。已拧步骤/解法清零 = 清 history: 先把链整体转固化进
+    // baseOps (syncObservedOps 重建源), 否则下次 toggleZ2 重建丢本轮视角; 层转旧账
+    // 随 history 清零, 后续步数/解法从本轮零起累计
+    this.syncObservedOps();
+    this.baseOps = [...this.observedOps];
+    this.world.cube.history.clear();
     this.observeStart = Date.now();
     this.solveStart = 0;
     this.phase = "observing";
-    // 蓝牙路径 (手动分支已在上方 syncObservedOps 重建链): 3D 已由 syncScene 回基准态
-    // 姿态, 链同步重建 (baseOps 清空) 防 displayMove 换名错位
-    this.baseOps = [];
-    this.observedOps = [];
-    this.z2Marks = this.z2On ? [0] : [];
-    this.bestRotationSig = JSON.stringify(this.observedOps);
-    this.previewPending = true;
-    // 成功判定守卫按实体当前态 (predicted) 重设, 非显示的基准态: 实体停在十字完成态
+    // 成功判定守卫按实体当前态 (predicted) 重设, 非显示画面: 实体停在十字完成态
     // (如 success 窗内重置) 须先拆散才判成功; 首转时 onMoveEvent 再按起始态重算一次,
     // 防 predicted 在重置与首转之间被权威帧校正后过期
     this.needBreak = this.isTargetCrossDone(this.predicted || SOLVED_FACELETS);
     console.log(
-      `[BT] RESET 蓝牙尾: 3D←base ph=observing pp=1 needBreak=${this.needBreak ? 1 : 0} pred=${this.predicted}`
+      `[BT] RESET 蓝牙尾: 3D 保持实体轨道 ph=observing needBreak=${this.needBreak ? 1 : 0} pred=${this.predicted}`
     );
     this.statusText =
-      "已重置回打乱态: 照 3D 画面还原十字 (判定以画面为准, 首次转动开始计时)";
+      "已重置: 计时/步数清零, 3D 恒镜像实体; 照公式拧实物 (画面汇合到打乱态) 或直接复原十字均可";
     this.beginBleRoundSync();
   }
 
@@ -2273,8 +2247,8 @@ export default class BleCrossTrainer extends Vue {
     if (this.status !== "connected" || !this.isMock) {
       return;
     }
-    this.newScramble(); // 直接开轮: 3D 显示打乱目标态预览 (观察态)
-    this.link.mockApplyFormula(this.scramble); // 实体打乱 → 首步触发预览交接, 画面汇合到目标态
+    this.newScramble(); // 直接开轮 (观察态); 3D 恒镜像实体轨道不重绘
+    this.link.mockApplyFormula(this.scramble); // 实体打乱 → 镜像跟随, 画面汇合到目标态
     // 事件经 async driver (微任务) 派发, flush 后 predicted 才是打乱后的真实状态
     await new Promise((resolve) => setTimeout(resolve, 50));
     const state = this.predicted ?? "";
