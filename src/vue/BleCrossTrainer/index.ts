@@ -323,9 +323,13 @@ export default class BleCrossTrainer extends Vue {
   private bleEventSerial: number | null = null;
   private bleMoveSerial: number | null = null;
   private bleAuthoritativeSerial: number | null = null;
-  /** 重置/新打乱后的轮次屏障：权威 FACELETS 到达前丢弃协议层补发的上一轮 MOVE。 */
+  /** 重置/新打乱后的轮次屏障：权威 FACELETS 到达前只丢弃协议层标记的历史恢复 MOVE。 */
   private bleRoundSyncPending = false;
   private bleRoundSyncAt = 0; // roundSync 窗口开启时刻 (诊断日志用)
+  /** 基线 FACELETS 先于同序号实时 MOVE 到达时，短暂等待 MOVE 走动画；超时才权威重绘。 */
+  private bleBaselineHealTimer: any = null;
+  private bleBaselineHealSerial: number | null = null;
+  private bleBaselineHealState: string | null = null;
   // 手动→蓝牙接管标记: 手动练习中连接成功后, 首个权威状态以魔方当前状态直接开轮
   // (不强制打乱匹配), 消费后复位
   private takeoverPending = false;
@@ -461,6 +465,7 @@ export default class BleCrossTrainer extends Vue {
       window.clearTimeout(this.stateTimer);
       this.stateTimer = null;
     }
+    this.clearBleBaselineHeal();
   }
 
   // ================= 连接 =================
@@ -1083,12 +1088,66 @@ export default class BleCrossTrainer extends Vue {
     this.bleMoveSerial = null;
     this.bleAuthoritativeSerial = null;
     this.bleRoundSyncPending = false;
+    this.clearBleBaselineHeal();
+  }
+
+  private clearBleBaselineHeal(): void {
+    if (this.bleBaselineHealTimer !== null) {
+      window.clearTimeout(this.bleBaselineHealTimer);
+      this.bleBaselineHealTimer = null;
+    }
+    this.bleBaselineHealSerial = null;
+    this.bleBaselineHealState = null;
+  }
+
+  /** 权威重绘时保留本轮 history 账本，并按完整视图链恢复当前持握姿态。 */
+  private syncPhysicalScene(raw: string, tag: string): void {
+    const cube = this.world.cube;
+    const viewOps = this.effectiveViewOps().map((op) => ({ ...op }));
+    const history = cube.history.list.map((a) => new TwistAction(a.sign, a.reverse, a.times));
+    const historyInit = cube.history.init;
+    const historyExp = cube.history.exp;
+    this.rebasing = true;
+    try {
+      cube.twister.finish();
+      this.syncScene(raw, tag);
+      for (const op of viewOps) {
+        for (const group of cube.table.groups[op.axis]) {
+          group.twist(op.times * (Math.PI / 2), true);
+        }
+      }
+      cube.history.list = history;
+      cube.history.init = historyInit;
+      cube.history.exp = historyExp;
+    } finally {
+      this.rebasing = false;
+    }
+    this.world.dirty = true;
+  }
+
+  private scheduleBleBaselineHeal(raw: string, serial?: number): void {
+    this.clearBleBaselineHeal();
+    this.bleBaselineHealState = raw;
+    this.bleBaselineHealSerial = serial === undefined ? null : serial & 0xff;
+    this.bleBaselineHealTimer = window.setTimeout(() => {
+      const state = this.bleBaselineHealState;
+      const baseline = this.bleBaselineHealSerial;
+      this.clearBleBaselineHeal();
+      if (!state) {
+        return;
+      }
+      console.log(`[BT] BASELINE 漂移超时 → 3D 权威对齐 s=${baseline}`);
+      this.syncPhysicalScene(state, "round-baseline");
+      if (baseline !== null) {
+        this.bleMoveSerial = baseline;
+      }
+    }, 160);
   }
 
   /**
    * 建立新轮 BLE 基线。GAN 在通知断档后会随下一次拨动补发历史 MOVE；这些动作的
-   * serial 虽然递增，却属于按钮点击前，不能进入新一轮动画/计步。请求全量状态并在
-   * 返回前屏蔽 MOVE，随后以 FACELETS serial 作为新的事件起点。
+   * serial 虽然递增，却属于按钮点击前，不能进入新一轮动画/计步。请求全量状态；
+   * 窗口内实时 MOVE 仍正常镜像，历史恢复 MOVE 丢弃，FACELETS 作为新的事件基线。
    */
   private beginBleRoundSync(): void {
     if (this.isManual || this.status !== "connected") {
@@ -1096,7 +1155,8 @@ export default class BleCrossTrainer extends Vue {
     }
     this.bleRoundSyncPending = true;
     this.bleRoundSyncAt = Date.now();
-    console.log(`[BT] roundSync 窗口开启 (屏蔽 MOVE 直至状态帧返回) ph=${this.phase}`);
+    this.clearBleBaselineHeal();
+    console.log(`[BT] roundSync 窗口开启 (实时 MOVE 放行，历史恢复丢弃) ph=${this.phase}`);
     this.link.requestFacelets().catch(() => {
       // 写请求失败时不能永久锁死实时转动；连接层仍会靠后续周期状态自愈。
       this.bleRoundSyncPending = false;
@@ -1118,6 +1178,7 @@ export default class BleCrossTrainer extends Vue {
         return;
       }
       const roundBaseline = this.bleRoundSyncPending;
+      const baselineDrift = roundBaseline && valid !== this.predicted;
       console.log(
         `[BT] FACELETS s=${e.serial} baseline=${roundBaseline ? 1 : 0}` +
           (roundBaseline ? ` (窗口耗时 ${Date.now() - this.bleRoundSyncAt}ms)` : "") +
@@ -1131,12 +1192,17 @@ export default class BleCrossTrainer extends Vue {
           this.bleAuthoritativeSerial = null;
         } else {
           const baseline = e.serial & 0xff;
+          const moveAlreadyAccepted =
+            this.bleMoveSerial !== null && this.serialRelation(this.bleMoveSerial, baseline) === 0;
           this.bleEventSerial = baseline;
-          this.bleMoveSerial = baseline;
+          this.bleMoveSerial = moveAlreadyAccepted ? this.bleMoveSerial : null;
           this.bleAuthoritativeSerial = null;
         }
       }
       this.onAuthoritative(valid, e.serial, roundBaseline);
+      if (baselineDrift) {
+        this.scheduleBleBaselineHeal(valid, e.serial);
+      }
       if (roundBaseline && this.scramble && (this.phase === "observing" || this.phase === "solving")) {
         // 轮次基线刷新: 守卫按实体基线重算 (实体停在十字完成态须先拆散才判成功)。
         // 不再平移重建打乱目标: 统一模型判定恒按画面 (不与存储目标比对), 画面恒镜像
@@ -1146,9 +1212,12 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     if (e.type === "move") {
-      if (this.bleRoundSyncPending) {
-        console.log(`[BT] MOVE ${e.move} s=${e.serial} → roundSync 窗口内丢弃 (等状态帧基线)`);
+      if (e.recovered && (this.bleRoundSyncPending || this.bleBaselineHealTimer !== null)) {
+        console.log(`[BT] MOVE ${e.move} s=${e.serial} → 轮次边界历史恢复丢弃 (等待权威状态收敛)`);
         return;
+      }
+      if (this.bleRoundSyncPending) {
+        console.log(`[BT] MOVE ${e.move} s=${e.serial} → roundSync 实时首步接受`);
       }
       this.onMoveEvent(e.move, e.serial);
       return;
@@ -1249,6 +1318,21 @@ export default class BleCrossTrainer extends Vue {
    * 当前画面上平滑叠加镜像; 判定不在此处, 由镜像落定回调 onManualTwist 统一按画面执行 */
   private onMoveEvent(move: string, serial?: number): void {
     this.lastBleMoveAt = Date.now();
+    if (serial !== undefined && this.bleBaselineHealSerial !== null) {
+      const normalized = serial & 0xff;
+      const baseline = this.bleBaselineHealSerial;
+      const relation = this.serialRelation(normalized, baseline);
+      if (relation === 0) {
+        console.log(`[BT] MOVE ${move} s=${normalized} → 命中待确认基线，取消整幅重绘并走动画`);
+        this.clearBleBaselineHeal();
+      } else if (relation > 0 && this.bleBaselineHealState) {
+        const state = this.bleBaselineHealState;
+        console.log(`[BT] MOVE ${move} s=${normalized} → 越过待确认基线 s=${baseline}，先对齐再播放`);
+        this.clearBleBaselineHeal();
+        this.syncPhysicalScene(state, "round-baseline-before-move");
+        this.bleMoveSerial = baseline;
+      }
+    }
     let coveredByAuthoritative = false;
     let rel: number | null = null;
     if (serial !== undefined) {
