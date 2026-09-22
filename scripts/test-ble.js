@@ -185,6 +185,33 @@ async function main() {
     ["Gen3", vendorCore.GanGen3ProtocolDriver],
     ["Gen4", vendorCore.GanGen4ProtocolDriver],
   ]) {
+    await test(`${name}: 断档恢复不得等待悬挂的 GATT 写入或阻塞当前实时 MOVE`, async () => {
+      const driver = new Driver();
+      driver.lastSerial = 1;
+      driver.moveBuffer = [bufferedMove(20)];
+      const sent = [];
+      const conn = {
+        sendCommandMessage: (msg) => {
+          sent.push(Array.from(msg));
+          return new Promise(() => {});
+        },
+        disconnect: async () => {},
+      };
+
+      const result = await Promise.race([
+        driver.evictMoveBuffer(conn),
+        new Promise((resolve) => setTimeout(() => resolve("timeout"), 30)),
+      ]);
+      assert.notStrictEqual(result, "timeout", "历史请求写入悬挂时阻塞了通知串行队列");
+      assert.deepStrictEqual(result.map((e) => e.serial), [20], "当前实时 MOVE 应立即放行");
+      assert.strictEqual(driver.lastSerial, 20);
+      assert.deepStrictEqual(
+        sent,
+        [Array.from(driver.createCommandMessage({ type: "REQUEST_FACELETS" }))],
+        "跳过断档后只应异步请求权威状态"
+      );
+    });
+
     await test(`${name}: 断档积压不批量重放旧 MOVE，并请求权威 facelets`, async () => {
       const driver = new Driver();
       driver.lastSerial = 1;

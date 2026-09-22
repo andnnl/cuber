@@ -1090,6 +1090,15 @@ export default class BleCrossTrainer extends Vue {
     return diff === 0 ? 0 : diff < 0x80 ? 1 : -1;
   }
 
+  /** Gen3/Gen4 的 FACELETS 常驻 s=0，它是无 MOVE 序号快照而非序号回绕。 */
+  private faceletsMoveSerial(serial?: number): number | null {
+    if (serial === undefined) {
+      return null;
+    }
+    const normalized = serial & 0xff;
+    return normalized === 0 ? null : normalized;
+  }
+
   /** 连接/输入源切换时清空序号域，避免上一条 BLE 会话污染新会话。 */
   private resetBleReconciliation(): void {
     this.bleEventSerial = null;
@@ -1136,7 +1145,7 @@ export default class BleCrossTrainer extends Vue {
   private scheduleBleBaselineHeal(raw: string, serial?: number): void {
     this.clearBleBaselineHeal();
     this.bleBaselineHealState = raw;
-    this.bleBaselineHealSerial = serial === undefined ? null : serial & 0xff;
+    this.bleBaselineHealSerial = this.faceletsMoveSerial(serial);
     this.bleBaselineHealTimer = window.setTimeout(() => {
       const state = this.bleBaselineHealState;
       const baseline = this.bleBaselineHealSerial;
@@ -1196,18 +1205,18 @@ export default class BleCrossTrainer extends Vue {
         this.link.requestFacelets().catch(() => undefined);
         return;
       }
+      const snapshotSerial = this.faceletsMoveSerial(e.serial);
       if (this.bleSessionBaselinePending) {
         this.bleSessionBaselinePending = false;
         this.clearBleBaselineHeal();
-        if (e.serial === undefined) {
+        if (snapshotSerial === null) {
           this.bleEventSerial = null;
           this.bleMoveSerial = null;
           this.bleAuthoritativeSerial = null;
         } else {
-          const baseline = e.serial & 0xff;
-          this.bleEventSerial = baseline;
-          this.bleMoveSerial = baseline;
-          this.bleAuthoritativeSerial = baseline;
+          this.bleEventSerial = snapshotSerial;
+          this.bleMoveSerial = snapshotSerial;
+          this.bleAuthoritativeSerial = snapshotSerial;
         }
         this.predicted = valid;
         this.world.cube.history.clear();
@@ -1219,9 +1228,9 @@ export default class BleCrossTrainer extends Vue {
       const roundBaseline = this.bleRoundSyncPending;
       const staleRoundBaseline =
         roundBaseline &&
-        e.serial !== undefined &&
+        snapshotSerial !== null &&
         this.bleEventSerial !== null &&
-        this.serialRelation(e.serial & 0xff, this.bleEventSerial) < 0;
+        this.serialRelation(snapshotSerial, this.bleEventSerial) < 0;
       if (staleRoundBaseline) {
         this.bleRoundSyncPending = false;
         this.clearBleBaselineHeal();
@@ -1239,15 +1248,10 @@ export default class BleCrossTrainer extends Vue {
       );
       if (roundBaseline) {
         this.bleRoundSyncPending = false;
-        if (e.serial === undefined) {
-          this.bleEventSerial = null;
-          this.bleMoveSerial = null;
-          this.bleAuthoritativeSerial = null;
-        } else {
-          const baseline = e.serial & 0xff;
+        if (snapshotSerial !== null) {
           const moveAlreadyAccepted =
-            this.bleMoveSerial !== null && this.serialRelation(this.bleMoveSerial, baseline) === 0;
-          this.bleEventSerial = baseline;
+            this.bleMoveSerial !== null && this.serialRelation(this.bleMoveSerial, snapshotSerial) === 0;
+          this.bleEventSerial = snapshotSerial;
           this.bleMoveSerial = moveAlreadyAccepted ? this.bleMoveSerial : null;
           this.bleAuthoritativeSerial = null;
         }
@@ -1265,8 +1269,8 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     if (e.type === "move") {
-      if (e.recovered && (this.bleRoundSyncPending || this.bleBaselineHealTimer !== null)) {
-        console.log(`[BT] MOVE ${e.move} s=${e.serial} → 轮次边界历史恢复丢弃 (等待权威状态收敛)`);
+      if (e.recovered) {
+        console.log(`[BT] MOVE ${e.move} s=${e.serial} → 历史恢复动作丢弃 (不批量回放到当前轮)`);
         return;
       }
       if (this.bleRoundSyncPending) {
@@ -1287,11 +1291,12 @@ export default class BleCrossTrainer extends Vue {
       this.stateTimer = null;
     }
     const idle = Date.now() - this.lastBleMoveAt;
-    if (serial !== undefined) {
-      const normalized = serial & 0xff;
+    const snapshotSerial = this.faceletsMoveSerial(serial);
+    if (snapshotSerial !== null) {
+      const normalized = snapshotSerial;
       const relation = this.bleEventSerial === null ? 1 : this.serialRelation(normalized, this.bleEventSerial);
-      // 周期快照 (s=0 恒定) 在 MOVE 序号推进后恒被判旧 —— 实体静止一段时间后的快照必然
-      // 新鲜 (无在飞镜像动画/无新步竞争), 采信为权威真态用于自愈; 其余旧帧丢弃
+      // 带有效 MOVE 序号的旧快照，仅在实体静止一段时间后采信为权威真态用于自愈。
+      // Gen3/Gen4 的 s=0 已在上方视为无序号快照，不参与此处的新旧比较。
       if (relation < 0 && !(idle > 2500 && raw !== this.predicted)) {
         console.log(`[BT] FACELETS s=${normalized} 迟到旧帧丢弃 (event=${this.bleEventSerial}) ph=${this.phase}`);
         return;

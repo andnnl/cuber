@@ -361,40 +361,21 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
         return msg;
     }
 
-    /** Private cube command for requesting move history */
-    private async requestMoveHistory(conn: GanCubeRawConnection, serial: number, count: number): Promise<void> {
-        var msg = new Uint8Array(16).fill(0);
-        // Move history response data is byte-aligned, and moves always starting with near-ceil odd serial number, regardless of requested.
-        // Adjust serial and count to get odd serial aligned history window with even number of moves inside.
-        if (serial % 2 == 0)
-            serial = (serial - 1) & 0xFF;
-        if (count % 2 == 1)
-            count++;
-        // Never overflow requested history window beyond the serial number cycle edge 255 -> 0.
-        // Because due to iCarry2 firmware bug the moves beyond the edge will be spoofed with 'D' (just zero bytes).
-        count = Math.min(count, serial + 1);
-        msg.set([0x68, 0x03, serial, 0, count, 0]);
-        return conn.sendCommandMessage(msg).catch(() => {
-            // We can safely suppress and ignore possible GATT write errors, requestMoveHistory command is automatically retried on next move event
-        });
-    }
-
     /**
      * Evict move events from FIFO buffer until missing move event detected
      * In case of missing move, and if connection is provided, submit request for move history to fill gap in buffer
      */
     private async evictMoveBuffer(conn?: GanCubeRawConnection): Promise<Array<GanCubeEvent>> {
         var evictedEvents: GanCubeEvent[] = [];
-        // 序号断档长期无法补齐时，积压 MOVE 已失去实时动画语义。旧实现把整批动作
-        // 突然派发到上层，表现为重置后下一次转动让 3D 连续多转很多步。应在继续请求
-        // 历史动作前丢弃积压，以最新序号恢复连续消费，并用权威 facelets 校正最终状态。
+        // 实时优先：GATT 写入可能悬挂数十秒，绝不能在通知串行队列中 await 历史请求。
+        // 断档时跳过缺失序号、立即放行当前实时 MOVE，并异步请求权威状态校正实体账本。
         if (conn && this.moveBuffer.length > 16) {
             const tail = this.moveBuffer[this.moveBuffer.length - 1] as GanCubeMoveEvent;
             this.lastSerial = tail.serial;
             this.moveBuffer = [];
             const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
             if (request) {
-                await conn.sendCommandMessage(request).catch(() => undefined);
+                void conn.sendCommandMessage(request).catch(() => undefined);
             }
             return evictedEvents;
         }
@@ -403,7 +384,12 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
             let diff = this.lastSerial == -1 ? 1 : (bufferHead.serial - this.lastSerial) & 0xFF;
             if (diff > 1) {
                 if (conn) {
-                    await this.requestMoveHistory(conn, bufferHead.serial, diff);
+                    this.lastSerial = (bufferHead.serial - 1) & 0xFF;
+                    const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
+                    if (request) {
+                        void conn.sendCommandMessage(request).catch(() => undefined);
+                    }
+                    continue;
                 }
                 break;
             } else {
@@ -453,11 +439,9 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
     private async checkIfMoveMissed(conn: GanCubeRawConnection) {
         let diff = (this.serial - this.lastSerial) & 0xFF;
         if (diff > 0) {
-            if (this.serial != 0) { // Constraint to avoid iCarry2 firmware bug with facelets state event at 255 move counter
-                let bufferHead = this.moveBuffer[0] as GanCubeMoveEvent;
-                let startSerial = bufferHead ? bufferHead.serial : (this.serial + 1) & 0xFF;
-                await this.requestMoveHistory(conn, startSerial, diff + 1);
-            }
+            // FACELETS 已是当前权威状态；历史 MOVE 不再回放，直接把协议序号推进到快照。
+            this.lastSerial = this.serial;
+            this.moveBuffer = [];
         }
     }
 
@@ -661,38 +645,20 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
         return msg;
     }
 
-    /** Private cube command for requesting move history */
-    private async requestMoveHistory(conn: GanCubeRawConnection, serial: number, count: number): Promise<void> {
-        var msg = new Uint8Array(20).fill(0);
-        // Move history response data is byte-aligned, and moves always starting with near-ceil odd serial number, regardless of requested.
-        // Adjust serial and count to get odd serial aligned history window with even number of moves inside.
-        if (serial % 2 == 0)
-            serial = (serial - 1) & 0xFF;
-        if (count % 2 == 1)
-            count++;
-        // Never overflow requested history window beyond the serial number cycle edge 255 -> 0.
-        // Because due to firmware bug the moves beyond the edge will be spoofed with 'D' (just zero bytes).
-        count = Math.min(count, serial + 1);
-        msg.set([0xD1, 0x04, serial, 0, count, 0]);
-        return conn.sendCommandMessage(msg).catch(() => {
-            // We can safely suppress and ignore possible GATT write errors, requestMoveHistory command is automatically retried on next move event
-        });
-    }
-
     /**
      * Evict move events from FIFO buffer until missing move event detected
      * In case of missing move, and if connection is provided, submit request for move history to fill gap in buffer
      */
     private async evictMoveBuffer(conn?: GanCubeRawConnection): Promise<Array<GanCubeEvent>> {
         var evictedEvents: GanCubeEvent[] = [];
-        // 与 Gen3 同策：断档积压不再作为实时 MOVE 批量重放，改由权威状态收敛。
+        // 与 Gen3 同策：断档恢复不等待 GATT 写入，也不批量回放历史 MOVE。
         if (conn && this.moveBuffer.length > 16) {
             const tail = this.moveBuffer[this.moveBuffer.length - 1] as GanCubeMoveEvent;
             this.lastSerial = tail.serial;
             this.moveBuffer = [];
             const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
             if (request) {
-                await conn.sendCommandMessage(request).catch(() => undefined);
+                void conn.sendCommandMessage(request).catch(() => undefined);
             }
             return evictedEvents;
         }
@@ -701,7 +667,12 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
             let diff = this.lastSerial == -1 ? 1 : (bufferHead.serial - this.lastSerial) & 0xFF;
             if (diff > 1) {
                 if (conn) {
-                    await this.requestMoveHistory(conn, bufferHead.serial, diff);
+                    this.lastSerial = (bufferHead.serial - 1) & 0xFF;
+                    const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
+                    if (request) {
+                        void conn.sendCommandMessage(request).catch(() => undefined);
+                    }
+                    continue;
                 }
                 break;
             } else {
@@ -751,11 +722,8 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
     private async checkIfMoveMissed(conn: GanCubeRawConnection) {
         let diff = (this.serial - this.lastSerial) & 0xFF;
         if (diff > 0) {
-            if (this.serial != 0) { // Constraint to avoid firmware bug with facelets state event at 255 move counter
-                let bufferHead = this.moveBuffer[0] as GanCubeMoveEvent;
-                let startSerial = bufferHead ? bufferHead.serial : (this.serial + 1) & 0xFF;
-                await this.requestMoveHistory(conn, startSerial, diff + 1);
-            }
+            this.lastSerial = this.serial;
+            this.moveBuffer = [];
         }
     }
 

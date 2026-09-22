@@ -709,7 +709,7 @@ async page => {
       phase: vm.phase,
     };
 
-    // 普通训练中的协议补档仍是有效动作，不能因 recovered 标记被全局吞掉。
+    // 历史恢复 MOVE 已失去实时输入语义，不得在训练中突然批量追加到 3D/history。
     reset(159);
     vm.bleRoundSyncPending = false;
     vm.handleEvent({ type: "move", move: "R", serial: 160, recovered: true });
@@ -760,6 +760,19 @@ async page => {
       moves: vm.moveCount,
     };
 
+    // Gen3/Gen4 FACELETS 常用 s=0 作为无序号快照。轮次基线不得因此把 MOVE 序号
+    // 从 129 回退到 0，否则 130..255 会被连续误判为旧通知。
+    reset(129);
+    vm.handleEvent({ type: "facelets", facelets: base, serial: 0 });
+    vm.handleEvent({ type: "move", move: "R", serial: 130, recovered: false });
+    vm.world.cube.twister.finish();
+    const zeroSnapshotThenMove = {
+      predicted: vm.predicted,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      moves: vm.moveCount,
+      eventSerial: vm.bleEventSerial,
+    };
+
     // 普通训练中的旧 FACELETS 不得回拉已推进的实体与画面。
     reset(50);
     vm.bleRoundSyncPending = false;
@@ -789,6 +802,7 @@ async page => {
       multiMoveBeforeOldBaseline,
       serialWrap,
       duplicateMove,
+      zeroSnapshotThenMove,
       staleFacelets,
     };
   });
@@ -816,10 +830,10 @@ async page => {
     firstMoveRace.nextLiveAfterBaseline.scene !== firstMoveRace.afterRU ||
     firstMoveRace.nextLiveAfterBaseline.moves !== 1 ||
     firstMoveRace.nextLiveAfterBaseline.phase !== "solving" ||
-    firstMoveRace.recoveredDuringTraining.predicted !== firstMoveRace.afterR ||
-    firstMoveRace.recoveredDuringTraining.scene !== firstMoveRace.afterR ||
-    firstMoveRace.recoveredDuringTraining.moves !== 1 ||
-    firstMoveRace.recoveredDuringTraining.phase !== "solving" ||
+    firstMoveRace.recoveredDuringTraining.predicted !== firstMoveRace.base ||
+    firstMoveRace.recoveredDuringTraining.scene !== firstMoveRace.base ||
+    firstMoveRace.recoveredDuringTraining.moves !== 0 ||
+    firstMoveRace.recoveredDuringTraining.phase !== "observing" ||
     firstMoveRace.multiMoveBeforeOldBaseline.predicted !== firstMoveRace.afterRU ||
     firstMoveRace.multiMoveBeforeOldBaseline.scene !== firstMoveRace.afterRU ||
     firstMoveRace.multiMoveBeforeOldBaseline.moves !== 2 ||
@@ -831,6 +845,10 @@ async page => {
     firstMoveRace.duplicateMove.predicted !== firstMoveRace.afterR ||
     firstMoveRace.duplicateMove.scene !== firstMoveRace.afterR ||
     firstMoveRace.duplicateMove.moves !== 1 ||
+    firstMoveRace.zeroSnapshotThenMove.predicted !== firstMoveRace.afterR ||
+    firstMoveRace.zeroSnapshotThenMove.scene !== firstMoveRace.afterR ||
+    firstMoveRace.zeroSnapshotThenMove.moves !== 1 ||
+    firstMoveRace.zeroSnapshotThenMove.eventSerial !== 130 ||
     firstMoveRace.staleFacelets.predicted !== firstMoveRace.afterR ||
     firstMoveRace.staleFacelets.scene !== firstMoveRace.afterR ||
     firstMoveRace.staleFacelets.eventSerial !== 50
