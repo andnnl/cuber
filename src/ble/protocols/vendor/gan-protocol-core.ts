@@ -233,7 +233,8 @@ export class GanGen2ProtocolDriver implements GanProtocolDriver {
                             type: "MOVE",
                             serial: (serial - i) & 0xFF,
                             timestamp: timestamp,
-                            localTimestamp: i == 0 ? timestamp : null,
+                            // Gen2 单个实时通知可携带最近多步；它们都不是 MOVE_HISTORY。
+                            localTimestamp: timestamp,
                             cubeTimestamp: null,
                             face: face,
                             direction: direction,

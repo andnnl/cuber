@@ -10,6 +10,7 @@ import { getNativeTransport, nativeBridgeAvailable } from "./transport/native";
 
 export type CubeLinkKind = "web" | "mock" | "native";
 export type CubeLinkStatus = "disconnected" | "connecting" | "connected";
+export type TransportFactory = (kind: CubeLinkKind) => BleTransport;
 
 export { webBluetoothAvailable, nativeBridgeAvailable, getNativeTransport };
 
@@ -27,6 +28,8 @@ export function createTransport(kind: CubeLinkKind): BleTransport {
 export class CubeLink {
   private transport: BleTransport | null = null;
   private gan: GanCubeLink | null = null;
+  /** 每次连接/断开均递增；异步回调只能修改创建它的那一代会话。 */
+  private generation = 0;
 
   status: CubeLinkStatus = "disconnected";
   deviceInfo: DeviceInfo | null = null;
@@ -37,6 +40,8 @@ export class CubeLink {
 
   private eventCbs: ((e: LinkEvent) => void)[] = [];
   private statusCbs: ((s: CubeLinkStatus) => void)[] = [];
+
+  constructor(private transportFactory: TransportFactory = createTransport) {}
 
   onEvent(cb: (e: LinkEvent) => void): void {
     this.eventCbs.push(cb);
@@ -64,28 +69,70 @@ export class CubeLink {
     if (this.status !== "disconnected") {
       throw new Error("已连接或连接中");
     }
+    const generation = ++this.generation;
     this.setStatus("connecting");
+    let transport: BleTransport;
     try {
-      this.transport = createTransport(kind);
-      this.gan = new GanCubeLink(this.transport);
-      this.gan.onEvent((e) => this.handleEvent(e));
-      this.gan.onDisconnect(() => this.setStatus("disconnected"));
-      this.deviceInfo = await this.gan.connect(opts);
-      this.setStatus("connected");
-      return this.deviceInfo;
+      transport = this.transportFactory(kind);
     } catch (err) {
-      this.setStatus("disconnected");
+      if (generation === this.generation) {
+        this.setStatus("disconnected");
+      }
+      throw err;
+    }
+    const gan = new GanCubeLink(transport);
+    this.transport = transport;
+    this.gan = gan;
+    gan.onEvent((e) => {
+      if (generation === this.generation && this.gan === gan) {
+        this.handleEvent(e);
+      }
+    });
+    gan.onDisconnect(() => {
+      if (generation !== this.generation || this.gan !== gan) {
+        return;
+      }
       this.transport = null;
       this.gan = null;
+      this.deviceInfo = null;
+      this.facelets = null;
+      this.battery = null;
+      this.hardware = null;
+      this.setStatus("disconnected");
+    });
+    try {
+      const info = await gan.connect(opts);
+      if (generation !== this.generation || this.gan !== gan) {
+        await gan.disconnect().catch(() => undefined);
+        throw new Error("连接已取消");
+      }
+      this.deviceInfo = info;
+      this.setStatus("connected");
+      return info;
+    } catch (err) {
+      await gan.disconnect().catch(() => undefined);
+      if (generation === this.generation && this.gan === gan) {
+        this.transport = null;
+        this.gan = null;
+        this.setStatus("disconnected");
+      }
       throw err;
     }
   }
 
   async disconnect(): Promise<void> {
-    if (this.gan) {
-      await this.gan.disconnect();
-    }
+    ++this.generation;
+    const gan = this.gan;
+    this.gan = null;
+    this.transport = null;
+    this.deviceInfo = null;
+    this.facelets = null;
+    this.battery = null;
+    this.hardware = null;
     this.setStatus("disconnected");
+    if (gan) {
+      await gan.disconnect();
+    }
   }
 
   get connected(): boolean {

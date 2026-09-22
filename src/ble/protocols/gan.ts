@@ -53,6 +53,8 @@ export class GanCubeLink {
   private info: DeviceInfo | null = null;
   private eventCb: ((e: LinkEvent) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
+  /** disconnect 后所有排队通知和传输层迟到回调均失效。 */
+  private closed = false;
   /** 通知帧串行队列: 协议驱动含异步补历史请求，共享 serial/buffer 状态不可并发改写 */
   private notificationQueue: Promise<void> = Promise.resolve();
 
@@ -85,6 +87,7 @@ export class GanCubeLink {
    *   - opts.mac (用户原始输入, 兜底: 传输层未归一化成功时由 macToSalt 再校验)
    */
   async connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo> {
+    this.closed = false;
     const info = await this.transport.connect(opts);
     // 传输层负责把 opts.mac / 广播 / 扫描地址归一化为 "AA:BB:CC:DD:EE:FF" 后放入 info.mac。
     // 用户在 UI 填的原始 opts.mac 仅作 fallback (传输层未返回时由 macToSalt 兜底校验)。
@@ -113,7 +116,7 @@ export class GanCubeLink {
     this.notificationQueue = Promise.resolve();
     this.transport.onBytes((data) => this.enqueueBytes(data));
     this.transport.onDisconnect(() => {
-      if (this.disconnectCb) {
+      if (!this.closed && this.disconnectCb) {
         this.disconnectCb();
       }
     });
@@ -124,6 +127,7 @@ export class GanCubeLink {
   }
 
   async disconnect(): Promise<void> {
+    this.closed = true;
     await this.transport.disconnect();
   }
 
@@ -150,7 +154,7 @@ export class GanCubeLink {
 
   /** 构建并加密发送协议命令 (命令帧总是加密, 与原库一致) */
   async sendCommand(command: GanCubeCommand): Promise<void> {
-    if (!this.driver) {
+    if (this.closed || !this.driver) {
       throw new Error("尚未连接");
     }
     const msg = this.driver.createCommandMessage(command);
@@ -160,7 +164,7 @@ export class GanCubeLink {
   }
 
   private async writeEncrypted(message: Uint8Array): Promise<void> {
-    if (!this.encrypter) {
+    if (this.closed || !this.encrypter) {
       throw new Error("尚未连接");
     }
     await this.transport.write(this.encrypter.encrypt(message));
@@ -168,6 +172,9 @@ export class GanCubeLink {
 
   /** 复制传输层缓冲并按接收顺序解析；单帧异常不得毒化后续 Promise 链。 */
   private enqueueBytes(data: Uint8Array): void {
+    if (this.closed) {
+      return;
+    }
     const frame = data.slice();
     this.notificationQueue = this.notificationQueue
       .then(() => this.handleBytes(frame))
@@ -176,7 +183,7 @@ export class GanCubeLink {
 
   /** 通知帧入口: 解密 → 协议驱动 → LinkEvent */
   private async handleBytes(data: Uint8Array): Promise<void> {
-    if (!this.driver || !this.encrypter || data.length < 16) {
+    if (this.closed || !this.driver || !this.encrypter || data.length < 16) {
       return;
     }
     const decrypted = this.encrypter.decrypt(data);
@@ -187,6 +194,9 @@ export class GanCubeLink {
       return; // 坏帧丢弃
     }
     for (const e of events) {
+      if (this.closed) {
+        return;
+      }
       const link = toLinkEvent(e);
       if (link && this.eventCb) {
         this.eventCb(link);

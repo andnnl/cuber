@@ -618,9 +618,12 @@ async page => {
   await page.waitForFunction(() => window.__bleCross.phase === "solving" && window.__bleCross.moveCount === 1);
   const firstMoveRace = await page.evaluate(async () => {
     const vm = window.__bleCross;
+    const requestFacelets = vm.link.requestFacelets.bind(vm.link);
+    vm.link.requestFacelets = async () => {};
     const base = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
     const afterR = "UUFUUFUUFRRRRRRRRRFFDFFDFFDDDBDDBDDBLLLLLLLLLUBBUBBUBB";
     const reset = serial => {
+      vm.clearBleBaselineHeal();
       vm.autoNext = false;
       vm.isTrainDone = () => false;
       vm.z2On = false;
@@ -637,6 +640,7 @@ async page => {
       vm.bleMoveSerial = serial;
       vm.bleAuthoritativeSerial = serial;
       vm.bleRoundSyncPending = true;
+      vm.bleSessionBaselinePending = false;
       vm.syncScene(base);
     };
 
@@ -716,6 +720,60 @@ async page => {
       phase: vm.phase,
     };
 
+    // 两个实时 MOVE 已被消费后，较旧的轮次基线不得把状态和序号回退。
+    reset(170);
+    vm.handleEvent({ type: "move", move: "R", serial: 171, recovered: false });
+    vm.handleEvent({ type: "move", move: "U", serial: 172, recovered: false });
+    vm.world.cube.twister.finish();
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 171 });
+    await new Promise(resolve => setTimeout(resolve, 220));
+    vm.world.cube.twister.finish();
+    const multiMoveBeforeOldBaseline = {
+      predicted: vm.predicted,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      moves: vm.moveCount,
+      eventSerial: vm.bleEventSerial,
+    };
+
+    // 8 位序号 255→0 必须视为向前一步，不能误判成旧事件。
+    reset(255);
+    vm.bleRoundSyncPending = false;
+    vm.handleEvent({ type: "move", move: "R", serial: 0, recovered: false });
+    vm.world.cube.twister.finish();
+    const serialWrap = {
+      predicted: vm.predicted,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      moves: vm.moveCount,
+      eventSerial: vm.bleEventSerial,
+    };
+
+    // 同序号 MOVE 重复通知只能消费一次。
+    reset(40);
+    vm.bleRoundSyncPending = false;
+    vm.handleEvent({ type: "move", move: "R", serial: 41, recovered: false });
+    vm.handleEvent({ type: "move", move: "R", serial: 41, recovered: false });
+    vm.world.cube.twister.finish();
+    const duplicateMove = {
+      predicted: vm.predicted,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      moves: vm.moveCount,
+    };
+
+    // 普通训练中的旧 FACELETS 不得回拉已推进的实体与画面。
+    reset(50);
+    vm.bleRoundSyncPending = false;
+    vm.predicted = afterR;
+    vm.syncScene(afterR);
+    vm.lastBleMoveAt = Date.now();
+    vm.handleEvent({ type: "facelets", facelets: base, serial: 49 });
+    vm.world.cube.twister.finish();
+    const staleFacelets = {
+      predicted: vm.predicted,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      eventSerial: vm.bleEventSerial,
+    };
+    vm.link.requestFacelets = requestFacelets;
+
     return {
       base,
       afterR,
@@ -727,6 +785,10 @@ async page => {
       faceletsFirst,
       nextLiveAfterBaseline,
       recoveredDuringTraining,
+      multiMoveBeforeOldBaseline,
+      serialWrap,
+      duplicateMove,
+      staleFacelets,
     };
   });
   if (
@@ -756,8 +818,107 @@ async page => {
     firstMoveRace.recoveredDuringTraining.predicted !== firstMoveRace.afterR ||
     firstMoveRace.recoveredDuringTraining.scene !== firstMoveRace.afterR ||
     firstMoveRace.recoveredDuringTraining.moves !== 1 ||
-    firstMoveRace.recoveredDuringTraining.phase !== "solving"
+    firstMoveRace.recoveredDuringTraining.phase !== "solving" ||
+    firstMoveRace.multiMoveBeforeOldBaseline.predicted !== firstMoveRace.afterRU ||
+    firstMoveRace.multiMoveBeforeOldBaseline.scene !== firstMoveRace.afterRU ||
+    firstMoveRace.multiMoveBeforeOldBaseline.moves !== 2 ||
+    firstMoveRace.multiMoveBeforeOldBaseline.eventSerial !== 172 ||
+    firstMoveRace.serialWrap.predicted !== firstMoveRace.afterR ||
+    firstMoveRace.serialWrap.scene !== firstMoveRace.afterR ||
+    firstMoveRace.serialWrap.moves !== 1 ||
+    firstMoveRace.serialWrap.eventSerial !== 0 ||
+    firstMoveRace.duplicateMove.predicted !== firstMoveRace.afterR ||
+    firstMoveRace.duplicateMove.scene !== firstMoveRace.afterR ||
+    firstMoveRace.duplicateMove.moves !== 1 ||
+    firstMoveRace.staleFacelets.predicted !== firstMoveRace.afterR ||
+    firstMoveRace.staleFacelets.scene !== firstMoveRace.afterR ||
+    firstMoveRace.staleFacelets.eventSerial !== 50
   ) {
     throw new Error(`BLE 轮次同步首步竞态未收敛: ${JSON.stringify(firstMoveRace)}`);
+  }
+
+  const reconnectBaseline = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const base = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const afterR = "UUFUUFUUFRRRRRRRRRFFDFFDFFDDDBDDBDDBLLLLLLLLLUBBUBBUBB";
+    vm.clearBleBaselineHeal();
+    vm.autoNext = false;
+    vm.isTrainDone = () => false;
+    vm.isManual = false;
+    vm.status = "connected";
+    vm.phase = "solving";
+    vm.predicted = base;
+    vm.lastBleMoveAt = Date.now();
+    vm.syncScene(base);
+
+    vm.onLinkStatus("connecting");
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 41 });
+    const beforeConnected = {
+      predicted: vm.predicted,
+      scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+    };
+    vm.onLinkStatus("connected");
+    vm.handleEvent({ type: "facelets", facelets: afterR, serial: 41 });
+    vm.world.cube.twister.finish();
+    return {
+      afterR,
+      beforeConnected,
+      afterConnected: {
+        predicted: vm.predicted,
+        scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      },
+    };
+  });
+  if (
+    reconnectBaseline.beforeConnected.predicted !== reconnectBaseline.afterR ||
+    reconnectBaseline.afterConnected.predicted !== reconnectBaseline.afterR ||
+    reconnectBaseline.afterConnected.scene !== reconnectBaseline.afterR
+  ) {
+    throw new Error(`BLE 重连首包没有强制同步 3D: ${JSON.stringify(reconnectBaseline)}`);
+  }
+
+  const authoritativeViewHeal = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const base = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const afterR = "UUFUUFUUFRRRRRRRRRFFDFFDFFDDDBDDBDDBLLLLLLLLLUBBUBBUBB";
+    vm.clearBleBaselineHeal();
+    vm.autoNext = false;
+    vm.isTrainDone = () => false;
+    vm.isManual = false;
+    vm.status = "connected";
+    vm.phase = "solving";
+    vm.predicted = base;
+    vm.baseOps = [];
+    vm.observedOps = [];
+    vm.z2Marks = [];
+    vm.z2On = false;
+    vm.syncScene(base);
+    vm.rotateWholeY(1);
+    vm.world.cube.twister.finish();
+    vm.toggleZ2();
+    vm.world.cube.twister.finish();
+    const before = {
+      view: JSON.stringify(vm.effectiveViewOps()),
+      shownR: vm.displayMove("R"),
+    };
+    vm.lastBleMoveAt = Date.now() - 3000;
+    vm.onAuthoritative(afterR, 201, false);
+    vm.world.cube.twister.finish();
+    return {
+      afterR,
+      before,
+      after: {
+        view: JSON.stringify(vm.effectiveViewOps()),
+        shownR: vm.displayMove("R"),
+        scene: vm.mapStateForJudge(vm.world.cube.serialize()),
+      },
+    };
+  });
+  if (
+    authoritativeViewHeal.after.scene !== authoritativeViewHeal.afterR ||
+    authoritativeViewHeal.after.view !== authoritativeViewHeal.before.view ||
+    authoritativeViewHeal.after.shownR !== authoritativeViewHeal.before.shownR
+  ) {
+    throw new Error(`BLE 权威自愈丢失完整视角: ${JSON.stringify(authoritativeViewHeal)}`);
   }
 }

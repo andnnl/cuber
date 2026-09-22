@@ -326,6 +326,8 @@ export default class BleCrossTrainer extends Vue {
   /** 重置/新打乱后的轮次屏障：权威 FACELETS 到达前只丢弃协议层标记的历史恢复 MOVE。 */
   private bleRoundSyncPending = false;
   private bleRoundSyncAt = 0; // roundSync 窗口开启时刻 (诊断日志用)
+  /** 每次新 BLE 会话首个合法 FACELETS 必须强制建立 3D 实体基线。 */
+  private bleSessionBaselinePending = false;
   /** 基线 FACELETS 先于同序号实时 MOVE 到达时，短暂等待 MOVE 走动画；超时才权威重绘。 */
   private bleBaselineHealTimer: any = null;
   private bleBaselineHealSerial: number | null = null;
@@ -629,9 +631,15 @@ export default class BleCrossTrainer extends Vue {
       this.armStateWatchdog();
     } else if (s === "connecting") {
       this.resetBleReconciliation();
+      this.bleSessionBaselinePending = true;
+      this.predicted = null;
+      this.baseOps = [];
+      this.observedOps = [];
+      this.z2Marks = this.z2On ? [0] : [];
       this.phase = "disconnected";
     } else {
       this.resetBleReconciliation();
+      this.bleSessionBaselinePending = false;
       this.calibStep = -1; // 断开时若在校准则终止
       if (this.isManual) {
         return; // 本就手动 (enterManual 断开在飞连接等): 不动练习会话
@@ -1177,7 +1185,41 @@ export default class BleCrossTrainer extends Vue {
         this.link.requestFacelets().catch(() => undefined);
         return;
       }
+      if (this.bleSessionBaselinePending) {
+        this.bleSessionBaselinePending = false;
+        this.clearBleBaselineHeal();
+        if (e.serial === undefined) {
+          this.bleEventSerial = null;
+          this.bleMoveSerial = null;
+          this.bleAuthoritativeSerial = null;
+        } else {
+          const baseline = e.serial & 0xff;
+          this.bleEventSerial = baseline;
+          this.bleMoveSerial = baseline;
+          this.bleAuthoritativeSerial = baseline;
+        }
+        this.predicted = valid;
+        this.world.cube.history.clear();
+        this.syncPhysicalScene(valid, "session-baseline");
+        console.log(`[BT] FACELETS s=${e.serial} → 新会话首包强制建立 3D 基线`);
+        this.onAuthoritative(valid, e.serial, false);
+        return;
+      }
       const roundBaseline = this.bleRoundSyncPending;
+      const staleRoundBaseline =
+        roundBaseline &&
+        e.serial !== undefined &&
+        this.bleEventSerial !== null &&
+        this.serialRelation(e.serial & 0xff, this.bleEventSerial) < 0;
+      if (staleRoundBaseline) {
+        this.bleRoundSyncPending = false;
+        this.clearBleBaselineHeal();
+        console.log(
+          `[BT] FACELETS s=${e.serial} → 轮次旧基线丢弃 (event=${this.bleEventSerial})，重新请求当前状态`
+        );
+        this.link.requestFacelets().catch(() => undefined);
+        return;
+      }
       const baselineDrift = roundBaseline && valid !== this.predicted;
       console.log(
         `[BT] FACELETS s=${e.serial} baseline=${roundBaseline ? 1 : 0}` +
@@ -1261,12 +1303,7 @@ export default class BleCrossTrainer extends Vue {
       );
       this.predicted = raw;
       if (heal) {
-        this.syncScene(raw, "auth");
-        if (this.z2On) {
-          this.applyZ2Flip(true);
-        }
-        this.observedOps = [];
-        this.z2Marks = this.z2On ? [0] : [];
+        this.syncPhysicalScene(raw, "auth");
         this.judgeScreen();
       }
     }

@@ -15,6 +15,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 const moveDiff = req("move-diff.js");
 const facelets = req("facelets.js");
 const gan = req("protocols/gan.js");
+const { CubeLink } = req("cube-link.js");
 const registry = req("protocols/registry.js");
 const vendorCore = req("protocols/vendor/gan-protocol-core.js");
 const { MockGanCubeTransport } = req("mock-transport.js");
@@ -225,6 +226,67 @@ async function main() {
     assert.strictEqual(gan.ganGenForService("8653000a-43e6-47b7-9cb0-5fc21d4ae340"), 3);
     assert.strictEqual(gan.ganGenForService("00000010-0000-fff7-fff6-fff5fff4fff0"), 4);
     assert.deepStrictEqual(Array.from(gan.macToSalt("AA:BB:CC:DD:EE:FF")), [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa]);
+  });
+
+  await test("Gen2 同一实时通知携带的多步均不得标记为历史恢复", async () => {
+    const driver = new vendorCore.GanGen2ProtocolDriver();
+    driver.lastSerial = 10;
+    const frame = new Uint8Array(20);
+    const writeBits = (offset, length, value) => {
+      for (let i = 0; i < length; i++) {
+        const bit = (value >> (length - 1 - i)) & 1;
+        if (bit) frame[(offset + i) >> 3] |= 0x80 >> ((offset + i) & 7);
+      }
+    };
+    writeBits(0, 4, 0x02);
+    writeBits(4, 8, 12);
+    writeBits(12, 4, 1); // serial 11: R
+    writeBits(16, 1, 0);
+    writeBits(17, 4, 0); // serial 12: U
+    writeBits(21, 1, 0);
+    const events = await driver.handleStateEvent(
+      { sendCommandMessage: async () => {}, disconnect: async () => {} },
+      frame
+    );
+    assert.deepStrictEqual(events.map((e) => e.serial), [11, 12]);
+    assert.ok(events.every((e) => e.localTimestamp !== null), "实时批量通知中的旧一步被误标为 recovered");
+  });
+
+  await test("快速重连后旧会话迟到事件和断开回调不得污染新会话", async () => {
+    const transports = [];
+    const link = new CubeLink(() => {
+      const transport = new MockGanCubeTransport(`session-${transports.length + 1}`);
+      transports.push(transport);
+      return transport;
+    });
+    const statuses = [];
+    const events = [];
+    link.onStatus((status) => statuses.push(status));
+    link.onEvent((event) => events.push(event));
+
+    await link.connect("mock");
+    await flush();
+    const oldGan = link.gan;
+    await link.disconnect();
+    await link.connect("mock");
+    await flush();
+    const count = events.length;
+
+    oldGan.eventCb({ type: "battery", level: 3 });
+    oldGan.disconnectCb();
+    await flush();
+    assert.strictEqual(link.status, "connected");
+    assert.strictEqual(link.battery, 87);
+    assert.strictEqual(events.length, count, "旧会话事件被发布到新会话");
+    assert.strictEqual(statuses[statuses.length - 1], "connected", "旧断开回调覆盖了新连接状态");
+  });
+
+  await test("传输层创建失败后连接状态恢复为 disconnected", async () => {
+    const link = new CubeLink(() => {
+      throw new Error("factory failed");
+    });
+    await assert.rejects(() => link.connect("mock"), /factory failed/);
+    assert.strictEqual(link.status, "disconnected");
   });
 
   console.log("== GAN Gen2 全链路 (Mock) ==");

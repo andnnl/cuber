@@ -121,8 +121,14 @@ export class NativeBridgeTransport implements BleTransport {
   }
 
   async disconnect(): Promise<void> {
-    this.bridge.disconnect();
     this.connected = false;
+    this.commandChar = "";
+    const reject = this.connectReject;
+    this.cleanupConnect();
+    this.bridge.disconnect();
+    if (reject) {
+      reject(new Error("连接已取消"));
+    }
   }
 
   onBytes(cb: (data: Uint8Array) => void): void {
@@ -160,6 +166,9 @@ export class NativeBridgeTransport implements BleTransport {
         break;
       }
       case "services": {
+        if (!this.connectResolve) {
+          return; // 上一连接迟到的服务发现结果
+        }
         const services: NativeServiceJson[] = payload.services || [];
         this.serviceUuids = services.map((s) => s.uuid);
         const meta = PROTOCOLS.find(
@@ -185,7 +194,7 @@ export class NativeBridgeTransport implements BleTransport {
         break;
       }
       case "notify": {
-        if (!payload.data || !this.bytesCb) {
+        if (!this.connected || !payload.data || !this.bytesCb) {
           return;
         }
         const bin = atob(payload.data);
@@ -231,7 +240,10 @@ export class NativeBridgeTransport implements BleTransport {
 
   private failConnect(err: Error): void {
     const reject = this.connectReject;
+    this.connected = false;
+    this.commandChar = "";
     this.cleanupConnect();
+    this.bridge.disconnect();
     if (reject) {
       reject(err);
     }

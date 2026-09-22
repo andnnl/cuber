@@ -276,6 +276,14 @@ public class BleBridge {
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+            if (g != gatt) {
+                // closeGatt() 操作的是全局当前连接；旧 GATT 的迟到断开绝不能关闭新连接。
+                try {
+                    g.close();
+                } catch (SecurityException ignored) {
+                }
+                return;
+            }
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 try {
                     g.discoverServices();
@@ -290,6 +298,9 @@ public class BleBridge {
 
         @Override
         public void onServicesDiscovered(BluetoothGatt g, int status) {
+            if (g != gatt) {
+                return;
+            }
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 dispatchError("服务发现失败 (status=" + status + ")");
                 return;
@@ -331,11 +342,17 @@ public class BleBridge {
 
         @Override
         public void onDescriptorWrite(BluetoothGatt g, BluetoothGattDescriptor descriptor, int status) {
+            if (g != gatt) {
+                return;
+            }
             enableNextNotification();
         }
 
         @Override
         public void onCharacteristicWrite(BluetoothGatt g, BluetoothGattCharacteristic c, int status) {
+            if (g != gatt) {
+                return;
+            }
             // 写完成 → 派发队列里的下一条 (Android 同时只允许一个在途写)
             nextWrite();
         }
@@ -343,6 +360,9 @@ public class BleBridge {
         @SuppressWarnings("deprecation")
         @Override
         public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c) {
+            if (g != gatt) {
+                return;
+            }
             // API < 33: 旧签名 (值需经 characteristic.getValue() 取)
             try {
                 dispatchNotify(c.getValue());
@@ -352,6 +372,9 @@ public class BleBridge {
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] value) {
+            if (g != gatt) {
+                return;
+            }
             // API 33+ (targetSdk 33+ 起框架只调此签名)
             dispatchNotify(value);
         }
