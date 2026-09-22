@@ -201,7 +201,12 @@ function toLinkEvent(e: GanCubeEvent): LinkEvent | null {
     case "FACELETS":
       return { type: "facelets", facelets: e.facelets, serial: e.serial };
     case "MOVE":
-      return { type: "move", move: e.move, serial: e.serial };
+      return {
+        type: "move",
+        move: e.move,
+        serial: e.serial,
+        recovered: e.localTimestamp === null,
+      };
     case "BATTERY":
       return { type: "battery", level: e.batteryLevel };
     case "HARDWARE":

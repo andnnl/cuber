@@ -257,6 +257,7 @@ async function main() {
     const moves = moveEvents.map((e) => e.move);
     assert.deepStrictEqual(moves, ["R", "U", "R'", "U", "U", "F'", "L", "D", "D", "B"]);
     assert.strictEqual(moveEvents[0].serial, 1, "MOVE 应保留 GAN 事件序号");
+    assert.strictEqual(moveEvents[0].recovered, false, "实时 MOVE 应保留非恢复来源标记");
     const lastFacelets = [...events].reverse().find((e) => e.type === "facelets");
     assert.strictEqual(lastFacelets.facelets, moveDiff.applyFormula(formula));
     assert.strictEqual(lastFacelets.serial, 10, "FACELETS 应保留 GAN 事件序号");
