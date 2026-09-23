@@ -252,6 +252,8 @@ export default class BleCrossTrainer extends Vue {
   trainMode: "cross" | "xcross" = "cross";
   // 当前打乱公式 (显示给用户照着拧) 与打乱目标态 (54 串, = 魔方当前态 + 公式推演)
   scramble = "";
+  customScramble = "";
+  scrambleDialog = false;
   private scrambleTarget = "";
   // 十字还原步数 (仅 solving 阶段计数)
   moveCount = 0;
@@ -1862,9 +1864,62 @@ export default class BleCrossTrainer extends Vue {
 
   // ================= 打乱 =================
 
+  /** 应用用户输入的打乱公式并开始新一轮。校验规则与 CrossF2L 训练保持一致。 */
+  applyCustomScramble(): void {
+    const formula = (this.customScramble || "").trim().replace(/\s+/g, " ");
+    if (!formula) {
+      return;
+    }
+    const valid = formula.split(" ").every((token) => /^[URFDLB]('2|2'|'|2)?$/.test(token));
+    if (!valid) {
+      this.statusText = "打乱公式无效 (仅支持 U R F D L B 与 '/2 后缀)";
+      return;
+    }
+    this.startScramble(formula);
+  }
+
+  /** 复制用户当前可复现画面的完整打乱公式。 */
+  copyScramble(): void {
+    const text = this.scrambleText;
+    if (!text) {
+      return;
+    }
+    const done = () => {
+      this.statusText = "✅ 已复制打乱公式";
+      this.scrambleDialog = false;
+    };
+    if (navigator.clipboard && document.hasFocus()) {
+      navigator.clipboard.writeText(text).then(done).catch(() => this.fallbackCopy(text, done));
+    } else {
+      this.fallbackCopy(text, done);
+    }
+  }
+
+  /** Clipboard API 不可用时的兼容复制路径。 */
+  private fallbackCopy(text: string, done: () => void): void {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      done();
+    } catch {
+      this.statusText = "❌ 复制失败，请手动选择复制";
+    }
+    document.body.removeChild(textarea);
+  }
+
   /** 新一轮: 蓝牙模式以魔方当前物理状态为基准等待拧到目标态; 手动模式直接打乱 3D。
    * 未连接蓝牙时点「新打乱」: 自动进入手动练习模式 (无蓝牙也能完整练习打乱/还原/重置) */
   newScramble(): void {
+    this.startScramble(this.world.cube.twister.scrambler());
+  }
+
+  /** 随机和自定义公式共用的开轮流程；公式来源之外的训练语义完全一致。 */
+  private startScramble(formula: string): void {
     if (!this.isManual && this.status !== "connected") {
       this.enterManual(); // 未连接/连接中 (自动重连挂起): 断开在飞连接, 免蓝牙直接练习
     }
@@ -1885,7 +1940,6 @@ export default class BleCrossTrainer extends Vue {
       // setup 回正后重放: 与 CrossF2L 一致, y/y' 设定的持握方向跨打乱保留
       // (z2 由 z2On 重放, 见下; 只取 history 会丢掉旧 baseOps 贡献)
       const cube = this.world.cube;
-      const formula = cube.twister.scrambler();
       this.scramble = formula;
       this.scrambleTarget = "";
       this.predicted = null;
@@ -1920,7 +1974,6 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     const base = this.predicted ?? SOLVED_FACELETS;
-    const formula = this.world.cube.twister.scrambler();
     this.scramble = formula;
     this.scrambleTarget = applyFormulaFrom(base, formula);
     console.log(`[BT] SCRAMBLE base=${base} formula="${formula}" target=${this.scrambleTarget}`);

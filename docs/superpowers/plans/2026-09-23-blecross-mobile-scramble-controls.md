@@ -178,7 +178,7 @@ git commit -m "test(蓝牙训练): 添加手机端打乱区域回归验证"
 - 修改：`src/vue/BleCrossTrainer/index.ts:253-255,304-305,1863-1952`
 - 测试：`scripts/verify-blecross-recompute.js`
 
-- [ ] **步骤 1：增加组件状态与输入入口**
+- [x] **步骤 1：增加组件状态与输入入口**
 
 在打乱状态附近增加公开响应式字段：
 
@@ -206,7 +206,7 @@ git commit -m "test(蓝牙训练): 添加手机端打乱区域回归验证"
   }
 ```
 
-- [ ] **步骤 2：提取统一开轮方法**
+- [x] **步骤 2：提取统一开轮方法**
 
 保留 `newScramble()` 作为模板和自动下轮调用入口，让它只负责生成随机公式：
 
@@ -230,7 +230,7 @@ git commit -m "test(蓝牙训练): 添加手机端打乱区域回归验证"
 4. 手动模式重建标准贴纸、应用公式并恢复视角链；
 5. 蓝牙模式从 `predicted` 推演目标、重建画面并打开轮次同步窗口。
 
-- [ ] **步骤 3：实现完整公式复制**
+- [x] **步骤 3：实现完整公式复制**
 
 复制值统一取 `scrambleText`，成功后关闭弹窗并写入状态提示：
 
@@ -266,7 +266,7 @@ git commit -m "test(蓝牙训练): 添加手机端打乱区域回归验证"
   }
 ```
 
-- [ ] **步骤 4：运行 TypeScript 与 BLE 状态测试**
+- [x] **步骤 4：运行 TypeScript 与 BLE 状态测试**
 
 运行：
 
@@ -275,6 +275,15 @@ npm run test:ble
 ```
 
 预期：`27 通过, 0 失败`，且 TypeScript 编译无错误。
+
+实际：2026-09-23 运行退出码为 0，TypeScript 编译通过，BLE 测试结果为 `27 通过, 0 失败`。
+
+- [x] **步骤 5：提交统一开轮逻辑**
+
+```bash
+git add src/vue/BleCrossTrainer/index.ts docs/superpowers/plans/2026-09-23-blecross-mobile-scramble-controls.md
+git commit -m "refactor(蓝牙训练): 统一随机与自定义公式开轮（任务 2/4）"
+```
 
 ### 任务 3：对齐 CrossF2L 模板与移动端样式
 
