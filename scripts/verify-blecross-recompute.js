@@ -128,6 +128,120 @@ async page => {
     throw new Error(`训练记录观察用时异常: ${JSON.stringify(observationRecords)}`);
   }
 
+  const autoNextCountdown = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    const realNow = Date.now;
+    const realSetTimeout = window.setTimeout;
+    const realClearTimeout = window.clearTimeout;
+    const realSetInterval = window.setInterval;
+    const realClearInterval = window.clearInterval;
+    const nextRoundDirect = vm.nextRoundDirect.bind(vm);
+    let now = 10000;
+    let timeoutCallback = null;
+    let intervalCallback = null;
+    const timeoutDelays = [];
+    const intervalDelays = [];
+    const cleared = [];
+    let nextCalls = 0;
+
+    Date.now = () => now;
+    window.setTimeout = (callback, delay) => {
+      timeoutCallback = callback;
+      timeoutDelays.push(delay);
+      return 101;
+    };
+    window.setInterval = (callback, delay) => {
+      intervalCallback = callback;
+      intervalDelays.push(delay);
+      return 202;
+    };
+    window.clearTimeout = id => cleared.push(["timeout", id]);
+    window.clearInterval = id => cleared.push(["interval", id]);
+    vm.nextRoundDirect = () => nextCalls++;
+
+    try {
+      vm.phase = "success";
+      vm.statusText = "✅ 十字完成!";
+      vm.autoNext = true;
+      vm.scheduleAutoNext();
+      const initial = vm.autoNextCountdownText;
+      await vm.$nextTick();
+      const initialDom = document.querySelector(".ok-text").textContent.trim();
+
+      now = 10100;
+      intervalCallback();
+      const ticked = vm.autoNextCountdownText;
+
+      vm.autoNext = false;
+      vm.saveAutoNext();
+      const cancelled = vm.autoNextCountdownText;
+
+      vm.autoNext = true;
+      vm.saveAutoNext();
+      const restarted = vm.autoNextCountdownText;
+      vm.resetRound();
+      const resetCancelled = vm.autoNextCountdownText;
+
+      vm.phase = "success";
+      vm.autoNext = true;
+      vm.scheduleAutoNext();
+      now = 12600;
+      timeoutCallback();
+
+      now = 20000;
+      vm.phase = "success";
+      vm.statusText = "✅ 十字完成!";
+      vm.nextRoundDirect = () => {
+        throw new Error("countdown-test");
+      };
+      vm.scheduleAutoNext();
+      timeoutCallback();
+      const failed = {
+        countdown: vm.autoNextCountdownText,
+        status: vm.statusText,
+      };
+
+      return {
+        initial,
+        initialDom,
+        ticked,
+        cancelled,
+        restarted,
+        resetCancelled,
+        nextCalls,
+        timeoutDelays,
+        intervalDelays,
+        cleared,
+        failed,
+      };
+    } finally {
+      if (typeof vm.clearAutoNextSchedule === "function") {
+        vm.clearAutoNextSchedule();
+      }
+      vm.nextRoundDirect = nextRoundDirect;
+      Date.now = realNow;
+      window.setTimeout = realSetTimeout;
+      window.clearTimeout = realClearTimeout;
+      window.setInterval = realSetInterval;
+      window.clearInterval = realClearInterval;
+    }
+  });
+  if (
+    autoNextCountdown.initial !== "2.5 秒后自动下轮" ||
+    !autoNextCountdown.initialDom.includes("2.5 秒后自动下轮") ||
+    autoNextCountdown.ticked !== "2.4 秒后自动下轮" ||
+    autoNextCountdown.cancelled !== "" ||
+    autoNextCountdown.restarted !== "2.5 秒后自动下轮" ||
+    autoNextCountdown.resetCancelled !== "" ||
+    autoNextCountdown.nextCalls !== 2 ||
+    autoNextCountdown.timeoutDelays.some(delay => delay !== 2500) ||
+    autoNextCountdown.intervalDelays.some(delay => delay !== 100) ||
+    autoNextCountdown.failed.countdown !== "" ||
+    !autoNextCountdown.failed.status.includes("countdown-test")
+  ) {
+    throw new Error(`自动下轮倒计时异常: ${JSON.stringify(autoNextCountdown)}`);
+  }
+
   const centerGhost = await page.evaluate(() => {
     const vm = window.__bleCross;
     const centers = [4, 10, 12, 14, 16, 22];

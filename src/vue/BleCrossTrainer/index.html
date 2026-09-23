@@ -189,7 +189,10 @@
 
           <!-- 行3: 流程状态 + 计时 + 步数 + 自动下轮勾选 -->
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
-            <span :class="{'ok-text': phase === 'success'}" style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ statusText }}</span>
+            <span
+              :class="{'ok-text': phase === 'success'}"
+              style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+            >{{ statusText }}{{ autoNextCountdownText ? ' ' + autoNextCountdownText : '' }}</span>
             <div style="flex: 1;"></div>
             <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
               <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮

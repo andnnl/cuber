@@ -309,6 +309,9 @@ export default class BleCrossTrainer extends Vue {
   elapsedText = "";
   private timerTick: any = null;
   private resultTimer: any = null;
+  private autoNextCountdownTimer: any = null;
+  private autoNextDeadline = 0;
+  autoNextCountdownText = "";
   // 观察用时与还原用时分开计 (observing 起点 / 首次转动起点)
   observeStart = 0;
   solveStart = 0;
@@ -459,10 +462,7 @@ export default class BleCrossTrainer extends Vue {
       window.clearInterval(this.timerTick);
       this.timerTick = null;
     }
-    if (this.resultTimer !== null) {
-      window.clearTimeout(this.resultTimer);
-      this.resultTimer = null;
-    }
+    this.clearAutoNextSchedule();
     if (this.stateTimer !== null) {
       window.clearTimeout(this.stateTimer);
       this.stateTimer = null;
@@ -1851,23 +1851,12 @@ export default class BleCrossTrainer extends Vue {
     if (!this.isManual) {
       this.link.requestFacelets().catch(() => undefined); // 请求权威确认
     }
-    if (this.resultTimer !== null) {
-      window.clearTimeout(this.resultTimer);
-    }
+    this.clearAutoNextSchedule();
     // 勾选「自动下轮」时 2.5s 展示结果后自动开始下一轮 (免点「跳过, 直接开始」:
     // 不生成打乱匹配等待, 自行打乱魔方后首次转动开始计时); 未勾选则等用户手动点「新打乱」
     if (this.autoNext) {
       console.info("[BLECross] success: 安排自动下轮 (2.5s)");
-      this.resultTimer = window.setTimeout(() => {
-        this.resultTimer = null;
-        try {
-          this.nextRoundDirect();
-        } catch (e) {
-          // 定时器回调异常会静默死亡 (界面停在成功态且不再自动下轮): 显示错误而非吞掉
-          console.error("[BLECross] 自动下轮执行异常", e);
-          this.statusText = "自动下轮执行异常: " + (e instanceof Error ? e.message : String(e)) + " (可点「新打乱」继续)";
-        }
-      }, 2500);
+      this.scheduleAutoNext();
     }
   }
 
@@ -1888,10 +1877,7 @@ export default class BleCrossTrainer extends Vue {
       this.recordTrain(false); // 训练记录: 本轮放弃 (失败, 还原用时=当时已用时)
       this.running = false;
     }
-    if (this.resultTimer !== null) {
-      window.clearTimeout(this.resultTimer);
-      this.resultTimer = null;
-    }
+    this.clearAutoNextSchedule();
     if (this.isManual) {
       // 手动模式: 3D 魔方直接打乱 (setup 瞬时完成, history 清空后记号从拧动开始累计),
       // 打乱后先进入观察阶段: 可 y/z/x 整体转动观察, 首次转动才开始还原计时。
@@ -1974,11 +1960,11 @@ export default class BleCrossTrainer extends Vue {
     if (this.phase !== "observing" && this.phase !== "solving" && this.phase !== "success") {
       return; // ready: 尚无本轮
     }
-    if (this.resultTimer !== null) {
+    const skipAutoWait = this.resultTimer !== null;
+    if (skipAutoWait) {
       // success 展示窗内重置 = 跳过等待直接开下一轮打乱 (真机反馈 2026-09-22:
       // 旧实现取消自动下轮回上轮打乱态 = 画面突变 + 自动下轮意图丢失)
-      window.clearTimeout(this.resultTimer);
-      this.resultTimer = null;
+      this.clearAutoNextSchedule();
       this.bestStepPos = {};
       this.nextRoundDirect();
       return;
@@ -2118,20 +2104,54 @@ export default class BleCrossTrainer extends Vue {
     if (this.phase !== "success") {
       return;
     }
-    if (this.autoNext && this.resultTimer === null) {
-      this.resultTimer = window.setTimeout(() => {
-        this.resultTimer = null;
-        try {
-          this.nextRoundDirect();
-        } catch (e) {
-          console.error("[BLECross] 自动下轮执行异常", e);
-          this.statusText = "自动下轮执行异常: " + (e instanceof Error ? e.message : String(e)) + " (可点「新打乱」继续)";
-        }
-      }, 2500);
-    } else if (!this.autoNext && this.resultTimer !== null) {
+    this.autoNext ? this.scheduleAutoNext() : this.clearAutoNextSchedule();
+  }
+
+  /** 以截止时间刷新展示，避免浏览器后台定时器降频造成累计误差。 */
+  private refreshAutoNextCountdown(): void {
+    if (this.phase !== "success" || this.autoNextDeadline <= 0) {
+      this.autoNextCountdownText = "";
+      return;
+    }
+    const remaining = Math.max(0, this.autoNextDeadline - Date.now());
+    this.autoNextCountdownText = (remaining / 1000).toFixed(1) + " 秒后自动下轮";
+  }
+
+  /** 清理自动下轮的跳转与展示任务；所有提前离开 success 的路径共用。 */
+  private clearAutoNextSchedule(): void {
+    if (this.resultTimer !== null) {
       window.clearTimeout(this.resultTimer);
       this.resultTimer = null;
     }
+    if (this.autoNextCountdownTimer !== null) {
+      window.clearInterval(this.autoNextCountdownTimer);
+      this.autoNextCountdownTimer = null;
+    }
+    this.autoNextDeadline = 0;
+    this.autoNextCountdownText = "";
+  }
+
+  /** 从完整的 2.5 秒开始安排自动下轮，并同步启动 0.1 秒倒计时展示。 */
+  private scheduleAutoNext(): void {
+    this.clearAutoNextSchedule();
+    if (!this.autoNext || this.phase !== "success") {
+      return;
+    }
+    this.autoNextDeadline = Date.now() + 2500;
+    this.refreshAutoNextCountdown();
+    this.autoNextCountdownTimer = window.setInterval(() => this.refreshAutoNextCountdown(), 100);
+    this.resultTimer = window.setTimeout(() => {
+      this.clearAutoNextSchedule();
+      try {
+        this.nextRoundDirect();
+      } catch (e) {
+        console.error("[BLECross] 自动下轮执行异常", e);
+        this.statusText =
+          "自动下轮执行异常: " +
+          (e instanceof Error ? e.message : String(e)) +
+          " (可点「新打乱」继续)";
+      }
+    }, 2500);
   }
 
   /** 「显示最优解」勾选变更: 持久化; 中途开启时补求本轮最优解 (打乱等待/观察/还原/完成阶段都补) */
