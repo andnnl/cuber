@@ -78,6 +78,117 @@ async page => {
     throw new Error(`BLE Cross 非法背景没有回退白色: ${JSON.stringify(invalidBackground)}`);
   }
 
+  const customScramble = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.autoNext = false;
+    vm.enterManual();
+    vm.customScramble = "  R   U2  F'  ";
+    vm.applyCustomScramble();
+    vm.world.cube.twister.finish();
+    const valid = {
+      scramble: vm.scramble,
+      phase: vm.phase,
+      status: vm.statusText,
+    };
+
+    const beforeInvalid = {
+      scramble: vm.scramble,
+      phase: vm.phase,
+      scene: vm.world.cube.serialize(),
+    };
+    vm.customScramble = "R X";
+    vm.applyCustomScramble();
+    vm.world.cube.twister.finish();
+    const invalid = {
+      scramble: vm.scramble,
+      phase: vm.phase,
+      scene: vm.world.cube.serialize(),
+      status: vm.statusText,
+    };
+    return { valid, beforeInvalid, invalid };
+  });
+  if (
+    customScramble.valid.scramble !== "R U2 F'" ||
+    customScramble.valid.phase !== "observing" ||
+    customScramble.invalid.scramble !== customScramble.beforeInvalid.scramble ||
+    customScramble.invalid.phase !== customScramble.beforeInvalid.phase ||
+    customScramble.invalid.scene !== customScramble.beforeInvalid.scene ||
+    !customScramble.invalid.status.includes("打乱公式无效")
+  ) {
+    throw new Error(`自定义打乱公式行为异常: ${JSON.stringify(customScramble)}`);
+  }
+
+  const originalViewport = page.viewportSize();
+  await page.setViewportSize({ width: 360, height: 740 });
+  const mobileScrambleLayout = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.customScramble = "R U2 F'";
+    await vm.$nextTick();
+    const card = document.querySelector(".ble-card").getBoundingClientRect();
+    const actions = document.querySelector(".ble-scramble-actions").getBoundingClientRect();
+    const row = document.querySelector(".ble-scramble-input-row").getBoundingClientRect();
+    const field = document.querySelector(".ble-scramble-input-row .v-text-field").getBoundingClientRect();
+    const controls = [...document.querySelectorAll(".ble-scramble-input-row .v-btn")].map(el => {
+      const rect = el.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, width: rect.width };
+    });
+    return {
+      card: { left: card.left, right: card.right },
+      actionsHeight: actions.height,
+      row: { left: row.left, right: row.right },
+      fieldWidth: field.width,
+      controls,
+      inlineFormulaCount: document.querySelectorAll(".ble-scramble-actions .scramble-text").length,
+    };
+  });
+  if (
+    mobileScrambleLayout.inlineFormulaCount !== 0 ||
+    mobileScrambleLayout.row.left < mobileScrambleLayout.card.left ||
+    mobileScrambleLayout.row.right > mobileScrambleLayout.card.right + 1 ||
+    mobileScrambleLayout.fieldWidth < 120 ||
+    mobileScrambleLayout.controls.length !== 2 ||
+    mobileScrambleLayout.controls.some(x => x.width < 30)
+  ) {
+    throw new Error(`手机端打乱区域布局异常: ${JSON.stringify(mobileScrambleLayout)}`);
+  }
+  await page.setViewportSize(originalViewport);
+
+  const scrambleDialog = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.customScramble = "R U2 F'";
+    vm.applyCustomScramble();
+    vm.world.cube.twister.finish();
+    vm.scrambleDialog = true;
+    await vm.$nextTick();
+    const formula = document.querySelector(".ble-scramble-formula");
+    const width = formula.getBoundingClientRect().width;
+    const shown = formula.textContent.trim();
+    const realExecCommand = document.execCommand;
+    let copied = "";
+    document.execCommand = command => {
+      if (command === "copy") copied = document.activeElement.value;
+      return true;
+    };
+    try {
+      vm.fallbackCopy(vm.scrambleText, () => {
+        vm.statusText = "✅ 已复制打乱公式";
+        vm.scrambleDialog = false;
+      });
+    } finally {
+      document.execCommand = realExecCommand;
+    }
+    return { width, shown, copied, open: vm.scrambleDialog, status: vm.statusText };
+  });
+  if (
+    scrambleDialog.width < 250 ||
+    scrambleDialog.shown !== "R U2 F'" ||
+    scrambleDialog.copied !== "R U2 F'" ||
+    scrambleDialog.open ||
+    !scrambleDialog.status.includes("已复制打乱公式")
+  ) {
+    throw new Error(`打乱信息弹窗或复制异常: ${JSON.stringify(scrambleDialog)}`);
+  }
+
   const observationRecords = await page.evaluate(() => {
     const vm = window.__bleCross;
     const realNow = Date.now;

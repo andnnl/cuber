@@ -26,7 +26,7 @@
 - 参考：`src/vue/CrossF2LTrainer/index.html:73-123`
 - 参考：`src/vue/CrossF2LTrainer/index.ts:108-145,515-535`
 
-- [ ] **步骤 1：增加自定义公式行为测试**
+- [x] **步骤 1：增加自定义公式行为测试**
 
 在浏览器验证脚本中保存当前轮次，分别验证合法输入、空白归一化和非法输入：
 
@@ -70,7 +70,7 @@
   }
 ```
 
-- [ ] **步骤 2：增加 360 px 移动端布局测试**
+- [x] **步骤 2：增加 360 px 移动端布局测试**
 
 临时缩小视口，确认公式不再位于按钮行，输入行的全部控件都落在卡片内：
 
@@ -111,7 +111,7 @@
   await page.setViewportSize(originalViewport);
 ```
 
-- [ ] **步骤 3：增加弹窗与降级复制测试**
+- [x] **步骤 3：增加弹窗与降级复制测试**
 
 通过组件状态打开弹窗，检查完整公式可读宽度，并拦截 `execCommand` 验证复制值：
 
@@ -152,7 +152,7 @@
   }
 ```
 
-- [ ] **步骤 4：运行验证并确认红灯原因正确**
+- [x] **步骤 4：运行验证并确认红灯原因正确**
 
 运行：
 
@@ -162,7 +162,9 @@ npm run verify:blecross
 
 预期：FAIL，最先报告 `vm.applyCustomScramble is not a function`，证明失败来自尚未实现的自定义打乱入口，而非脚本语法或页面启动错误。
 
-- [ ] **步骤 5：提交测试红灯**
+实际：2026-09-23 运行后退出码为 1，首个错误为 `TypeError: vm.applyCustomScramble is not a function`，红灯原因符合预期。
+
+- [x] **步骤 5：提交测试红灯**
 
 ```bash
 git add scripts/verify-blecross-recompute.js
