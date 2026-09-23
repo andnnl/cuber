@@ -160,13 +160,15 @@ async page => {
     vm.world.cube.twister.finish();
     vm.scrambleDialog = true;
     await vm.$nextTick();
+    await new Promise(resolve => setTimeout(resolve, 350));
     const formula = document.querySelector(".ble-scramble-formula");
     const width = formula.getBoundingClientRect().width;
     const shown = formula.textContent.trim();
     const realExecCommand = document.execCommand;
     let copied = "";
     document.execCommand = command => {
-      if (command === "copy") copied = document.activeElement.value;
+      const textarea = document.querySelector("textarea");
+      if (command === "copy" && textarea) copied = textarea.value;
       return true;
     };
     try {
@@ -188,6 +190,9 @@ async page => {
   ) {
     throw new Error(`打乱信息弹窗或复制异常: ${JSON.stringify(scrambleDialog)}`);
   }
+
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
 
   const observationRecords = await page.evaluate(() => {
     const vm = window.__bleCross;

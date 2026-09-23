@@ -28,21 +28,44 @@ export const BLE_THEME_CSS = `
   border: none;
   box-shadow: 0 2px 8px rgba(91, 107, 240, 0.4) !important;
 }
-/* 打乱公式: 等宽字体, 窄屏自动换行 */
-.ble-card .scramble-text {
+/* 打乱操作与输入: 对齐 CrossF2L, 窄屏按控件整体换行 */
+.ble-card .ble-scramble-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.ble-card .ble-scramble-input-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+}
+.ble-card .ble-scramble-input-row .v-text-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+}
+.ble-card .v-text-field .v-input__control .v-input__slot {
+  background: #f4f6fa !important;
+  border: 1px solid #e3e8f0 !important;
+  border-radius: 6px !important;
+}
+.ble-card .v-text-field fieldset {
+  border: none !important;
+}
+.ble-scramble-formula {
   font-family: 'Roboto Mono', Consolas, monospace;
-  font-size: 13px;
+  font-size: 15px;
   color: #333;
   background: #f4f6fa;
   border-radius: 6px;
-  padding: 3px 8px;
-  line-height: 1.5;
+  padding: 8px 10px;
+  line-height: 1.7;
   word-break: break-all;
-  min-width: 0;
-}
-.ble-card .scramble-text.muted {
-  color: #9aa3b2;
-  background: #f8f9fc;
 }
 /* 连接状态点: 灰未连/蓝连接中/绿已连 */
 .ble-card .status-dot {

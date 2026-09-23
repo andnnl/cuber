@@ -80,7 +80,7 @@
           </div>
 
           <!-- 行2: 练习模式 + 打乱公式 -->
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px;">
+          <div class="ble-scramble-actions">
             <select
               v-model="trainMode"
               @change="saveTrainMode"
@@ -129,8 +129,26 @@
               :title="calibStep >= 0 ? '点击取消校准' : '校准 (调试): 在白顶绿前零换算视角下, 按提示转 3 次实体魔方, 自动对比硬件上报记号是否对得上; 详细日志见控制台'"
               :style="{height: size * 0.55 + 'px'}"
             >{{ calibStep >= 0 ? '取消校准' : '校准' }}</v-btn>
-            <span v-if="scramble" class="scramble-text" :class="{muted: phase !== 'ready'}">{{ scrambleText }}</span>
-            <span v-else class="scramble-text muted">{{ phase === 'ready' ? (isManual ? '点「新打乱」开始' : '等待魔方状态...') : '—' }}</span>
+          </div>
+
+          <!-- 行2.2: 自定义打乱输入 + 完整打乱信息 (与 CrossF2L 交互一致) -->
+          <div class="ble-scramble-input-row">
+            <v-text-field
+              v-model="customScramble"
+              placeholder="输入打乱公式, 回车应用"
+              dense
+              hide-details
+              outlined
+              @keyup.enter="applyCustomScramble"
+            ></v-text-field>
+            <v-btn x-small @click="applyCustomScramble" :style="{height: size * 0.5 + 'px'}">✓</v-btn>
+            <v-btn
+              x-small
+              @click="scrambleDialog = true"
+              :disabled="!scramble"
+              title="打乱信息"
+              :style="{height: size * 0.5 + 'px'}"
+            >🎲</v-btn>
           </div>
 
           <!-- 行2.5: 无关块可视化: 色块半透明 / 隐藏无关贴纸 (+ xcross 槽位选择) -->
@@ -320,6 +338,22 @@
         </v-card-text>
       </v-card>
     </div>
+
+    <!-- 打乱信息弹窗: 完整公式 + 复制 -->
+    <v-dialog v-model="scrambleDialog" max-width="340">
+      <v-card class="help-dialog">
+        <v-card-title class="help-title">🎲 打乱信息</v-card-title>
+        <v-card-text class="help-body">
+          <div style="font-size: 11px; color: #888; margin-bottom: 3px;">打乱公式</div>
+          <div class="ble-scramble-formula">{{ scrambleText || "生成中..." }}</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn small text color="primary" @click="copyScramble">📋 复制公式</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn small text @click="scrambleDialog = false">关闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 使用说明弹窗 -->
     <v-dialog v-model="helpDialog" max-width="420">

@@ -294,7 +294,7 @@ git commit -m "refactor(蓝牙训练): 统一随机与自定义公式开轮（�
 - 修改：`src/vue/BleCrossTrainer/theme.ts:31-46`（替换旧公式样式）
 - 测试：`scripts/verify-blecross-recompute.js`
 
-- [ ] **步骤 1：调整操作行并新增输入行**
+- [x] **步骤 1：调整操作行并新增输入行**
 
 将原行改为可换行的语义类，删除两个 `.scramble-text` 节点：
 
@@ -317,7 +317,7 @@ git commit -m "refactor(蓝牙训练): 统一随机与自定义公式开轮（�
           </div>
 ```
 
-- [ ] **步骤 2：增加打乱信息弹窗**
+- [x] **步骤 2：增加打乱信息弹窗**
 
 在帮助弹窗之前增加：
 
@@ -338,7 +338,7 @@ git commit -m "refactor(蓝牙训练): 统一随机与自定义公式开轮（�
     </v-dialog>
 ```
 
-- [ ] **步骤 3：增加与 CrossF2L 对齐的样式**
+- [x] **步骤 3：增加与 CrossF2L 对齐的样式**
 
 用以下样式替换旧 `.scramble-text` 规则：
 
@@ -383,7 +383,7 @@ git commit -m "refactor(蓝牙训练): 统一随机与自定义公式开轮（�
 }
 ```
 
-- [ ] **步骤 4：运行浏览器验证并确认绿灯**
+- [x] **步骤 4：运行浏览器验证并确认绿灯**
 
 运行：
 
@@ -393,7 +393,9 @@ npm run verify:blecross
 
 预期：退出码为 0；新增的自定义公式、360 px 布局、弹窗和复制验证均通过。
 
-- [ ] **步骤 5：提交功能实现**
+实际：2026-09-23 运行退出码为 0。测试等待 350 ms 弹窗过渡完成后验证公式宽度，并在新增场景后 reload 隔离旧用例初始状态。
+
+- [x] **步骤 5：提交功能实现**
 
 ```bash
 git add src/vue/BleCrossTrainer/index.ts src/vue/BleCrossTrainer/index.html src/vue/BleCrossTrainer/theme.ts scripts/verify-blecross-recompute.js
