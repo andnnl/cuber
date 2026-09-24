@@ -93,6 +93,7 @@
             <v-btn
               x-small
               @click="newScramble"
+              :disabled="generatingDifficulty"
               title="生成新打乱 (蓝牙以魔方当前状态为基准; 未连接/连接中自动转手动练习, 直接打乱屏幕中的魔方)"
               :style="{height: size * 0.55 + 'px'}"
             >新打乱</v-btn>
@@ -152,7 +153,7 @@
           </div>
 
           <!-- 行2.5: 无关块可视化: 色块半透明 / 隐藏无关贴纸 (+ xcross 槽位选择) -->
-          <div style="display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; min-height: 16px;">
+          <div class="ble-visual-options" style="display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; min-height: 16px;">
             <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="色块半透明模式: 本轮无关的块保留原色并变半透明 (不分方向, 视线无死角), 6 个中心块不透明度为 80%, 十字所需块高亮显示 —— 不转动魔方也能透视看到十字块在哪 (与「隐藏无关」独立, 都勾选时无关块使用灰色隐藏效果)">
               <input type="checkbox" v-model="visGhost" @change="saveVisGhost" style="width: 13px; height: 13px;" />半透明
             </label>
@@ -190,6 +191,16 @@
                 </label>
               </v-card>
             </v-menu>
+            <select
+              data-ble-difficulty
+              class="ble-difficulty-select"
+              v-model="difficulty"
+              @change="saveDifficulty"
+              title="按当前底色十字的精确最优步数生成打乱；XCross 不计 F2L 部分"
+            >
+              <option value="random">随机</option>
+              <option v-for="n in [2, 3, 4, 5, 6, 7]" :key="n" :value="n">{{ n }}步</option>
+            </select>
             <div style="flex: 1;"></div>
             <select
               v-if="trainMode === 'xcross' && (visGhost || visHide)"
@@ -387,6 +398,11 @@
           <div>· XCross: 十字 + 任一组 F2L (角+棱) 同时完成才算,</div>
           <div>&nbsp;&nbsp;最优解显示 FL/FR/BL/BR 四组各自的最优解,</div>
           <div>&nbsp;&nbsp;你完成的槽位会绿色高亮</div>
+          <div style="margin-top: 8px;"><b>难度与设置记忆</b></div>
+          <div>· 「随机」使用普通完整打乱；2步～7步表示当前底色十字的精确最优步数</div>
+          <div>· XCross 只按十字部分计算难度，F2L 部分不计入</div>
+          <div>· 自定义打乱公式不受难度选择限制，始终按输入公式执行</div>
+          <div>· 复选框、下拉框、背景颜色和 z2 姿态会自动记住</div>
           <div style="margin-top: 8px;"><b>持握与公式</b></div>
           <div>· 打乱时按标准姿态持握: 白色朝上、绿色朝前</div>
           <div>· 公式字母对应方向: U上 D下 F前 B后 L左 R右</div>

@@ -341,8 +341,69 @@ async page => {
     throw new Error(`固定难度分支行为异常: ${JSON.stringify(difficultyPaths)}`);
   }
 
+  const difficultyUi = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.helpDialog = true;
+    await vm.$nextTick();
+    const select = document.querySelector("[data-ble-difficulty]");
+    const bg = document.querySelector(".ble-bg-trigger").getBoundingClientRect();
+    const rect = select.getBoundingClientRect();
+    const options = [...select.options].map(option => ({
+      value: option.value,
+      text: option.textContent.trim(),
+    }));
+    const help = document.querySelector(".help-dialog .help-body").textContent;
+    vm.helpDialog = false;
+    return { options, afterBackground: rect.left >= bg.right, help };
+  });
+  if (
+    JSON.stringify(difficultyUi.options) !== JSON.stringify([
+      { value: "random", text: "随机" },
+      ...[2, 3, 4, 5, 6, 7].map(n => ({ value: String(n), text: `${n}步` })),
+    ]) ||
+    !difficultyUi.afterBackground ||
+    !difficultyUi.help.includes("XCross 只按十字部分计算难度") ||
+    !difficultyUi.help.includes("自定义打乱公式不受难度选择限制") ||
+    !difficultyUi.help.includes("自动记住")
+  ) throw new Error(`难度控件或说明异常: ${JSON.stringify(difficultyUi)}`);
+
   const originalViewport = page.viewportSize();
   await page.setViewportSize({ width: 360, height: 740 });
+  const mobileDifficultyLayout = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.trainMode = "xcross";
+    vm.visGhost = true;
+    await vm.$nextTick();
+    const card = document.querySelector(".ble-card").getBoundingClientRect();
+    const row = document.querySelector(".ble-visual-options").getBoundingClientRect();
+    const controls = [".ble-bg-trigger", "[data-ble-difficulty]", ".ble-visual-options select:last-child"]
+      .map(selector => document.querySelector(selector))
+      .map(element => {
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          height: rect.height,
+          width: rect.width,
+          whiteSpace: getComputedStyle(element).whiteSpace,
+        };
+      });
+    return {
+      card: { left: card.left, right: card.right },
+      row: { left: row.left, right: row.right, height: row.height },
+      controls,
+    };
+  });
+  if (
+    mobileDifficultyLayout.row.left < mobileDifficultyLayout.card.left ||
+    mobileDifficultyLayout.row.right > mobileDifficultyLayout.card.right + 1 ||
+    mobileDifficultyLayout.controls.some(
+      item =>
+        item.left < mobileDifficultyLayout.card.left ||
+        item.right > mobileDifficultyLayout.card.right + 1 ||
+        item.height < 22
+    )
+  ) throw new Error(`手机端难度设置行布局异常: ${JSON.stringify(mobileDifficultyLayout)}`);
   const mobileScrambleLayout = await page.evaluate(async () => {
     const vm = window.__bleCross;
     vm.customScramble = "R U2 F'";

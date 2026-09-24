@@ -161,6 +161,31 @@ export const BLE_THEME_CSS = `
   background: transparent;
   cursor: pointer;
 }
+.ble-visual-options {
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+.ble-difficulty-select {
+  flex: none;
+  height: 22px;
+  min-width: 48px;
+  border: 1px solid #e3e8f0;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  padding: 0 2px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+@media (max-width: 420px) {
+  .ble-visual-options {
+    gap: 5px !important;
+  }
+  .ble-difficulty-select {
+    min-width: 44px;
+    max-width: 54px;
+  }
+}
 /* 帮助弹窗 */
 .help-dialog {
   background: #ffffff !important;
