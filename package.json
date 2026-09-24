@@ -10,6 +10,7 @@
     "build": "set NODE_OPTIONS=--openssl-legacy-provider && webpack --color --mode=production --progress",
     "verify": "node src/verify/cli.js",
     "verify:blecross": "playwright-cli run-code --filename scripts/verify-blecross-recompute.js",
+    "verify:bleconnect": "playwright-cli run-code --filename scripts/verify-bleconnect.js",
     "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js"
   },
   "devDependencies": {
