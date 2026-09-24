@@ -14,6 +14,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 const moveDiff = req("move-diff.js");
 const facelets = req("facelets.js");
+const crossDifficulty = req("cross-difficulty.js");
 const gan = req("protocols/gan.js");
 const { CubeLink } = req("cube-link.js");
 const registry = req("protocols/registry.js");
@@ -138,6 +139,119 @@ async function main() {
     assert.deepStrictEqual(moveDiff.simplifyMoves(["R", "R", "R", "U"]), ["R'", "U"]);
     assert.deepStrictEqual(moveDiff.simplifyMoves(["D2"]), ["D2"]);
     assert.deepStrictEqual(moveDiff.simplifyMoves([]), []);
+  });
+
+  console.log("== cross-difficulty ==");
+
+  await test("难度存储值仅接受 random 与 2～7", () => {
+    assert.strictEqual(crossDifficulty.parseCrossDifficulty(null), "random");
+    assert.strictEqual(crossDifficulty.parseCrossDifficulty("random"), "random");
+    for (let n = 2; n <= 7; n++) {
+      assert.strictEqual(crossDifficulty.parseCrossDifficulty(String(n)), n);
+    }
+    for (const bad of ["", "1", "8", "5.0", "abc"]) {
+      assert.strictEqual(crossDifficulty.parseCrossDifficulty(bad), "random");
+    }
+  });
+
+  await test("随机扰动严格生成指定 HTM 步数且不连续同轴", () => {
+    const values = [0.01, 0.02, 0.45, 0.80, 0.91, 0.20, 0.55, 0.34, 0.73, 0.67];
+    let i = 0;
+    const moves = crossDifficulty.randomCrossPerturbation(7, () => values[i++ % values.length]);
+    assert.strictEqual(moves.length, 7);
+    const axis = face => ({ U: 0, D: 0, R: 1, L: 1, F: 2, B: 2 })[face[0]];
+    for (let j = 1; j < moves.length; j++) {
+      assert.notStrictEqual(axis(moves[j - 1]), axis(moves[j]));
+    }
+  });
+
+  await test("精确难度生成会建立已解十字基准并只接受匹配步数", async () => {
+    const solved = facelets.SOLVED_FACELETS;
+    const seed = "R";
+    const suffix = ["F", "R"];
+    const seedState = moveDiff.applyFormulaFrom(solved, seed);
+    const finalState = moveDiff.applyFormulaFrom(solved, `${seed} R' ${suffix.join(" ")}`);
+    const seen = [];
+    const formula = await crossDifficulty.generateExactCrossScramble({
+      baseState: solved,
+      difficulty: 2,
+      z2On: false,
+      randomScramble: () => seed,
+      perturbation: () => suffix,
+      solveCross: async state => {
+        seen.push(state);
+        if (state === seedState) return ["R'"];
+        if (state === finalState) return ["R' F'"];
+        return ["error: unexpected state"];
+      },
+    });
+    assert.strictEqual(formula, "R R' F R");
+    assert.deepStrictEqual(seen, [seedState, finalState]);
+  });
+
+  await test("白底精确难度在训练帧求解并换回物理公式", async () => {
+    const solved = facelets.SOLVED_FACELETS;
+    const seed = "L";
+    const suffix = ["F", "L"];
+    const seedPhysical = moveDiff.applyFormulaFrom(solved, seed);
+    const finalPhysical = moveDiff.applyFormulaFrom(solved, "L L' F L");
+    const formula = await crossDifficulty.generateExactCrossScramble({
+      baseState: solved,
+      difficulty: 2,
+      z2On: true,
+      randomScramble: () => seed,
+      perturbation: () => suffix,
+      solveCross: async state => {
+        if (state === moveDiff.toTrainFrame(seedPhysical)) return ["R'"];
+        if (state === moveDiff.toTrainFrame(finalPhysical)) return ["R' F'"];
+        return ["error: unexpected state"];
+      },
+    });
+    assert.strictEqual(formula, "L L' F L");
+  });
+
+  await test("精确难度生成支持取消且不会返回过期公式", async () => {
+    let current = true;
+    const formula = await crossDifficulty.generateExactCrossScramble({
+      baseState: facelets.SOLVED_FACELETS,
+      difficulty: 2,
+      z2On: false,
+      randomScramble: () => "R",
+      perturbation: () => ["F", "R"],
+      solveCross: async () => {
+        current = false;
+        return ["R'"];
+      },
+      isCurrent: () => current,
+    });
+    assert.strictEqual(formula, null);
+  });
+
+  await test("求解器错误立即终止且不会返回公式", async () => {
+    await assert.rejects(
+      crossDifficulty.generateExactCrossScramble({
+        baseState: facelets.SOLVED_FACELETS,
+        difficulty: 5,
+        z2On: false,
+        randomScramble: () => "R U F",
+        solveCross: async () => ["error: solver unavailable"],
+      }),
+      /solver unavailable/
+    );
+  });
+
+  await test("重试耗尽后返回明确的难度生成错误", async () => {
+    await assert.rejects(
+      crossDifficulty.generateExactCrossScramble({
+        baseState: facelets.SOLVED_FACELETS,
+        difficulty: 7,
+        z2On: false,
+        randomScramble: () => "R",
+        perturbation: () => ["F", "R", "U", "L", "B", "D", "F"],
+        solveCross: async state => state === moveDiff.applyFormula("R") ? ["R'"] : ["R U"],
+      }),
+      /无法生成 7 步难度/
+    );
   });
 
   console.log("== facelets ==");
