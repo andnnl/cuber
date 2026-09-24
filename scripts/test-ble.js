@@ -189,6 +189,25 @@ async function main() {
     assert.deepStrictEqual(seen, [seedState, finalState]);
   });
 
+  await test("精确难度生成从多个求解候选中选择最短解", async () => {
+    const solved = facelets.SOLVED_FACELETS;
+    const seedState = moveDiff.applyFormulaFrom(solved, "R");
+    const finalState = moveDiff.applyFormulaFrom(solved, "R R' F R");
+    const formula = await crossDifficulty.generateExactCrossScramble({
+      baseState: solved,
+      difficulty: 2,
+      z2On: false,
+      randomScramble: () => "R",
+      perturbation: () => ["F", "R"],
+      solveCross: async state => {
+        if (state === seedState) return ["R R R", "R'"];
+        if (state === finalState) return ["R U F", "R' F'"];
+        return ["error: unexpected state"];
+      },
+    });
+    assert.strictEqual(formula, "R R' F R");
+  });
+
   await test("白底精确难度在训练帧求解并换回物理公式", async () => {
     const solved = facelets.SOLVED_FACELETS;
     const seed = "L";

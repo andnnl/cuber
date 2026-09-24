@@ -20,6 +20,7 @@ import * as WasmSolver from "../../wasm/WasmSolver";
 import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import { BLE_THEME_CSS } from "./theme";
 import {
+  countFormulaMoves,
   CrossDifficulty,
   generateExactCrossScramble,
   parseCrossDifficulty,
@@ -1768,13 +1769,22 @@ export default class BleCrossTrainer extends Vue {
     try {
       // 目标十字按当前持握视角底色: 黄底 (z2On=false) → 黄十字 = 核心帧标准 D 面, 直接求解;
       // 白底 (z2On=true) → 白十字, 经训练帧求解, 解逐记号 z2Move 换回核心帧再存
-      const solutions = await this.solver.solveCross(this.z2On ? toTrainFrame(state) : state, 1, 8);
+      const solutions = await this.solver.solveCross(this.z2On ? toTrainFrame(state) : state, 5, 8);
       // 慢速求解 (BFS fallback) 可能耗时数秒: 若期间已开始新一轮则作废本次结果
       if (reqId !== this.bestReqId) {
         return;
       }
-      const best = ((solutions && solutions[0]) || "").trim();
-      if (best.indexOf("error") !== 0) {
+      const best = (solutions || [])
+        .map(solution => (solution || "").trim())
+        .filter(solution => solution.indexOf("error") !== 0)
+        .reduce(
+          (shortest, solution) =>
+            shortest === null || countFormulaMoves(solution) < countFormulaMoves(shortest)
+              ? solution
+              : shortest,
+          null as string | null
+        );
+      if (best !== null) {
         this.bestBaseState = state;
         this.bestViewOps = viewOps.map((op) => ({ ...op }));
         this.bestSolution = best
@@ -1957,7 +1967,7 @@ export default class BleCrossTrainer extends Vue {
         difficulty,
         z2On,
         randomScramble: () => this.world.cube.twister.scrambler(),
-        solveCross: state => this.solver.solveCross(state, 1, 8),
+        solveCross: state => this.solver.solveCross(state, 5, 8),
         isCurrent: stillCurrent,
       });
       if (formula && stillCurrent()) {

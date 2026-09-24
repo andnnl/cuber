@@ -49,9 +49,12 @@ function joinFormula(...parts: string[]): string {
 
 function checkedSolution(solutions: string[]): string {
   if (!solutions || solutions.length === 0) throw new Error("十字求解器没有返回解法");
-  const solution = ((solutions && solutions[0]) || "").trim();
-  if (solution.indexOf("error") === 0) throw new Error(solution);
-  return solution;
+  const normalized = solutions.map(solution => (solution || "").trim());
+  const valid = normalized.filter(solution => solution.indexOf("error") !== 0);
+  if (valid.length === 0) throw new Error(normalized[0]);
+  return valid.reduce((shortest, solution) =>
+    countFormulaMoves(solution) < countFormulaMoves(shortest) ? solution : shortest
+  );
 }
 
 export async function generateExactCrossScramble(options: GenerateOptions): Promise<string | null> {
