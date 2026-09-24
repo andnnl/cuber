@@ -217,7 +217,7 @@
           </div>
 
           <!-- 行3: 流程状态 + 计时 + 步数 + 自动下轮勾选 -->
-          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
+          <div data-ble-flow-row style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; font-size: 13px; min-height: 20px;">
             <span
               :class="{'ok-text': phase === 'success'}"
               style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
@@ -225,6 +225,9 @@
             <div style="flex: 1;"></div>
             <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
               <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮
+            </label>
+            <label data-ble-retry-non-optimal style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="正确但未达到最优步数时，倒计时后重置同一局继续练习">
+              <input type="checkbox" v-model="retryNonOptimal" @change="saveRetryNonOptimal" style="width: 13px; height: 13px;" />非最优重试
             </label>
             <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="全程显示 WASM 推荐的最优解 (观察/还原/完成阶段都显示, 用于学习); 关闭后不求解也不展示">
               <input type="checkbox" v-model="showBest" @change="saveShowBest" style="width: 13px; height: 13px;" />最优解
@@ -393,6 +396,7 @@
           <div>5. 正确后显示你的解法与最优解对比、步数和成功/失败计数</div>
           <div>6. 勾选「自动下轮」时 2.5 秒后自动开始下一轮 (免操作):</div>
           <div>&nbsp;&nbsp;自行打乱魔方, 首次转动开始计时; 未勾选则手动点「新打乱」继续</div>
+          <div>· 勾选「非最优重试」后，正确但步数不是最优时会倒计时重置同一局；达到最优后才自动进入下一局</div>
           <div style="margin-top: 8px;"><b>练习模式</b></div>
           <div>· Cross: 白十字/黄十字任一还原即完成, 最优解按当前持握底色给出</div>
           <div>· XCross: 十字 + 任一组 F2L (角+棱) 同时完成才算,</div>

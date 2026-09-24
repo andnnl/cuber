@@ -117,6 +117,33 @@ async page => {
     difficultySaved: "5", retrySaved: "1", z2Saved: "1",
   })) throw new Error(`设置恢复异常: ${JSON.stringify(settings)}`);
 
+  await page.setViewportSize({ width: 360, height: 740 });
+  const retryUi = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.helpDialog = true;
+    await vm.$nextTick();
+    const control = document.querySelector("[data-ble-retry-non-optimal]");
+    const row = document.querySelector("[data-ble-flow-row]");
+    const pageText = document.body.textContent || "";
+    return {
+      exists: !!control,
+      text: control ? control.textContent.trim() : "",
+      checked: control ? control.querySelector("input").checked : null,
+      model: vm.retryNonOptimal,
+      overflow: row ? row.scrollWidth > row.clientWidth + 1 : true,
+      help: pageText.includes("非最优重试") && pageText.includes("同一局"),
+    };
+  });
+  if (
+    !retryUi.exists ||
+    retryUi.text !== "非最优重试" ||
+    retryUi.checked !== retryUi.model ||
+    retryUi.overflow ||
+    !retryUi.help
+  ) {
+    throw new Error(`非最优重试移动端界面异常: ${JSON.stringify(retryUi)}`);
+  }
+
   const bestLabel = await page.evaluate(async () => {
     const vm = window.__bleCross;
     vm.trainMode = "cross";
