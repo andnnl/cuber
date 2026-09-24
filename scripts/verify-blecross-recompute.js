@@ -248,7 +248,7 @@ async page => {
       while (!vm.bestReady && Date.now() < xDeadline) {
         await new Promise(resolve => setTimeout(resolve, 20));
       }
-      const xcross = { best: vm.bestSteps, phase: vm.phase };
+      const xcross = { best: vm.bestSteps, phase: vm.phase, roundDifficulty: vm.roundDifficulty };
 
       let release;
       vm.solver = {
@@ -329,6 +329,7 @@ async page => {
     difficultyPaths.random.scramble !== "R U" ||
     difficultyPaths.xcross.best !== 5 ||
     difficultyPaths.xcross.phase !== "observing" ||
+    difficultyPaths.xcross.roundDifficulty !== 5 ||
     difficultyPaths.stale.started.length !== 0 ||
     difficultyPaths.stale.generating ||
     difficultyPaths.custom !== "R U2 F'" ||
@@ -486,6 +487,8 @@ async page => {
     vm.recLimit = 20;
     vm.saveRecords = () => {};
     try {
+      vm.roundDifficulty = 5;
+      vm.difficulty = 2;
       Date.now = () => 15000;
       vm.isManual = false;
       vm.observeStart = 10000;
@@ -510,6 +513,7 @@ async page => {
         formattedBluetooth: vm.fmtRecSec(vm.records[2].obs),
         formattedMissing: vm.fmtRecSec(vm.records[0].obs),
         avgObs: vm.recStats.avgObs,
+        lockedDifficulty: vm.records[2].difficulty,
       };
     } finally {
       Date.now = realNow;
@@ -523,7 +527,8 @@ async page => {
     observationRecords.missingObs !== null ||
     observationRecords.formattedBluetooth !== "2.5s" ||
     observationRecords.formattedMissing !== "-" ||
-    observationRecords.avgObs !== "2.3s"
+    observationRecords.avgObs !== "2.3s" ||
+    observationRecords.lockedDifficulty !== 5
   ) {
     throw new Error(`训练记录观察用时异常: ${JSON.stringify(observationRecords)}`);
   }

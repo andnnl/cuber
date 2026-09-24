@@ -55,6 +55,7 @@ function slotToPhysical(slot: string): string {
 type TrainRecord = {
   t: number;
   mode: "cross" | "xcross";
+  difficulty?: CrossDifficulty;
   ok: boolean;
   obs: number | null;
   solve: number | null;
@@ -257,6 +258,7 @@ export default class BleCrossTrainer extends Vue {
   // 练习模式: cross = 只还原十字; xcross = 十字 + 任一 F2L 槽位 (localStorage "bleTrainMode")
   trainMode: "cross" | "xcross" = "cross";
   difficulty: CrossDifficulty = "random";
+  private roundDifficulty: CrossDifficulty | null = null;
   private scrambleGenerationId = 0;
   generatingDifficulty = false;
   // 当前打乱公式 (显示给用户照着拧) 与打乱目标态 (54 串, = 魔方当前态 + 公式推演)
@@ -1998,6 +2000,7 @@ export default class BleCrossTrainer extends Vue {
       this.recordTrain(false); // 训练记录: 本轮放弃 (失败, 还原用时=当时已用时)
       this.running = false;
     }
+    this.roundDifficulty = this.difficulty;
     this.clearAutoNextSchedule();
     if (this.isManual) {
       // 手动模式: 3D 魔方直接打乱 (setup 瞬时完成, history 清空后记号从拧动开始累计),
@@ -2668,6 +2671,7 @@ export default class BleCrossTrainer extends Vue {
     const rec: TrainRecord = {
       t: Date.now(),
       mode: this.trainMode,
+      difficulty: this.roundDifficulty === null ? undefined : this.roundDifficulty,
       ok,
       obs: observed ? (this.solveStart - this.observeStart) / 1000 : null,
       solve: this.solveStart ? (Date.now() - this.solveStart) / 1000 : null,
