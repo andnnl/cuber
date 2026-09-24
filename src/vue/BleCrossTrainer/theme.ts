@@ -271,6 +271,9 @@ export const BLE_THEME_CSS = `
 .rec-dialog .rec-table .rec-nowrap {
   white-space: nowrap;
 }
+.rec-dialog .rec-table .rec-difficulty {
+  white-space: nowrap;
+}
 .rec-dialog .rec-table .rec-ok {
   color: #26c281;
   font-weight: bold;

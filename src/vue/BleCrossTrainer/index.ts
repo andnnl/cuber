@@ -2717,6 +2717,15 @@ export default class BleCrossTrainer extends Vue {
     return v === null ? "-" : v.toFixed(1) + "s";
   }
 
+  fmtRecDifficulty(value: unknown): string {
+    if (value === "random") {
+      return "随机";
+    }
+    return typeof value === "number" && value >= 2 && value <= 7 && Number.isInteger(value)
+      ? value + "步"
+      : "—";
+  }
+
   clearRecords(): void {
     if (window.confirm("确定清空全部训练记录?")) {
       this.records = [];

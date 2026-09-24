@@ -533,6 +533,36 @@ async page => {
     throw new Error(`训练记录观察用时异常: ${JSON.stringify(observationRecords)}`);
   }
 
+  const recordDifficultyUi = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.records = [
+      { t: 3, mode: "cross", difficulty: "random", ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
+      { t: 2, mode: "cross", difficulty: 5, ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
+      { t: 1, mode: "cross", ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
+    ];
+    vm.recDialog = true;
+    await vm.$nextTick();
+    const result = {
+      labels: [vm.fmtRecDifficulty("random"), vm.fmtRecDifficulty(5), vm.fmtRecDifficulty(undefined)],
+      headers: Array.from(document.querySelectorAll(".rec-table th")).map(x => x.textContent.trim()),
+      cells: Array.from(document.querySelectorAll("[data-rec-difficulty]")).map(x => ({
+        text: x.textContent.trim(),
+        nowrap: getComputedStyle(x).whiteSpace,
+      })),
+    };
+    vm.recDialog = false;
+    vm.records = [];
+    return result;
+  });
+  if (
+    JSON.stringify(recordDifficultyUi.labels) !== JSON.stringify(["随机", "5步", "—"]) ||
+    !recordDifficultyUi.headers.includes("难度") ||
+    JSON.stringify(recordDifficultyUi.cells.map(x => x.text)) !== JSON.stringify(["随机", "5步", "—"]) ||
+    recordDifficultyUi.cells.some(x => x.nowrap !== "nowrap")
+  ) {
+    throw new Error(`训练记录难度列异常: ${JSON.stringify(recordDifficultyUi)}`);
+  }
+
   const autoNextCountdown = await page.evaluate(async () => {
     const vm = window.__bleCross;
     const realNow = Date.now;

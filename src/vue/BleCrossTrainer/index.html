@@ -476,12 +476,13 @@
           <!-- 明细表格: 最近 N 条 -->
           <table class="rec-table" v-if="recordsView.length">
             <thead>
-              <tr><th>时间</th><th>模式</th><th>结果</th><th>观察</th><th>还原</th><th>最优</th><th>步数</th></tr>
+              <tr><th>时间</th><th>模式</th><th>难度</th><th>结果</th><th>观察</th><th>还原</th><th>最优</th><th>步数</th></tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in recordsView" :key="r.t + '-' + i" :class="{ 'rec-fail': !r.ok }">
                 <td class="rec-nowrap">{{ fmtRecTime(r.t) }}</td>
                 <td>{{ r.mode === 'xcross' ? 'X' : '十' }}</td>
+                <td data-rec-difficulty class="rec-difficulty">{{ fmtRecDifficulty(r.difficulty) }}</td>
                 <td :class="r.ok ? 'rec-ok' : 'rec-bad'">{{ r.ok ? '✔' : '✘' }}</td>
                 <td>{{ fmtRecSec(r.obs) }}</td>
                 <td>{{ fmtRecSec(r.solve) }}</td>
