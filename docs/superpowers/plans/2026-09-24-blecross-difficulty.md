@@ -29,7 +29,7 @@
 - 修改：`scripts/test-ble.js`
 - 测试：`scripts/test-ble.js`
 
-- [ ] **步骤 1：先添加难度解析和生成器失败测试**
+- [x] **步骤 1：先添加难度解析和生成器失败测试**
 
 在 `scripts/test-ble.js` 的模块加载区加入：
 
@@ -154,7 +154,7 @@ await test("重试耗尽后返回明确的难度生成错误", async () => {
 });
 ```
 
-- [ ] **步骤 2：运行单测并确认红灯**
+- [x] **步骤 2：运行单测并确认红灯**
 
 运行：
 
@@ -164,7 +164,7 @@ npm run test:ble
 
 预期：TypeScript 编译或 Node 加载失败，明确指出 `cross-difficulty` 模块不存在；不是现有 BLE 测试失败。
 
-- [ ] **步骤 3：实现最少的纯生成模块**
+- [x] **步骤 3：实现最少的纯生成模块**
 
 创建 `src/ble/cross-difficulty.ts`：
 
@@ -258,7 +258,7 @@ export async function generateExactCrossScramble(options: GenerateOptions): Prom
 }
 ```
 
-- [ ] **步骤 4：运行单测确认绿灯**
+- [x] **步骤 4：运行单测确认绿灯**
 
 运行：
 
@@ -268,7 +268,7 @@ npm run test:ble
 
 预期：原有 27 项加新增 7 项全部通过，退出码为 0。
 
-- [ ] **步骤 5：提交任务 1**
+- [x] **步骤 5：提交任务 1**
 
 ```bash
 git add src/ble/cross-difficulty.ts scripts/test-ble.js
@@ -284,7 +284,7 @@ git commit -m "feat(蓝牙训练): 添加精确十字难度生成器（任务 1/
 - 修改：`src/vue/BleCrossTrainer/index.html`
 - 测试：`scripts/verify-blecross-recompute.js`
 
-- [ ] **步骤 1：先添加标签和持久化失败测试**
+- [x] **步骤 1：先添加标签和持久化失败测试**
 
 在 Playwright 脚本开头背景测试之后增加一次设置写入、刷新与读取，断言：
 
@@ -340,7 +340,7 @@ const bestLabel = await page.evaluate(() => {
 if (bestLabel !== "白5步") throw new Error(`最优解标签未精简: ${bestLabel}`);
 ```
 
-- [ ] **步骤 2：运行页面验证确认红灯**
+- [x] **步骤 2：运行页面验证确认红灯**
 
 先确保开发服务器运行，再执行：
 
@@ -350,7 +350,7 @@ npm run verify:blecross
 
 预期：FAIL，提示 `saveDifficulty` 或难度字段不存在；生产代码尚未修改。
 
-- [ ] **步骤 3：实现难度与 z2 存储恢复**
+- [x] **步骤 3：实现难度与 z2 存储恢复**
 
 在 `index.ts` 导入：
 
@@ -401,7 +401,7 @@ this.baseOps = [];
 this.z2Marks = this.z2On ? [0] : [];
 ```
 
-- [ ] **步骤 4：精简模板标签**
+- [x] **步骤 4：精简模板标签**
 
 把 Cross 最优解标签替换为：
 
@@ -412,7 +412,7 @@ this.z2Marks = this.z2On ? [0] : [];
 >{{ z2On ? '白' : '黄' }}{{ bestReady ? bestSteps + '步' : '' }}</span>
 ```
 
-- [ ] **步骤 5：运行页面验证确认绿灯**
+- [x] **步骤 5：运行页面验证确认绿灯**
 
 运行：
 
@@ -422,7 +422,7 @@ npm run verify:blecross
 
 预期：新增设置恢复与 `白5步` 标签断言通过；脚本退出码为 0。测试结束前把设置恢复为测试脚本原先依赖的默认值，避免污染后续用例。
 
-- [ ] **步骤 6：提交任务 2**
+- [x] **步骤 6：提交任务 2**
 
 ```bash
 git add src/vue/BleCrossTrainer/index.ts src/vue/BleCrossTrainer/index.html scripts/verify-blecross-recompute.js
@@ -437,7 +437,7 @@ git commit -m "feat(蓝牙训练): 记忆难度与姿态设置（任务 2/5）"
 - 修改：`src/vue/BleCrossTrainer/index.ts`
 - 测试：`scripts/verify-blecross-recompute.js`
 
-- [ ] **步骤 1：先添加真实求解器固定难度失败测试**
+- [x] **步骤 1：先添加真实求解器固定难度失败测试**
 
 在 Playwright 脚本中进入手动模式，打开最优解，并对黄底与白底分别循环 2～7：
 
@@ -480,7 +480,7 @@ if (difficultyResults.some(row => row.best !== row.difficulty || row.phase !== "
 
 再扩展现有自定义打乱测试：先设置 `difficulty = 5`，输入 `R U2 F'` 后仍断言 `scramble === "R U2 F'"`。模拟求解器错误和重试耗尽，断言打乱公式、场景与阶段保持原值，状态文字包含 `难度生成失败`。
 
-- [ ] **步骤 2：运行页面验证确认红灯**
+- [x] **步骤 2：运行页面验证确认红灯**
 
 运行：
 
@@ -490,7 +490,7 @@ npm run verify:blecross
 
 预期：FAIL，固定难度仍走普通随机打乱，至少一个 `best !== difficulty`。
 
-- [ ] **步骤 3：实现异步生成与请求失效**
+- [x] **步骤 3：实现异步生成与请求失效**
 
 在 `index.ts` 扩展导入：
 
@@ -552,7 +552,7 @@ async newScramble(): Promise<void> {
 - `mockDemo()` 使用 `await this.newScramble()` 后再读取 `scrambleTarget`。
 - `toggleZ2()`、`saveDifficulty()`、断开或销毁路径调用 `cancelDifficultyGeneration()`，使旧结果失效并立即清除生成中状态。
 
-- [ ] **步骤 4：运行页面验证确认绿灯**
+- [x] **步骤 4：运行页面验证确认绿灯**
 
 运行：
 
@@ -562,7 +562,7 @@ npm run verify:blecross
 
 预期：黄底和白底的 2～7 步共 12 个样本全部精确；随机、XCross、取消和错误路径断言通过。
 
-- [ ] **步骤 5：提交任务 3**
+- [x] **步骤 5：提交任务 3**
 
 ```bash
 git add src/vue/BleCrossTrainer/index.ts scripts/verify-blecross-recompute.js
@@ -578,7 +578,7 @@ git commit -m "feat(蓝牙训练): 接入固定步数打乱（任务 3/5）"
 - 修改：`src/vue/BleCrossTrainer/theme.ts`
 - 测试：`scripts/verify-blecross-recompute.js`
 
-- [ ] **步骤 1：先添加 DOM、帮助文字和手机布局失败测试**
+- [x] **步骤 1：先添加 DOM、帮助文字和手机布局失败测试**
 
 在页面验证脚本中断言：
 
@@ -605,7 +605,7 @@ if (
 
 在 360 × 740 视口下断言设置行、背景按钮、难度下拉框和可见的 XCross 槽位选择都落在卡片范围内，控件高度至少 22 px，不出现逐字竖排。
 
-- [ ] **步骤 2：运行页面验证确认红灯**
+- [x] **步骤 2：运行页面验证确认红灯**
 
 运行：
 
@@ -615,7 +615,7 @@ npm run verify:blecross
 
 预期：FAIL，找不到 `[data-ble-difficulty]`。
 
-- [ ] **步骤 3：添加紧凑难度下拉框**
+- [x] **步骤 3：添加紧凑难度下拉框**
 
 在背景选择菜单闭合标签之后、现有 `flex: 1` 空白元素之前加入：
 
@@ -656,7 +656,7 @@ npm run verify:blecross
 }
 ```
 
-- [ ] **步骤 4：补充使用说明**
+- [x] **步骤 4：补充使用说明**
 
 在「练习模式」之后增加：
 
@@ -668,7 +668,7 @@ npm run verify:blecross
 <div>· 复选框、下拉框、背景颜色和 z2 姿态会自动记住</div>
 ```
 
-- [ ] **步骤 5：运行页面验证和手机截图验收**
+- [x] **步骤 5：运行页面验证和手机截图验收**
 
 运行：
 
@@ -678,7 +678,7 @@ npm run verify:blecross
 
 预期：脚本退出码为 0。随后在 360 × 740 视口打开 `?mode=blecross`，确认难度下拉位于背景按钮右侧，设置行无竖排和遮挡，并保存截图证据到 `.superpowers/`（不提交）。
 
-- [ ] **步骤 6：提交任务 4**
+- [x] **步骤 6：提交任务 4**
 
 ```bash
 git add src/vue/BleCrossTrainer/index.html src/vue/BleCrossTrainer/theme.ts scripts/verify-blecross-recompute.js
@@ -694,7 +694,7 @@ git commit -m "feat(蓝牙训练): 添加难度控件与使用说明（任务 4/
 - 删除：`dist/index.<旧哈希>.js`
 - 修改：`docs/superpowers/plans/2026-09-24-blecross-difficulty.md`
 
-- [ ] **步骤 1：运行 BLE 单元测试**
+- [x] **步骤 1：运行 BLE 单元测试**
 
 运行：
 
@@ -704,7 +704,7 @@ npm run test:ble
 
 预期：全部测试通过，失败数为 0。
 
-- [ ] **步骤 2：运行 BLE Cross 页面回归**
+- [x] **步骤 2：运行 BLE Cross 页面回归**
 
 运行：
 
@@ -714,7 +714,7 @@ npm run verify:blecross
 
 预期：退出码为 0，覆盖难度精确性、设置恢复、标签、帮助文字和手机布局。
 
-- [ ] **步骤 3：运行生产构建**
+- [x] **步骤 3：运行生产构建**
 
 运行：
 
@@ -724,7 +724,7 @@ npm run build
 
 预期：webpack 生产构建成功，`dist/index.html` 引用新的哈希 JS。构建后确认 `dist/cube_cross_table.bin` 仍存在但保持未跟踪，不加入提交。
 
-- [ ] **步骤 4：检查最终差异和用户文件**
+- [x] **步骤 4：检查最终差异和用户文件**
 
 运行：
 
@@ -737,7 +737,7 @@ test -f dist/cube_cross_table.bin && wc -c dist/cube_cross_table.bin
 
 预期：无空白错误；`README.md`、`.superpowers/`、`.trae/` 和 `dist/cube_cross_table.bin` 保持用户原有未提交状态。
 
-- [ ] **步骤 5：记录验证证据并提交构建产物**
+- [x] **步骤 5：记录验证证据并提交构建产物**
 
 把实际命令、退出码、测试数量、截图路径和提交哈希填写到本计划对应任务下，然后执行：
 
@@ -749,7 +749,7 @@ git commit -m "build(蓝牙训练): 更新难度选择功能产物（任务 5/5�
 
 提交前使用 `git diff --cached --name-only`，确认未包含 `README.md`、`.superpowers/`、`.trae/` 或 `dist/cube_cross_table.bin`。
 
-- [ ] **步骤 6：最终核对提交链**
+- [x] **步骤 6：最终核对提交链**
 
 运行：
 
@@ -757,5 +757,19 @@ git commit -m "build(蓝牙训练): 更新难度选择功能产物（任务 5/5�
 git log --oneline -9
 git status --short --branch
 ```
+
+## 执行证据（2026-09-24）
+
+- 任务 1：`a15cc20 feat(蓝牙训练): 添加精确十字难度生成器（任务 1/5）`
+- 任务 2：`2634818 feat(蓝牙训练): 记忆难度与姿态设置（任务 2/5）`
+- 任务 3：`8fe7f6f feat(蓝牙训练): 接入固定步数打乱（任务 3/5）`
+- 任务 4：`1fd1b97 feat(蓝牙训练): 添加难度控件与使用说明（任务 4/5）`
+- 稳定性修复：`4a10b32 fix(蓝牙训练): 稳定校验十字最优难度`
+- `npm run test:ble`：退出码 0，35 通过、0 失败。
+- `npm run verify:blecross`：修复前捕获白底 7 步偶发重求为 6 步；新增“多候选取最短”回归后连续两次退出码 0。
+- `npm run build`：退出码 0，webpack 生产构建成功；新入口为 `dist/index.a30678c0d31894aac137.js`。
+- 手机截图：`.superpowers/blecross-difficulty-mobile-360x740.png`，360 × 740 下背景色、难度及 XCross 槽位控件均在卡片内且高度为 22 px，无竖排或遮挡。
+- `git diff --check -- scripts/test-ble.js src/ble/cross-difficulty.ts src/vue/BleCrossTrainer/index.ts`：退出码 0；全局检查仅命中用户原有且不提交的 `README.md:142` 末尾空行。
+- `dist/cube_cross_table.bin`：构建清理后已从同 SHA-256 的 Android 资源副本恢复，大小 2,661,132 字节，保持未跟踪且未暂存。
 
 预期：计划、规格及 5 个实现任务提交都位于当前 `master`；工作区只剩明确保留的用户文件。
