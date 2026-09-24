@@ -15,6 +15,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 const moveDiff = req("move-diff.js");
 const facelets = req("facelets.js");
 const crossDifficulty = req("cross-difficulty.js");
+const nonOptimalRetry = req("non-optimal-retry.js");
 const gan = req("protocols/gan.js");
 const { CubeLink } = req("cube-link.js");
 const registry = req("protocols/registry.js");
@@ -142,6 +143,53 @@ async function main() {
   });
 
   console.log("== cross-difficulty ==");
+
+  await test("Cross 仅在有效最优解与实际步数不同时重试", () => {
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({
+      trainMode: "cross", actualSteps: 6,
+      crossReady: true, crossBestSteps: 5, crossBestValid: true,
+      xcrossReady: false, completedSlots: [], bestX: [],
+    }), true);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({
+      trainMode: "cross", actualSteps: 5,
+      crossReady: true, crossBestSteps: 5, crossBestValid: true,
+      xcrossReady: false, completedSlots: [], bestX: [],
+    }), false);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({
+      trainMode: "cross", actualSteps: 6,
+      crossReady: false, crossBestSteps: 5, crossBestValid: false,
+      xcrossReady: false, completedSlots: [], bestX: [],
+    }), false);
+  });
+
+  await test("XCross 只取已完成槽位中的最少有效最优步数", () => {
+    const base = {
+      trainMode: "xcross", actualSteps: 7,
+      crossReady: false, crossBestSteps: 0, crossBestValid: false,
+      xcrossReady: true,
+      completedSlots: ["FL", "BR"],
+      bestX: [
+        { slot: "FL", steps: 7, available: true },
+        { slot: "FR", steps: 4, available: true },
+        { slot: "BR", steps: 6, available: true },
+      ],
+    };
+    assert.strictEqual(nonOptimalRetry.bestComparableSteps(base), 6);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal(base), true);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({ ...base, actualSteps: 6 }), false);
+  });
+
+  await test("XCross 未就绪或已完成槽位没有有效解时不重试", () => {
+    const input = {
+      trainMode: "xcross", actualSteps: 8,
+      crossReady: false, crossBestSteps: 0, crossBestValid: false,
+      xcrossReady: true, completedSlots: ["FL"],
+      bestX: [{ slot: "FL", steps: 0, available: false }],
+    };
+    assert.strictEqual(nonOptimalRetry.bestComparableSteps(input), null);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal(input), false);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({ ...input, xcrossReady: false }), false);
+  });
 
   await test("难度存储值仅接受 random 与 2～7", () => {
     assert.strictEqual(crossDifficulty.parseCrossDifficulty(null), "random");
