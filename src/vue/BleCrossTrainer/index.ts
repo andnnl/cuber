@@ -19,6 +19,7 @@ import Solver from "../../solver/Solver";
 import * as WasmSolver from "../../wasm/WasmSolver";
 import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import { BLE_THEME_CSS } from "./theme";
+import { CrossDifficulty, parseCrossDifficulty } from "../../ble/cross-difficulty";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
@@ -250,6 +251,9 @@ export default class BleCrossTrainer extends Vue {
   phase: "disconnected" | "ready" | "observing" | "solving" | "success" = "disconnected";
   // 练习模式: cross = 只还原十字; xcross = 十字 + 任一 F2L 槽位 (localStorage "bleTrainMode")
   trainMode: "cross" | "xcross" = "cross";
+  difficulty: CrossDifficulty = "random";
+  private scrambleGenerationId = 0;
+  generatingDifficulty = false;
   // 当前打乱公式 (显示给用户照着拧) 与打乱目标态 (54 串, = 魔方当前态 + 公式推演)
   scramble = "";
   customScramble = "";
@@ -415,11 +419,17 @@ export default class BleCrossTrainer extends Vue {
           console.log("[配色] 检测到 U 面为黄色 (会显示成黄顶), 已自动切换为「默认」白顶预设");
         }
       }
+      if (this.z2On) {
+        this.applyZ2Flip(true);
+      }
     });
     this.autoNext = window.localStorage.getItem("bleAutoNext") !== "0";
     this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
     this.visGhost = window.localStorage.getItem("bleVisGhost") === "1";
     this.visHide = window.localStorage.getItem("bleVisHide") === "1";
+    this.difficulty = parseCrossDifficulty(window.localStorage.getItem("bleDifficulty"));
+    this.z2On = window.localStorage.getItem("bleZ2On") === "1";
+    this.z2Marks = this.z2On ? [0] : [];
     this.backgroundColor = normalizeBackgroundColor(window.localStorage.getItem("bleBackgroundColor"));
     // 统一修正旧值大小写，并把非法值持久化回默认值，刷新后的状态保持稳定
     window.localStorage.setItem("bleBackgroundColor", this.backgroundColor);
@@ -569,13 +579,8 @@ export default class BleCrossTrainer extends Vue {
     }
     this.isManual = true;
     this.resetBleReconciliation();
-    this.baseOps = []; // 手动会话从标准白顶姿态开始 (z2On 同款复位)
-    this.z2Marks = []; // 视图链清空 (z2On 复位为 false, 见下; 新打乱时按 z2On 重建)
-    const wasZ2 = this.z2On;
-    this.z2On = false; // 手动模式从白顶物理视角开始 (z2 按钮可随时切), 复位避免遗留翻转影响公式展示
-    if (wasZ2) {
-      this.applyZ2Flip(true); // 3D 翻转姿态同步切回白顶
-    }
+    this.baseOps = [];
+    this.z2Marks = this.z2On ? [0] : [];
     this.deviceName = "手动模式 (鼠标拧动)";
     this.statusText = "手动练习: 点击「新打乱」开始";
   }
@@ -808,6 +813,8 @@ export default class BleCrossTrainer extends Vue {
     // serialize 才变)。手动和蓝牙都以当前 3D 状态重算，不再使用冻结的轮次基准态。
     const physical = this.mapStateForJudge(this.world.cube.serialize());
     this.z2On = !this.z2On;
+    window.localStorage.setItem("bleZ2On", this.z2On ? "1" : "0");
+    this.cancelDifficultyGeneration();
     // 翻转记入视图链时间线 (当前链末尾): 此后的整体转/核心帧换算/展示换名
     // 均按含此翻转的完整链精确处理 (共轭场景不再依赖纯 z2 剥离假设)
     this.z2Marks.push(this.observedOps.length);
@@ -2158,6 +2165,16 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     this.autoNext ? this.scheduleAutoNext() : this.clearAutoNextSchedule();
+  }
+
+  private cancelDifficultyGeneration(): void {
+    this.scrambleGenerationId++;
+    this.generatingDifficulty = false;
+  }
+
+  saveDifficulty(): void {
+    window.localStorage.setItem("bleDifficulty", String(this.difficulty));
+    this.cancelDifficultyGeneration();
   }
 
   /** 以截止时间刷新展示，避免浏览器后台定时器降频造成累计误差。 */

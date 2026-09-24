@@ -78,6 +78,70 @@ async page => {
     throw new Error(`BLE Cross 非法背景没有回退白色: ${JSON.stringify(invalidBackground)}`);
   }
 
+  await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.trainMode = "xcross"; vm.saveTrainMode();
+    vm.difficulty = 5; vm.saveDifficulty();
+    vm.visGhost = true; vm.saveVisGhost();
+    vm.visHide = true; vm.saveVisHide();
+    vm.visSlot = "BR"; vm.saveVisSlot();
+    vm.autoNext = false; vm.saveAutoNext();
+    vm.showBest = false; vm.saveShowBest();
+    vm.recLimit = 50; vm.saveRecLimit();
+    if (!vm.z2On) vm.toggleZ2();
+    vm.world.cube.twister.finish();
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  const settings = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    return {
+      trainMode: vm.trainMode, difficulty: vm.difficulty,
+      visGhost: vm.visGhost, visHide: vm.visHide, visSlot: vm.visSlot,
+      autoNext: vm.autoNext, showBest: vm.showBest, recLimit: vm.recLimit,
+      z2On: vm.z2On, z2Marks: vm.z2Marks.slice(),
+      target: vm.crossTargetText(), mappedU: vm.displayMove("U"),
+      difficultySaved: localStorage.getItem("bleDifficulty"),
+      z2Saved: localStorage.getItem("bleZ2On"),
+    };
+  });
+  if (JSON.stringify(settings) !== JSON.stringify({
+    trainMode: "xcross", difficulty: 5,
+    visGhost: true, visHide: true, visSlot: "BR",
+    autoNext: false, showBest: false, recLimit: 50,
+    z2On: true, z2Marks: [0],
+    target: "白色十字 (4 条白棱围住白色中心)", mappedU: "D",
+    difficultySaved: "5", z2Saved: "1",
+  })) throw new Error(`设置恢复异常: ${JSON.stringify(settings)}`);
+
+  const bestLabel = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.trainMode = "cross";
+    vm.showBest = true;
+    vm.phase = "observing";
+    vm.bestReady = true;
+    vm.bestSolution = "R U F L D";
+    await vm.$nextTick();
+    return document.querySelector("[data-ble-best-label]").textContent.trim();
+  });
+  if (bestLabel !== "白5步") throw new Error(`最优解标签未精简: ${bestLabel}`);
+
+  await page.evaluate(() => {
+    const vm = window.__bleCross;
+    vm.trainMode = "cross"; vm.saveTrainMode();
+    vm.difficulty = "random"; vm.saveDifficulty();
+    vm.visGhost = false; vm.saveVisGhost();
+    vm.visHide = false; vm.saveVisHide();
+    vm.visSlot = "FR"; vm.saveVisSlot();
+    vm.autoNext = true; vm.saveAutoNext();
+    vm.showBest = true; vm.saveShowBest();
+    vm.recLimit = 20; vm.saveRecLimit();
+    if (vm.z2On) vm.toggleZ2();
+    vm.world.cube.twister.finish();
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+
   const customScramble = await page.evaluate(() => {
     const vm = window.__bleCross;
     vm.autoNext = false;
@@ -561,6 +625,7 @@ async page => {
     throw new Error(`y/y′ 或完成态重写了蓝牙历史: ${JSON.stringify(mixedView)}`);
   }
 
+  await page.evaluate(() => localStorage.setItem("bleZ2On", "0"));
   await page.reload();
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
 

@@ -229,7 +229,7 @@
           >
             <!-- Cross 模式: 单组最优解 -->
             <div v-if="trainMode === 'cross'" style="display: flex; gap: 6px; min-width: 0;">
-              <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">最优解({{ z2On ? '白' : '黄' }}) {{ bestReady ? bestSteps + '步' : '' }}</span>
+              <span data-ble-best-label style="color: #1565c0; white-space: nowrap; font-weight: bold;">{{ z2On ? '白' : '黄' }}{{ bestReady ? bestSteps + '步' : '' }}</span>
               <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolutionText || (bestWaitingScramble ? '(打乱拆散十字后自动求解)' : '(十字已复原, 无需转动)')) : '求解中…' }}</span>
               <v-btn
                 x-small
