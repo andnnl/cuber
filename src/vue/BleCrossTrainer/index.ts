@@ -19,7 +19,11 @@ import Solver from "../../solver/Solver";
 import * as WasmSolver from "../../wasm/WasmSolver";
 import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import { BLE_THEME_CSS } from "./theme";
-import { CrossDifficulty, parseCrossDifficulty } from "../../ble/cross-difficulty";
+import {
+  CrossDifficulty,
+  generateExactCrossScramble,
+  parseCrossDifficulty,
+} from "../../ble/cross-difficulty";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
@@ -470,6 +474,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   beforeDestroy(): void {
+    this.cancelDifficultyGeneration();
     if (this.timerTick !== null) {
       window.clearInterval(this.timerTick);
       this.timerTick = null;
@@ -615,6 +620,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   async disconnect(): Promise<void> {
+    this.cancelDifficultyGeneration();
     await this.link.disconnect();
   }
 
@@ -1873,6 +1879,7 @@ export default class BleCrossTrainer extends Vue {
 
   /** 应用用户输入的打乱公式并开始新一轮。校验规则与 CrossF2L 训练保持一致。 */
   applyCustomScramble(): void {
+    this.cancelDifficultyGeneration();
     const formula = (this.customScramble || "").trim().replace(/\s+/g, " ");
     if (!formula) {
       return;
@@ -1921,8 +1928,50 @@ export default class BleCrossTrainer extends Vue {
 
   /** 新一轮: 蓝牙模式以魔方当前物理状态为基准等待拧到目标态; 手动模式直接打乱 3D。
    * 未连接蓝牙时点「新打乱」: 自动进入手动练习模式 (无蓝牙也能完整练习打乱/还原/重置) */
-  newScramble(): void {
-    this.startScramble(this.world.cube.twister.scrambler());
+  async newScramble(): Promise<void> {
+    const requestId = ++this.scrambleGenerationId;
+    if (this.difficulty === "random") {
+      this.startScramble(this.world.cube.twister.scrambler());
+      return;
+    }
+    if (!this.isManual && this.status !== "connected") {
+      this.enterManual();
+    }
+    if (!this.isManual && this.status !== "connected") {
+      return;
+    }
+
+    const difficulty = this.difficulty;
+    const z2On = this.z2On;
+    const baseState = this.isManual ? SOLVED_FACELETS : this.predicted || SOLVED_FACELETS;
+    const stillCurrent = () =>
+      requestId === this.scrambleGenerationId &&
+      this.difficulty === difficulty &&
+      this.z2On === z2On &&
+      (this.isManual || this.predicted === baseState);
+    this.generatingDifficulty = true;
+    this.statusText = `正在生成 ${difficulty} 步难度…`;
+    try {
+      const formula = await generateExactCrossScramble({
+        baseState,
+        difficulty,
+        z2On,
+        randomScramble: () => this.world.cube.twister.scrambler(),
+        solveCross: state => this.solver.solveCross(state, 1, 8),
+        isCurrent: stillCurrent,
+      });
+      if (formula && stillCurrent()) {
+        this.startScramble(formula);
+      }
+    } catch (error) {
+      if (stillCurrent()) {
+        this.statusText = "难度生成失败: " + (error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (requestId === this.scrambleGenerationId) {
+        this.generatingDifficulty = false;
+      }
+    }
   }
 
   /** 随机和自定义公式共用的开轮流程；公式来源之外的训练语义完全一致。 */
@@ -2212,14 +2261,17 @@ export default class BleCrossTrainer extends Vue {
     this.autoNextCountdownTimer = window.setInterval(() => this.refreshAutoNextCountdown(), 100);
     this.resultTimer = window.setTimeout(() => {
       this.clearAutoNextSchedule();
-      try {
-        this.nextRoundDirect();
-      } catch (e) {
+      const onError = (e: unknown) => {
         console.error("[BLECross] 自动下轮执行异常", e);
         this.statusText =
           "自动下轮执行异常: " +
           (e instanceof Error ? e.message : String(e)) +
           " (可点「新打乱」继续)";
+      };
+      try {
+        void Promise.resolve(this.nextRoundDirect()).catch(onError);
+      } catch (e) {
+        onError(e);
       }
     }, 2500);
   }
@@ -2412,9 +2464,9 @@ export default class BleCrossTrainer extends Vue {
 
   /** 自动下轮: 生成新打乱公式开新一轮 (等同自动点「新打乱」)——3D 显示打乱目标态,
    * 首次拧动 (实体或鼠标) 开始还原计时; 手动模式/断连兜底同款入口 */
-  private nextRoundDirect(): void {
+  private async nextRoundDirect(): Promise<void> {
     console.info("[BLECross] nextRoundDirect | isManual:", this.isManual, "| status:", this.status, "| phase:", this.phase);
-    this.newScramble();
+    await this.newScramble();
   }
 
   // ================= 3D 场景同步 =================
@@ -2466,7 +2518,7 @@ export default class BleCrossTrainer extends Vue {
     if (this.status !== "connected" || !this.isMock) {
       return;
     }
-    this.newScramble(); // 直接建立虚拟打乱态；Mock 与真机一样只负责后续单步输入
+    await this.newScramble(); // 直接建立虚拟打乱态；Mock 与真机一样只负责后续单步输入
     const state = this.scrambleTarget;
     if (!state) {
       return;

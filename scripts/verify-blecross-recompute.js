@@ -182,6 +182,165 @@ async page => {
     throw new Error(`自定义打乱公式行为异常: ${JSON.stringify(customScramble)}`);
   }
 
+  const difficultyResults = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.autoNext = false;
+    vm.showBest = true;
+    vm.trainMode = "cross";
+    vm.enterManual();
+    const rows = [];
+    for (const z2On of [false, true]) {
+      if (vm.z2On !== z2On) {
+        vm.toggleZ2();
+        vm.world.cube.twister.finish();
+      }
+      for (let difficulty = 2; difficulty <= 7; difficulty++) {
+        vm.difficulty = difficulty;
+        await vm.newScramble();
+        vm.world.cube.twister.finish();
+        const deadline = Date.now() + 10000;
+        while (!vm.bestReady && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        rows.push({ z2On, difficulty, best: vm.bestSteps, phase: vm.phase });
+      }
+    }
+    return rows;
+  });
+  if (difficultyResults.some(row => row.best !== row.difficulty || row.phase !== "observing")) {
+    throw new Error(`固定难度不精确: ${JSON.stringify(difficultyResults)}`);
+  }
+
+  const difficultyPaths = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    const originalSolver = vm.solver;
+    const scrambler = vm.world.cube.twister.scrambler.bind(vm.world.cube.twister);
+    const startScramble = vm.startScramble.bind(vm);
+    let scramblerCalls = 0;
+    let solveCalls = 0;
+    const started = [];
+    try {
+      vm.showBest = false;
+      vm.difficulty = "random";
+      vm.world.cube.twister.scrambler = () => {
+        scramblerCalls++;
+        return "R U";
+      };
+      vm.solver = {
+        solveCross: async () => {
+          solveCalls++;
+          return ["R'"];
+        },
+      };
+      await vm.newScramble();
+      const random = { scramblerCalls, solveCalls, scramble: vm.scramble };
+
+      vm.world.cube.twister.scrambler = scrambler;
+      vm.solver = originalSolver;
+      vm.showBest = true;
+      vm.trainMode = "xcross";
+      vm.difficulty = 5;
+      await vm.newScramble();
+      vm.world.cube.twister.finish();
+      vm.trainMode = "cross";
+      vm.saveTrainMode();
+      const xDeadline = Date.now() + 10000;
+      while (!vm.bestReady && Date.now() < xDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      const xcross = { best: vm.bestSteps, phase: vm.phase };
+
+      let release;
+      vm.solver = {
+        solveCross: () => new Promise(resolve => { release = resolve; }),
+      };
+      vm.startScramble = formula => started.push(formula);
+      vm.difficulty = 4;
+      const pending = vm.newScramble();
+      while (!release) await new Promise(resolve => setTimeout(resolve, 0));
+      vm.difficulty = 3;
+      vm.saveDifficulty();
+      release(["R'"]);
+      await pending;
+      const stale = { started: started.slice(), generating: vm.generatingDifficulty };
+
+      vm.startScramble = startScramble;
+      vm.solver = originalSolver;
+      vm.difficulty = 5;
+      vm.customScramble = "R U2 F'";
+      vm.applyCustomScramble();
+      vm.world.cube.twister.finish();
+      const custom = vm.scramble;
+
+      if (vm.z2On) {
+        vm.toggleZ2();
+        vm.world.cube.twister.finish();
+      }
+
+      const beforeError = {
+        scramble: vm.scramble,
+        phase: vm.phase,
+        scene: vm.world.cube.serialize(),
+      };
+      vm.solver = { solveCross: async () => ["error: solver unavailable"] };
+      await vm.newScramble();
+      vm.world.cube.twister.finish();
+      const error = {
+        unchanged:
+          vm.scramble === beforeError.scramble &&
+          vm.phase === beforeError.phase &&
+          vm.world.cube.serialize() === beforeError.scene,
+        status: vm.statusText,
+      };
+
+      let retryCalls = 0;
+      vm.world.cube.twister.scrambler = () => "R";
+      vm.solver = {
+        solveCross: async () => (++retryCalls % 101 === 1 ? ["R'"] : ["R U"]),
+      };
+      await vm.newScramble();
+      const exhausted = {
+        calls: retryCalls,
+        unchanged:
+          vm.scramble === beforeError.scramble &&
+          vm.phase === beforeError.phase &&
+          vm.world.cube.serialize() === beforeError.scene,
+        status: vm.statusText,
+      };
+      return { random, xcross, stale, custom, error, exhausted };
+    } finally {
+      vm.startScramble = startScramble;
+      vm.solver = originalSolver;
+      vm.world.cube.twister.scrambler = scrambler;
+      vm.difficulty = "random";
+      vm.saveDifficulty();
+      vm.trainMode = "cross";
+      vm.saveTrainMode();
+      vm.showBest = true;
+      if (vm.z2On) {
+        vm.toggleZ2();
+        vm.world.cube.twister.finish();
+      }
+    }
+  });
+  if (
+    difficultyPaths.random.scramblerCalls !== 1 ||
+    difficultyPaths.random.solveCalls !== 0 ||
+    difficultyPaths.random.scramble !== "R U" ||
+    difficultyPaths.xcross.best !== 5 ||
+    difficultyPaths.xcross.phase !== "observing" ||
+    difficultyPaths.stale.started.length !== 0 ||
+    difficultyPaths.stale.generating ||
+    difficultyPaths.custom !== "R U2 F'" ||
+    !difficultyPaths.error.unchanged ||
+    !difficultyPaths.error.status.includes("难度生成失败") ||
+    difficultyPaths.exhausted.calls !== 303 ||
+    !difficultyPaths.exhausted.unchanged ||
+    !difficultyPaths.exhausted.status.includes("无法生成 5 步难度")
+  ) {
+    throw new Error(`固定难度分支行为异常: ${JSON.stringify(difficultyPaths)}`);
+  }
+
   const originalViewport = page.viewportSize();
   await page.setViewportSize({ width: 360, height: 740 });
   const mobileScrambleLayout = await page.evaluate(async () => {
