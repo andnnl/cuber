@@ -272,7 +272,9 @@ export const BLE_THEME_CSS = `
   white-space: nowrap;
 }
 .rec-dialog .rec-table .rec-difficulty {
+  display: inline-block !important;
   white-space: nowrap;
+  min-width: 32px;
 }
 .rec-dialog .rec-table .rec-ok {
   color: #26c281;

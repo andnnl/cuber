@@ -199,7 +199,7 @@ async page => {
         await vm.newScramble();
         vm.world.cube.twister.finish();
         const deadline = Date.now() + 10000;
-        while (!vm.bestReady && Date.now() < deadline) {
+        while ((!vm.bestReady || vm.bestSteps !== difficulty) && Date.now() < deadline) {
           await new Promise(resolve => setTimeout(resolve, 20));
         }
         rows.push({ z2On, difficulty, best: vm.bestSteps, phase: vm.phase });
@@ -483,12 +483,26 @@ async page => {
     const vm = window.__bleCross;
     const realNow = Date.now;
     const saveRecords = vm.saveRecords.bind(vm);
+    const originalDifficulty = vm.difficulty;
+    const originalRoundDifficulty = vm.roundDifficulty;
     vm.records = [];
     vm.recLimit = 20;
     vm.saveRecords = () => {};
     try {
+      Date.now = () => 11000;
+      vm.isManual = true;
+      vm.phase = "solving";
+      vm.observeStart = 8000;
+      vm.solveStart = 9000;
       vm.roundDifficulty = 5;
       vm.difficulty = 2;
+      vm.startScramble("R");
+      vm.world.cube.twister.finish();
+      const abandonedDifficulty = vm.records[0].difficulty;
+      const nextRoundDifficulty = vm.roundDifficulty;
+
+      vm.records = [];
+      vm.roundDifficulty = 5;
       Date.now = () => 15000;
       vm.isManual = false;
       vm.observeStart = 10000;
@@ -514,11 +528,15 @@ async page => {
         formattedMissing: vm.fmtRecSec(vm.records[0].obs),
         avgObs: vm.recStats.avgObs,
         lockedDifficulty: vm.records[2].difficulty,
+        abandonedDifficulty,
+        nextRoundDifficulty,
       };
     } finally {
       Date.now = realNow;
       vm.saveRecords = saveRecords;
       vm.records = [];
+      vm.difficulty = originalDifficulty;
+      vm.roundDifficulty = originalRoundDifficulty;
     }
   });
   if (
@@ -528,37 +546,72 @@ async page => {
     observationRecords.formattedBluetooth !== "2.5s" ||
     observationRecords.formattedMissing !== "-" ||
     observationRecords.avgObs !== "2.3s" ||
-    observationRecords.lockedDifficulty !== 5
+    observationRecords.lockedDifficulty !== 5 ||
+    observationRecords.abandonedDifficulty !== 5 ||
+    observationRecords.nextRoundDifficulty !== 2
   ) {
     throw new Error(`训练记录观察用时异常: ${JSON.stringify(observationRecords)}`);
   }
 
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  await page.setViewportSize({ width: 360, height: 740 });
   const recordDifficultyUi = await page.evaluate(async () => {
     const vm = window.__bleCross;
-    vm.records = [
-      { t: 3, mode: "cross", difficulty: "random", ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
-      { t: 2, mode: "cross", difficulty: 5, ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
-      { t: 1, mode: "cross", ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
-    ];
-    vm.recDialog = true;
-    await vm.$nextTick();
-    const result = {
-      labels: [vm.fmtRecDifficulty("random"), vm.fmtRecDifficulty(5), vm.fmtRecDifficulty(undefined)],
-      headers: Array.from(document.querySelectorAll(".rec-table th")).map(x => x.textContent.trim()),
-      cells: Array.from(document.querySelectorAll("[data-rec-difficulty]")).map(x => ({
-        text: x.textContent.trim(),
-        nowrap: getComputedStyle(x).whiteSpace,
-      })),
-    };
-    vm.recDialog = false;
-    vm.records = [];
-    return result;
+    const savedRecords = localStorage.getItem("bleTrainRecords");
+    try {
+      localStorage.setItem("bleTrainRecords", JSON.stringify([
+        { t: 1, mode: "cross", ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
+      ]));
+      vm.loadRecords();
+      const oldRecord = {
+        missing: vm.records[0].difficulty === undefined,
+        label: vm.fmtRecDifficulty(vm.records[0].difficulty),
+      };
+      const values = ["random", 2, 3, 4, 5, 6, 7, undefined, null, 1, 8, 2.5, "5"];
+      const labels = values.map(value => vm.fmtRecDifficulty(value));
+      vm.records = [
+        { t: 3, mode: "cross", difficulty: "random", ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
+        { t: 2, mode: "cross", difficulty: 5, ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
+        { t: 1, mode: "cross", ok: true, obs: 1, solve: 2, best: 3, steps: 4 },
+      ];
+      vm.recDialog = true;
+      await vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 350));
+      return {
+        oldRecord,
+        labels,
+        headers: Array.from(document.querySelectorAll(".rec-table th")).map(x => x.textContent.trim()),
+        cells: Array.from(document.querySelectorAll("[data-rec-difficulty]")).map(x => {
+          const rect = x.getBoundingClientRect();
+          const style = getComputedStyle(x);
+          return {
+            text: x.textContent.trim(),
+            nowrap: style.whiteSpace,
+            display: style.display,
+            minWidth: style.minWidth,
+            layoutWidth: x.offsetWidth,
+            visualWidth: rect.width,
+            height: rect.height,
+          };
+        }),
+      };
+    } finally {
+      vm.recDialog = false;
+      vm.records = [];
+      if (savedRecords === null) localStorage.removeItem("bleTrainRecords");
+      else localStorage.setItem("bleTrainRecords", savedRecords);
+    }
   });
+  await page.setViewportSize(originalViewport);
   if (
-    JSON.stringify(recordDifficultyUi.labels) !== JSON.stringify(["随机", "5步", "—"]) ||
+    !recordDifficultyUi.oldRecord.missing ||
+    recordDifficultyUi.oldRecord.label !== "—" ||
+    JSON.stringify(recordDifficultyUi.labels) !==
+      JSON.stringify(["随机", "2步", "3步", "4步", "5步", "6步", "7步", "—", "—", "—", "—", "—", "—"]) ||
     !recordDifficultyUi.headers.includes("难度") ||
     JSON.stringify(recordDifficultyUi.cells.map(x => x.text)) !== JSON.stringify(["随机", "5步", "—"]) ||
-    recordDifficultyUi.cells.some(x => x.nowrap !== "nowrap")
+    recordDifficultyUi.cells.some(x => x.nowrap !== "nowrap" || x.layoutWidth < 32 || x.height > 30)
   ) {
     throw new Error(`训练记录难度列异常: ${JSON.stringify(recordDifficultyUi)}`);
   }

@@ -482,7 +482,7 @@
               <tr v-for="(r, i) in recordsView" :key="r.t + '-' + i" :class="{ 'rec-fail': !r.ok }">
                 <td class="rec-nowrap">{{ fmtRecTime(r.t) }}</td>
                 <td>{{ r.mode === 'xcross' ? 'X' : '十' }}</td>
-                <td data-rec-difficulty class="rec-difficulty">{{ fmtRecDifficulty(r.difficulty) }}</td>
+                <td><span data-rec-difficulty class="rec-difficulty">{{ fmtRecDifficulty(r.difficulty) }}</span></td>
                 <td :class="r.ok ? 'rec-ok' : 'rec-bad'">{{ r.ok ? '✔' : '✘' }}</td>
                 <td>{{ fmtRecSec(r.obs) }}</td>
                 <td>{{ fmtRecSec(r.solve) }}</td>
