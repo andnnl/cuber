@@ -1,0 +1,432 @@
+.ble-connect-page {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: #f5f7fb;
+  color: #182033;
+  font-family: "Roboto", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
+
+.ble-connect-page *,
+.ble-connect-page *::before,
+.ble-connect-page *::after {
+  box-sizing: border-box;
+}
+
+.ble-connect-hero {
+  background:
+    radial-gradient(circle at 85% 20%, rgba(103, 178, 255, 0.24), transparent 28%),
+    linear-gradient(135deg, #eef6ff 0%, #ffffff 52%, #edf4ff 100%);
+  border-bottom: 1px solid #dce7f5;
+}
+
+.ble-connect-topbar,
+.ble-connect-hero-content,
+.ble-connect-content {
+  width: min(960px, calc(100% - 40px));
+  margin: 0 auto;
+}
+
+.ble-connect-topbar {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ble-connect-brand {
+  color: #637087;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.ble-connect-hero-content {
+  padding: 54px 0 64px;
+  text-align: center;
+}
+
+.ble-connect-kicker {
+  margin-bottom: 12px;
+  color: #1976d2;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.ble-connect-hero h1 {
+  margin: 0;
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1.16;
+  letter-spacing: -0.04em;
+}
+
+.ble-connect-hero-content > p {
+  max-width: 680px;
+  margin: 18px auto 26px;
+  color: #566178;
+  font-size: 17px;
+  line-height: 1.8;
+}
+
+.ble-connect-content {
+  padding: 8px 0 64px;
+}
+
+.ble-connect-section {
+  padding: 56px 0;
+  border-bottom: 1px solid #dfe5ee;
+}
+
+.ble-connect-section-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.ble-connect-section-index {
+  flex: none;
+  color: #1976d2;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding-top: 7px;
+}
+
+.ble-connect-section-heading h2,
+.ble-connect-final-card h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.3;
+}
+
+.ble-connect-section-heading p,
+.ble-connect-final-card p {
+  margin: 8px 0 0;
+  color: #667085;
+  line-height: 1.7;
+}
+
+.ble-connect-step-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ble-connect-step-card,
+.ble-connect-mac-primary,
+.ble-connect-mac-warning {
+  min-width: 0;
+  padding: 24px;
+  background: #ffffff;
+  border: 1px solid #e1e7f0;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(28, 52, 84, 0.06);
+}
+
+.ble-connect-step-number {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #e5f1ff;
+  color: #1565c0;
+  font-weight: 800;
+}
+
+.ble-connect-step-card h3,
+.ble-connect-mac-layout h3 {
+  margin: 18px 0 10px;
+  font-size: 18px;
+}
+
+.ble-connect-step-card p,
+.ble-connect-mac-layout p,
+.ble-connect-mac-layout li {
+  color: #4f5b70;
+  line-height: 1.75;
+}
+
+.ble-connect-step-card small {
+  display: block;
+  margin-top: 14px;
+  color: #7a8497;
+  line-height: 1.6;
+}
+
+.ble-connect-checklist {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+  counter-reset: checks;
+}
+
+.ble-connect-checklist li {
+  min-width: 0;
+  padding: 18px 20px 18px 58px;
+  position: relative;
+  background: #ffffff;
+  border: 1px solid #e1e7f0;
+  border-radius: 12px;
+  counter-increment: checks;
+}
+
+.ble-connect-checklist li::before {
+  content: counter(checks);
+  position: absolute;
+  left: 20px;
+  top: 17px;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: #1976d2;
+  color: white;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ble-connect-checklist strong,
+.ble-connect-checklist span {
+  display: block;
+}
+
+.ble-connect-checklist span {
+  margin-top: 4px;
+  color: #5f6b7f;
+  line-height: 1.65;
+}
+
+.ble-connect-note {
+  display: flex;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 18px 20px;
+  background: #eaf4ff;
+  border-radius: 12px;
+}
+
+.ble-connect-note p {
+  margin: 4px 0 0;
+  color: #50637a;
+  line-height: 1.6;
+}
+
+.ble-connect-mac-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 18px;
+}
+
+.ble-connect-mac-primary ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.ble-connect-mac-warning {
+  background: #fffaf0;
+  border-color: #f0dfb8;
+}
+
+.ble-connect-mac-warning h3 {
+  margin-top: 12px;
+}
+
+.ble-connect-page code {
+  overflow-wrap: anywhere;
+  color: #2d5278;
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-family: "Roboto Mono", Consolas, monospace;
+  font-size: 0.88em;
+}
+
+.ble-connect-compat-table {
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #dfe5ee;
+  border-radius: 14px;
+}
+
+.ble-connect-compat-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(150px, 0.8fr) minmax(260px, 1.4fr);
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid #e7ebf1;
+}
+
+.ble-connect-compat-row:last-child {
+  border-bottom: 0;
+}
+
+.ble-connect-compat-row > span,
+.ble-connect-compat-row > strong {
+  min-width: 0;
+  padding: 16px 18px;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.ble-connect-compat-row > span {
+  color: #596579;
+}
+
+.ble-connect-compat-head {
+  background: #edf3fa;
+  color: #41516a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ble-connect-status {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ble-connect-status.recommended,
+.ble-connect-status.supported {
+  background: #e4f6ea;
+  color: #1c7136;
+}
+
+.ble-connect-status.limited {
+  background: #fff1d6;
+  color: #8a5b00;
+}
+
+.ble-connect-status.unsupported {
+  background: #fde8e8;
+  color: #a23333;
+}
+
+.ble-connect-final-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 48px;
+  padding: 30px;
+  background: #182b49;
+  border-radius: 18px;
+  color: #ffffff;
+}
+
+.ble-connect-final-card p {
+  color: #c8d5e7;
+}
+
+@media (max-width: 700px) {
+  .ble-connect-topbar,
+  .ble-connect-hero-content,
+  .ble-connect-content {
+    width: min(100% - 28px, 960px);
+  }
+
+  .ble-connect-topbar {
+    min-height: 56px;
+  }
+
+  .ble-connect-hero-content {
+    padding: 36px 0 44px;
+  }
+
+  .ble-connect-hero h1 {
+    font-size: 34px;
+  }
+
+  .ble-connect-hero-content > p {
+    font-size: 15px;
+  }
+
+  .ble-connect-section {
+    padding: 42px 0;
+  }
+
+  .ble-connect-section-heading {
+    gap: 12px;
+  }
+
+  .ble-connect-section-heading h2,
+  .ble-connect-final-card h2 {
+    font-size: 23px;
+  }
+
+  .ble-connect-step-grid,
+  .ble-connect-mac-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ble-connect-step-card,
+  .ble-connect-mac-primary,
+  .ble-connect-mac-warning {
+    padding: 20px;
+  }
+
+  .ble-connect-compat-table {
+    display: grid;
+    gap: 12px;
+    overflow: visible;
+    background: transparent;
+    border: 0;
+  }
+
+  .ble-connect-compat-head {
+    display: none;
+  }
+
+  .ble-connect-compat-row {
+    display: block;
+    padding: 16px;
+    background: #ffffff;
+    border: 1px solid #dfe5ee;
+    border-radius: 12px;
+  }
+
+  .ble-connect-compat-row > strong,
+  .ble-connect-compat-row > span {
+    display: block;
+    padding: 0;
+  }
+
+  .ble-connect-compat-row > span {
+    margin-top: 9px;
+  }
+
+  .ble-connect-final-card {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 24px;
+  }
+}
+
+@media (max-width: 380px) {
+  .ble-connect-brand {
+    display: none;
+  }
+
+  .ble-connect-hero h1 {
+    font-size: 30px;
+  }
+
+  .ble-connect-checklist li {
+    padding: 16px 16px 16px 52px;
+  }
+
+  .ble-connect-checklist li::before {
+    left: 16px;
+    top: 15px;
+  }
+}

@@ -1,0 +1,211 @@
+<v-app>
+  <main class="ble-connect-page" data-ble-connect-tutorial>
+    <header class="ble-connect-hero">
+      <div class="ble-connect-topbar">
+        <v-btn
+          text
+          color="primary"
+          href="?mode=blecross"
+          data-ble-connect-return
+        >
+          <v-icon left>arrow_back</v-icon>返回训练
+        </v-btn>
+        <span class="ble-connect-brand">魔方栈</span>
+      </div>
+
+      <div class="ble-connect-hero-content">
+        <div class="ble-connect-kicker">蓝牙魔方连接教程</div>
+        <h1>先直接连接，遇到问题再排查</h1>
+        <p>
+          大多数情况下不需要提前查 MAC 地址。打开魔方后，在训练页点击「连接魔方」，
+          按浏览器提示选择设备即可。
+        </p>
+        <v-btn
+          large
+          color="primary"
+          href="?mode=blecross"
+          data-ble-connect-start
+        >
+          进入训练并连接
+          <v-icon right>bluetooth</v-icon>
+        </v-btn>
+      </div>
+    </header>
+
+    <div class="ble-connect-content">
+      <section class="ble-connect-section" aria-labelledby="direct-connect-title">
+        <div class="ble-connect-section-heading">
+          <span class="ble-connect-section-index">01</span>
+          <div>
+            <h2 id="direct-connect-title">三步直接连接</h2>
+            <p>推荐使用本项目 Android App、Android Chrome，或电脑端 Chrome / Edge。</p>
+          </div>
+        </div>
+
+        <div class="ble-connect-step-grid">
+          <article class="ble-connect-step-card">
+            <span class="ble-connect-step-number">1</span>
+            <h3>准备魔方</h3>
+            <p>打开魔方电源并转动一层将其唤醒，保持在手机或电脑附近。</p>
+            <small>请先断开已连接该魔方的计时器、App 或其他网页。</small>
+          </article>
+          <article class="ble-connect-step-card">
+            <span class="ble-connect-step-number">2</span>
+            <h3>发起连接</h3>
+            <p>进入 BLE Cross 训练页，点击「连接魔方」，在系统弹窗中选择你的 GAN 魔方。</p>
+            <small>首次连接时，请允许浏览器使用蓝牙及附近设备权限。</small>
+          </article>
+          <article class="ble-connect-step-card">
+            <span class="ble-connect-step-number">3</span>
+            <h3>确认同步</h3>
+            <p>按钮显示「已连接」后，转动实体魔方一层，确认屏幕中的 3D 魔方同步转动。</p>
+            <small>同步正常后即可点「新打乱」开始训练。</small>
+          </article>
+        </div>
+      </section>
+
+      <section class="ble-connect-section ble-connect-troubleshooting" aria-labelledby="troubleshooting-title">
+        <div class="ble-connect-section-heading">
+          <span class="ble-connect-section-index">02</span>
+          <div>
+            <h2 id="troubleshooting-title">连接失败，按这个顺序排查</h2>
+            <p>多数问题来自浏览器兼容性、权限或设备占用。</p>
+          </div>
+        </div>
+
+        <ol class="ble-connect-checklist">
+          <li>
+            <strong>确认浏览器支持</strong>
+            <span>优先改用 Android App、Chrome 或 Edge，并通过 HTTPS 或 localhost 打开网页。</span>
+          </li>
+          <li>
+            <strong>检查系统权限</strong>
+            <span>开启蓝牙；在 Android 上同时允许浏览器的「附近设备」权限，部分旧系统还需要定位权限。</span>
+          </li>
+          <li>
+            <strong>解除设备占用</strong>
+            <span>关闭其他魔方 App、计时器页面和浏览器标签。蓝牙魔方通常只能同时连接一个客户端。</span>
+          </li>
+          <li>
+            <strong>缩短距离并检查电量</strong>
+            <span>让魔方靠近设备，转动一层重新唤醒；电量过低时先充电或更换电池。</span>
+          </li>
+          <li>
+            <strong>重新启动连接链路</strong>
+            <span>刷新训练页，再关闭并重新打开系统蓝牙；仍失败时重启浏览器或设备。</span>
+          </li>
+        </ol>
+
+        <div class="ble-connect-note">
+          <v-icon color="primary">info</v-icon>
+          <div>
+            <strong>设备列表里找不到魔方？</strong>
+            <p>先转动魔方保持唤醒，再重新点击「连接魔方」。不要先在系统蓝牙设置里配对。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="ble-connect-section" aria-labelledby="mac-title">
+        <div class="ble-connect-section-heading">
+          <span class="ble-connect-section-index">03</span>
+          <div>
+            <h2 id="mac-title">必要时再填写 MAC 地址</h2>
+            <p>MAC 是部分 GAN 设备协议解密的辅助信息，不是连接前的必填项。</p>
+          </div>
+        </div>
+
+        <div class="ble-connect-mac-layout">
+          <article class="ble-connect-mac-primary">
+            <h3>什么时候需要？</h3>
+            <p>
+              项目会优先自动识别。只有连接 GAN Gen2 等设备时，页面提示自动获取失败，
+              才需要在训练页展开「MAC」输入框并手动填写。手动 MAC 是自动识别失败后的兜底，
+              不是连接前的必填项。
+            </p>
+            <h3>从哪里找？</h3>
+            <ol>
+              <li>优先查看魔方底盖、电池仓或包装标签。</li>
+              <li>地址通常由 12 位十六进制字符组成，例如 <code>AA:BB:CC:DD:EE:FF</code>。</li>
+              <li>填入训练页的 MAC 输入框，点击「用 MAC 连接」；地址会保存在当前浏览器本地。</li>
+            </ol>
+          </article>
+
+          <aside class="ble-connect-mac-warning">
+            <v-icon color="warning">privacy_tip</v-icon>
+            <h3>浏览器内部页仅作辅助</h3>
+            <p>
+              桌面 Chrome 可尝试打开 <code>chrome://bluetooth-internals/#devices</code>，
+              Edge 可尝试 <code>edge://bluetooth-internals/#devices</code>，再启动扫描。
+            </p>
+            <p>
+              受操作系统、浏览器版本和隐私策略影响，内部页不保证显示真实 MAC，
+              有时只显示匿名或随机标识。
+            </p>
+            <p>
+              iPhone 和 iPad 通常只向应用提供匿名标识，网页无法读取真实蓝牙 MAC。
+              如设备确实需要 MAC，请先从魔方本体、电脑或 Android 设备上查找。
+            </p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="ble-connect-section" aria-labelledby="compatibility-title" data-ble-compatibility>
+        <div class="ble-connect-section-heading">
+          <span class="ble-connect-section-index">04</span>
+          <div>
+            <h2 id="compatibility-title">浏览器与平台兼容性</h2>
+            <p>浏览器升级后能力可能变化，以下以本项目的推荐连接路径为准。</p>
+          </div>
+        </div>
+
+        <div class="ble-connect-compat-table" role="table" aria-label="蓝牙连接兼容性">
+          <div class="ble-connect-compat-row ble-connect-compat-head" role="row">
+            <span role="columnheader">平台</span>
+            <span role="columnheader">Web Bluetooth</span>
+            <span role="columnheader">建议</span>
+          </div>
+          <div class="ble-connect-compat-row" role="row">
+            <strong role="cell">本项目 Android App</strong>
+            <span role="cell"><em class="ble-connect-status recommended">推荐</em>原生蓝牙</span>
+            <span role="cell">连接最直接，不依赖浏览器 Web Bluetooth。</span>
+          </div>
+          <div class="ble-connect-compat-row" role="row">
+            <strong role="cell">Android Chrome</strong>
+            <span role="cell"><em class="ble-connect-status supported">支持</em></span>
+            <span role="cell">允许蓝牙及附近设备权限后直接连接。</span>
+          </div>
+          <div class="ble-connect-compat-row" role="row">
+            <strong role="cell">电脑 Chrome / Edge</strong>
+            <span role="cell"><em class="ble-connect-status supported">支持</em></span>
+            <span role="cell">使用最新版浏览器，通过 HTTPS 或 localhost 打开。</span>
+          </div>
+          <div class="ble-connect-compat-row" role="row">
+            <strong role="cell">Samsung Internet / Opera</strong>
+            <span role="cell"><em class="ble-connect-status limited">视版本而定</em></span>
+            <span role="cell">部分版本或实验设置可用，不作为首选路径。</span>
+          </div>
+          <div class="ble-connect-compat-row" role="row">
+            <strong role="cell">Firefox</strong>
+            <span role="cell"><em class="ble-connect-status unsupported">不原生支持</em></span>
+            <span role="cell">第三方扩展和本地服务兼容性不确定，建议改用 Chrome / Edge。</span>
+          </div>
+          <div class="ble-connect-compat-row" role="row">
+            <strong role="cell">Safari（macOS / iOS）</strong>
+            <span role="cell"><em class="ble-connect-status unsupported">不原生支持</em></span>
+            <span role="cell">建议在电脑或 Android 上使用 Chrome / Edge，iOS 无法提供真实 MAC。</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="ble-connect-final-card">
+        <div>
+          <h2>准备好了吗？</h2>
+          <p>打开并唤醒魔方，返回训练页点击「连接魔方」。</p>
+        </div>
+        <v-btn color="primary" href="?mode=blecross" data-ble-connect-return>
+          返回 BLE Cross 训练
+        </v-btn>
+      </section>
+    </div>
+  </main>
+</v-app>

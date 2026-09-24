@@ -11,6 +11,7 @@ import Algs from "./vue/Algs";
 import F2LTrainer from "./vue/F2LTrainer";
 import CrossF2LTrainer from "./vue/CrossF2LTrainer";
 import BleCrossTrainer from "./vue/BleCrossTrainer";
+import BleConnectTutorial from "./vue/BleConnectTutorial";
 import { VueConstructor } from "vue/types/umd";
 
 /* eslint-disable */
@@ -55,6 +56,9 @@ switch (mode) {
     break;
   case "blecross":
     app = BleCrossTrainer;
+    break;
+  case "bleconnect":
+    app = BleConnectTutorial;
     break;
   case "reset":
     window.localStorage.clear();
