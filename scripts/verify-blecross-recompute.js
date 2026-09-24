@@ -86,6 +86,7 @@ async page => {
     vm.visHide = true; vm.saveVisHide();
     vm.visSlot = "BR"; vm.saveVisSlot();
     vm.autoNext = false; vm.saveAutoNext();
+    vm.retryNonOptimal = true; vm.saveRetryNonOptimal();
     vm.showBest = false; vm.saveShowBest();
     vm.recLimit = 50; vm.saveRecLimit();
     if (!vm.z2On) vm.toggleZ2();
@@ -98,20 +99,22 @@ async page => {
     return {
       trainMode: vm.trainMode, difficulty: vm.difficulty,
       visGhost: vm.visGhost, visHide: vm.visHide, visSlot: vm.visSlot,
-      autoNext: vm.autoNext, showBest: vm.showBest, recLimit: vm.recLimit,
+      autoNext: vm.autoNext, retryNonOptimal: vm.retryNonOptimal,
+      showBest: vm.showBest, recLimit: vm.recLimit,
       z2On: vm.z2On, z2Marks: vm.z2Marks.slice(),
       target: vm.crossTargetText(), mappedU: vm.displayMove("U"),
       difficultySaved: localStorage.getItem("bleDifficulty"),
+      retrySaved: localStorage.getItem("bleRetryNonOptimal"),
       z2Saved: localStorage.getItem("bleZ2On"),
     };
   });
   if (JSON.stringify(settings) !== JSON.stringify({
     trainMode: "xcross", difficulty: 5,
     visGhost: true, visHide: true, visSlot: "BR",
-    autoNext: false, showBest: false, recLimit: 50,
+    autoNext: false, retryNonOptimal: true, showBest: false, recLimit: 50,
     z2On: true, z2Marks: [0],
     target: "白色十字 (4 条白棱围住白色中心)", mappedU: "D",
-    difficultySaved: "5", z2Saved: "1",
+    difficultySaved: "5", retrySaved: "1", z2Saved: "1",
   })) throw new Error(`设置恢复异常: ${JSON.stringify(settings)}`);
 
   const bestLabel = await page.evaluate(async () => {
@@ -134,6 +137,7 @@ async page => {
     vm.visHide = false; vm.saveVisHide();
     vm.visSlot = "FR"; vm.saveVisSlot();
     vm.autoNext = true; vm.saveAutoNext();
+    vm.retryNonOptimal = false; vm.saveRetryNonOptimal();
     vm.showBest = true; vm.saveShowBest();
     vm.recLimit = 20; vm.saveRecLimit();
     if (vm.z2On) vm.toggleZ2();
@@ -624,6 +628,7 @@ async page => {
     const realSetInterval = window.setInterval;
     const realClearInterval = window.clearInterval;
     const nextRoundDirect = vm.nextRoundDirect.bind(vm);
+    const resetRound = vm.resetRound.bind(vm);
     let now = 10000;
     let timeoutCallback = null;
     let intervalCallback = null;
@@ -631,6 +636,7 @@ async page => {
     const intervalDelays = [];
     const cleared = [];
     let nextCalls = 0;
+    let resetCalls = 0;
 
     Date.now = () => now;
     window.setTimeout = (callback, delay) => {
@@ -651,6 +657,8 @@ async page => {
       vm.phase = "success";
       vm.statusText = "✅ 十字完成!";
       vm.autoNext = true;
+      vm.retryNonOptimal = false;
+      vm.retryCurrentRound = false;
       vm.scheduleAutoNext();
       const initial = vm.autoNextCountdownText;
       await vm.$nextTick();
@@ -659,6 +667,14 @@ async page => {
       now = 10100;
       intervalCallback();
       const ticked = vm.autoNextCountdownText;
+
+      vm.retryNonOptimal = true;
+      vm.retryCurrentRound = true;
+      vm.saveRetryNonOptimal();
+      const replannedRetry = vm.autoNextCountdownText;
+      vm.retryNonOptimal = false;
+      vm.saveRetryNonOptimal();
+      const replannedNext = vm.autoNextCountdownText;
 
       vm.autoNext = false;
       vm.saveAutoNext();
@@ -672,13 +688,27 @@ async page => {
 
       vm.phase = "success";
       vm.autoNext = true;
+      vm.retryNonOptimal = false;
+      vm.retryCurrentRound = false;
       vm.scheduleAutoNext();
       now = 12600;
+      timeoutCallback();
+
+      now = 15000;
+      vm.phase = "success";
+      vm.autoNext = true;
+      vm.retryNonOptimal = true;
+      vm.retryCurrentRound = true;
+      vm.resetRound = () => resetCalls++;
+      vm.scheduleAutoNext();
+      const retryInitial = vm.autoNextCountdownText;
       timeoutCallback();
 
       now = 20000;
       vm.phase = "success";
       vm.statusText = "✅ 十字完成!";
+      vm.retryNonOptimal = false;
+      vm.retryCurrentRound = false;
       vm.nextRoundDirect = () => {
         throw new Error("countdown-test");
       };
@@ -696,7 +726,11 @@ async page => {
         cancelled,
         restarted,
         resetCancelled,
+        replannedRetry,
+        replannedNext,
+        retryInitial,
         nextCalls,
+        resetCalls,
         timeoutDelays,
         intervalDelays,
         cleared,
@@ -707,6 +741,7 @@ async page => {
         vm.clearAutoNextSchedule();
       }
       vm.nextRoundDirect = nextRoundDirect;
+      vm.resetRound = resetRound;
       Date.now = realNow;
       window.setTimeout = realSetTimeout;
       window.clearTimeout = realClearTimeout;
@@ -721,7 +756,11 @@ async page => {
     autoNextCountdown.cancelled !== "" ||
     autoNextCountdown.restarted !== "2.5 秒后自动下轮" ||
     autoNextCountdown.resetCancelled !== "" ||
+    autoNextCountdown.replannedRetry !== "2.5 秒后重试本局" ||
+    autoNextCountdown.replannedNext !== "2.5 秒后自动下轮" ||
+    autoNextCountdown.retryInitial !== "2.5 秒后重试本局" ||
     autoNextCountdown.nextCalls !== 2 ||
+    autoNextCountdown.resetCalls !== 1 ||
     autoNextCountdown.timeoutDelays.some(delay => delay !== 2500) ||
     autoNextCountdown.intervalDelays.some(delay => delay !== 100) ||
     autoNextCountdown.failed.countdown !== "" ||

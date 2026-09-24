@@ -25,6 +25,7 @@ import {
   generateExactCrossScramble,
   parseCrossDifficulty,
 } from "../../ble/cross-difficulty";
+import { shouldRetryNonOptimal } from "../../ble/non-optimal-retry";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
@@ -274,8 +275,9 @@ export default class BleCrossTrainer extends Vue {
   // 最优解求解是否已结束 (空串解法 = 十字已复原 0 步, 需与「求解中」区分)
   bestReady = false;
   // XCross 模式: 4 个槽位各自的最优解 (startSolving 时并行预求解)
-  bestX: { slot: string; formula: string; steps: number }[] = [];
+  bestX: { slot: string; formula: string; steps: number; available: boolean }[] = [];
   bestXReady = false;
+  private bestSolutionAvailable = false;
   // 当前最优解结果绑定的视图链快照。异步求解期间视角可能继续变化，公式与槽位必须
   // 使用请求发起时的同一快照，不能分别读取实时 effectiveViewOps 造成混帧。
   private bestViewOps: BaseOp[] = [];
@@ -301,6 +303,9 @@ export default class BleCrossTrainer extends Vue {
   recLimit = 20; // 统计/表格取最近 N 条 (10/20/50/100)
   // 正确后自动进入下一打乱 (localStorage 持久化, 值 "1"/"0")
   autoNext = true;
+  // 正确但步数不是最优时自动重置同一局；仅与自动下轮同时开启时生效
+  retryNonOptimal = false;
+  private retryCurrentRound = false;
   // 是否显示推荐的最优解 (localStorage 持久化, 值 "1"/"0"): 关闭时不求解也不展示, 避免剧透
   showBest = true;
   // ---- 无关块可视化: 色块半透明 / 隐藏无关 (独立开关, 都开时无关块取灰色隐藏档) ----
@@ -431,6 +436,7 @@ export default class BleCrossTrainer extends Vue {
       }
     });
     this.autoNext = window.localStorage.getItem("bleAutoNext") !== "0";
+    this.retryNonOptimal = window.localStorage.getItem("bleRetryNonOptimal") === "1";
     this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
     this.visGhost = window.localStorage.getItem("bleVisGhost") === "1";
     this.visHide = window.localStorage.getItem("bleVisHide") === "1";
@@ -768,7 +774,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** XCross 四槽位最优解展示 */
-  get bestXDisplay(): { slot: string; formula: string; steps: number; raw: string }[] {
+  get bestXDisplay(): { slot: string; formula: string; steps: number; raw: string; available: boolean }[] {
     // slot=屏幕帧槽位名 (slotDisplayName, 与 3D 画面/visSlot 下拉同帧, 完成高亮对比同帧);
     // formula=屏幕帧 (同 bestSolutionText, 文本与播放一致); raw=求解器原串,
     // 预览按钮/游标 (bestStepPos) 的 key 与播放输入恒用 raw
@@ -777,6 +783,7 @@ export default class BleCrossTrainer extends Vue {
       steps: b.steps,
       formula: this.displayFormulaWithOps(b.formula, this.bestViewOps),
       raw: b.formula,
+      available: b.available,
     }));
   }
 
@@ -1675,6 +1682,7 @@ export default class BleCrossTrainer extends Vue {
     this.completedSlots = [];
     this.bestSolution = "";
     this.bestReady = false;
+    this.bestSolutionAvailable = false;
     this.bestX = [];
     this.bestXReady = false;
     this.observeText = "";
@@ -1787,6 +1795,7 @@ export default class BleCrossTrainer extends Vue {
           null as string | null
         );
       if (best !== null) {
+        this.bestSolutionAvailable = true;
         this.bestBaseState = state;
         this.bestViewOps = viewOps.map((op) => ({ ...op }));
         this.bestSolution = best
@@ -1813,18 +1822,25 @@ export default class BleCrossTrainer extends Vue {
             // 黄底 (z2On=false): 核心帧直接求解, 槽位名即物理帧; 白底 (z2On=true):
             // 训练帧求解, 解逐记号 z2Move 换回核心帧, 槽位名换回物理帧 (FL↔FR, BL↔BR)
             const sols = await this.solver.solveXCross(this.z2On ? toTrainFrame(state) : state, slot, 1);
-            const best = ((sols && sols[0]) || "").trim();
-            const ok = best && best.indexOf("error") !== 0;
+            const candidate = sols && sols.length > 0 ? sols[0] : null;
+            const best = typeof candidate === "string" ? candidate.trim() : "";
+            const ok = candidate !== null && best.indexOf("error") !== 0;
             const mapMove = (m: string) => (this.z2On ? z2Move(m) : m);
             const slotName = this.z2On ? slotToPhysical(slot) : slot;
             return {
               slot: slotName,
               formula: ok ? best.split(/\s+/).map(mapMove).join(" ") : "",
               steps: ok ? best.split(/\s+/).length : 0,
+              available: ok,
             };
           } catch (e) {
             console.error(`[BleCrossTrainer] XCross (${slot}) 求解失败`, e);
-            return { slot: this.z2On ? slotToPhysical(slot) : slot, formula: "", steps: 0 };
+            return {
+              slot: this.z2On ? slotToPhysical(slot) : slot,
+              formula: "",
+              steps: 0,
+              available: false,
+            };
           }
         })
       );
@@ -1865,6 +1881,20 @@ export default class BleCrossTrainer extends Vue {
     } else {
       this.completedSlots = [];
     }
+    this.retryCurrentRound = shouldRetryNonOptimal({
+      trainMode: this.trainMode,
+      actualSteps: this.moveCount,
+      crossReady: this.bestReady,
+      crossBestSteps: this.bestSteps,
+      crossBestValid: this.bestSolutionAvailable,
+      xcrossReady: this.bestXReady,
+      completedSlots: this.completedSlots,
+      bestX: this.bestXDisplay.map((item) => ({
+        slot: item.slot,
+        steps: item.steps,
+        available: item.available,
+      })),
+    });
     this.successCount++;
     this.recordTrain(true); // 训练记录: 本轮成功 (观察/还原用时, 最优/实际步数)
     this.statusText = "✅ " + (this.trainMode === "xcross" ? "XCross 完成!" : "十字完成!");
@@ -2002,6 +2032,7 @@ export default class BleCrossTrainer extends Vue {
     }
     this.roundDifficulty = this.difficulty;
     this.clearAutoNextSchedule();
+    this.retryCurrentRound = false;
     if (this.isManual) {
       // 手动模式: 3D 魔方直接打乱 (setup 瞬时完成, history 清空后记号从拧动开始累计),
       // 打乱后先进入观察阶段: 可 y/z/x 整体转动观察, 首次转动才开始还原计时。
@@ -2091,6 +2122,7 @@ export default class BleCrossTrainer extends Vue {
       this.nextRoundDirect();
       return;
     }
+    this.retryCurrentRound = false;
     this.bestStepPos = {}; // 预览游标清零 (重置后旧预览进度一律无效; 不重算最优解, 旧解仍可用)
     if (this.isManual && this.solveBaseState && this.solveBaseScreenFrame) {
       // 完整公式 = 打乱记号 + 视图链记号 (z2/y/y' 按 effectiveViewOps 真实时序, 同 scrambleText):
@@ -2229,6 +2261,14 @@ export default class BleCrossTrainer extends Vue {
     this.autoNext ? this.scheduleAutoNext() : this.clearAutoNextSchedule();
   }
 
+  /** 「非最优重试」勾选变更：持久化，并按成功时保存的比较结果重新安排结束动作。 */
+  saveRetryNonOptimal(): void {
+    window.localStorage.setItem("bleRetryNonOptimal", this.retryNonOptimal ? "1" : "0");
+    if (this.phase === "success" && this.autoNext) {
+      this.scheduleAutoNext();
+    }
+  }
+
   private cancelDifficultyGeneration(): void {
     this.scrambleGenerationId++;
     this.generatingDifficulty = false;
@@ -2246,7 +2286,8 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     const remaining = Math.max(0, this.autoNextDeadline - Date.now());
-    this.autoNextCountdownText = (remaining / 1000).toFixed(1) + " 秒后自动下轮";
+    const actionText = this.retryNonOptimal && this.retryCurrentRound ? "重试本局" : "自动下轮";
+    this.autoNextCountdownText = (remaining / 1000).toFixed(1) + " 秒后" + actionText;
   }
 
   /** 清理自动下轮的跳转与展示任务；所有提前离开 success 的路径共用。 */
@@ -2273,16 +2314,20 @@ export default class BleCrossTrainer extends Vue {
     this.refreshAutoNextCountdown();
     this.autoNextCountdownTimer = window.setInterval(() => this.refreshAutoNextCountdown(), 100);
     this.resultTimer = window.setTimeout(() => {
+      const retry = this.retryNonOptimal && this.retryCurrentRound;
       this.clearAutoNextSchedule();
       const onError = (e: unknown) => {
-        console.error("[BLECross] 自动下轮执行异常", e);
+        const actionText = retry ? "重试本局" : "自动下轮";
+        console.error(`[BLECross] ${actionText}执行异常`, e);
         this.statusText =
-          "自动下轮执行异常: " +
+          actionText +
+          "执行异常: " +
           (e instanceof Error ? e.message : String(e)) +
           " (可点「新打乱」继续)";
       };
       try {
-        void Promise.resolve(this.nextRoundDirect()).catch(onError);
+        const action = retry ? () => this.resetRound() : () => this.nextRoundDirect();
+        void Promise.resolve(action()).catch(onError);
       } catch (e) {
         onError(e);
       }
