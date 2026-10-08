@@ -21,6 +21,22 @@ export const BLE_THEME_CSS = `
   background: #eaeef6 !important;
   border-color: #d4dbe8;
 }
+.ble-card .ble-compact-header {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+}
+.ble-card.ble-card-compact .ble-scramble-actions.ble-compact-actions {
+  display: grid;
+  grid-template-columns: minmax(72px, 1.45fr) minmax(58px, 1.1fr) repeat(3, minmax(34px, 0.7fr));
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.ble-card.ble-card-compact .ble-compact-actions .v-btn {
+  min-width: 0 !important;
+  width: 100%;
+  padding: 0 4px !important;
+}
 /* 主按钮: 靛蓝->紫渐变 */
 .ble-card .v-btn.primary {
   background: linear-gradient(135deg, #5b6bf0, #7c4dff) !important;
@@ -178,6 +194,17 @@ export const BLE_THEME_CSS = `
   white-space: nowrap;
 }
 @media (max-width: 420px) {
+  .ble-card.ble-card-compact .v-card__text {
+    padding: 5px 6px 4px !important;
+  }
+  .ble-card.ble-card-compact .ble-compact-header {
+    min-height: 18px;
+  }
+  .ble-card.ble-card-compact .ble-scramble-actions.ble-compact-actions {
+    grid-template-columns: minmax(66px, 1.45fr) minmax(54px, 1.1fr) repeat(3, minmax(30px, 0.7fr));
+    gap: 3px;
+    margin-top: 3px;
+  }
   .ble-visual-options {
     gap: 5px !important;
   }

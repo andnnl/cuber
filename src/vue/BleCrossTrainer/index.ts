@@ -301,6 +301,8 @@ export default class BleCrossTrainer extends Vue {
   records: TrainRecord[] = [];
   recDialog = false;
   recLimit = 20; // 统计/表格取最近 N 条 (10/20/50/100)
+  // 手机收纳模式仅控制面板展示，不改变训练、蓝牙或 3D 状态
+  compactMode = false;
   // 正确后自动进入下一打乱 (localStorage 持久化, 值 "1"/"0")
   autoNext = true;
   // 正确但步数不是最优时自动重置同一局；仅与自动下轮同时开启时生效
@@ -438,6 +440,7 @@ export default class BleCrossTrainer extends Vue {
         this.applyZ2Flip(true);
       }
     });
+    this.compactMode = window.localStorage.getItem("bleCompactMode") === "1";
     this.autoNext = window.localStorage.getItem("bleAutoNext") !== "0";
     this.retryNonOptimal = window.localStorage.getItem("bleRetryNonOptimal") === "1";
     this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
@@ -2273,6 +2276,11 @@ export default class BleCrossTrainer extends Vue {
 
   /** 「自动下轮」勾选变更: 持久化偏好; success 展示窗内变更勾选时补齐/撤销
    * 自动下轮安排 (finishSuccess 只在判定成功瞬间读 autoNext, 之后才勾选则永远不触发) */
+  toggleCompactMode(): void {
+    this.compactMode = !this.compactMode;
+    window.localStorage.setItem("bleCompactMode", this.compactMode ? "1" : "0");
+  }
+
   saveAutoNext(): void {
     window.localStorage.setItem("bleAutoNext", this.autoNext ? "1" : "0");
     if (this.phase !== "success") {

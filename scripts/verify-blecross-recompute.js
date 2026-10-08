@@ -2,6 +2,152 @@ async page => {
   await page.goto("http://127.0.0.1:8080/?mode=blecross");
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
 
+  await page.evaluate(() => localStorage.removeItem("bleCompactMode"));
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+
+  const compactDefault = await page.evaluate(() => ({
+    compactMode: window.__bleCross.compactMode,
+    saved: localStorage.getItem("bleCompactMode"),
+  }));
+  if (compactDefault.compactMode !== false || compactDefault.saved !== null) {
+    throw new Error(`收纳模式默认值异常: ${JSON.stringify(compactDefault)}`);
+  }
+
+  await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.trainMode = "cross";
+    vm.showBest = true;
+    vm.phase = "solving";
+    vm.bestReady = true;
+    vm.bestSolution = "R U F";
+    vm.bestSteps = 3;
+    vm.moveCount = 2;
+    vm.userSolution = "R U";
+    await vm.$nextTick();
+  });
+  const compactBefore = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    return {
+      cube: vm.world.cube.serialize(),
+      phase: vm.phase,
+      moveCount: vm.moveCount,
+      solution: JSON.stringify(vm.userSolution),
+      elapsedText: vm.elapsedText,
+      status: vm.status,
+      deviceName: vm.deviceName,
+    };
+  });
+  const compactToggle = page.locator("[data-ble-compact-toggle]");
+  if ((await compactToggle.count()) !== 1) {
+    throw new Error("缺少 BLE Cross 收纳模式切换按钮");
+  }
+  await compactToggle.click();
+
+  const compactState = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const visible = el => !!el && getComputedStyle(el).display !== "none" && getComputedStyle(el).visibility !== "hidden";
+    const core = document.querySelector("[data-ble-core-actions]");
+    const fullOnly = Array.from(document.querySelectorAll("[data-ble-full-only]"));
+    const preview = Array.from(document.querySelectorAll("[data-ble-preview-controls]"));
+    return {
+      compactMode: vm.compactMode,
+      saved: localStorage.getItem("bleCompactMode"),
+      coreButtons: core ? Array.from(core.querySelectorAll("button")).filter(visible).map(el => el.textContent.trim()) : [],
+      fullOnlyCount: fullOnly.length,
+      fullOnlyVisible: fullOnly.filter(visible).length,
+      previewCount: preview.length,
+      previewVisible: preview.filter(visible).length,
+      solutionVisible: visible(document.querySelector("[data-ble-solution-panel]")),
+      liveResultVisible: visible(document.querySelector("[data-ble-live-result]")),
+      cube: vm.world.cube.serialize(),
+      phase: vm.phase,
+      moveCount: vm.moveCount,
+      solution: JSON.stringify(vm.userSolution),
+      elapsedText: vm.elapsedText,
+      status: vm.status,
+      deviceName: vm.deviceName,
+    };
+  });
+  if (
+    !compactState.compactMode ||
+    compactState.saved !== "1" ||
+    JSON.stringify(compactState.coreButtons) !== JSON.stringify(["新打乱", "重置", "z2", "y", "y'"]) ||
+    compactState.fullOnlyCount === 0 ||
+    compactState.fullOnlyVisible !== 0 ||
+    compactState.previewCount === 0 ||
+    compactState.previewVisible !== 0 ||
+    !compactState.solutionVisible ||
+    !compactState.liveResultVisible ||
+    compactState.cube !== compactBefore.cube ||
+    compactState.phase !== compactBefore.phase ||
+    compactState.moveCount !== compactBefore.moveCount ||
+    compactState.solution !== compactBefore.solution ||
+    compactState.elapsedText !== compactBefore.elapsedText ||
+    compactState.status !== compactBefore.status ||
+    compactState.deviceName !== compactBefore.deviceName
+  ) {
+    throw new Error(`收纳模式显示范围或训练状态异常: ${JSON.stringify({ compactBefore, compactState })}`);
+  }
+
+  const compactXCross = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.trainMode = "xcross";
+    vm.bestXReady = true;
+    vm.bestViewOps = [];
+    vm.bestX = [
+      { slot: "FL", formula: "R U", steps: 2, available: true },
+      { slot: "FR", formula: "F R U", steps: 3, available: true },
+      { slot: "BL", formula: "L U L'", steps: 3, available: true },
+      { slot: "BR", formula: "B U B'", steps: 3, available: true },
+    ];
+    await vm.$nextTick();
+    const panel = document.querySelector("[data-ble-solution-panel]");
+    return {
+      text: panel ? panel.textContent.replace(/\s+/g, " ").trim() : "",
+      previewVisible: Array.from(document.querySelectorAll("[data-ble-preview-controls]"))
+        .some(el => getComputedStyle(el).display !== "none"),
+    };
+  });
+  for (const expected of ["FL 2步", "R U", "FR 3步", "F R U", "BL 3步", "L U L'", "BR 3步", "B U B'"]) {
+    if (!compactXCross.text.includes(expected)) {
+      throw new Error(`收纳模式 XCross 解法缺少 ${expected}: ${JSON.stringify(compactXCross)}`);
+    }
+  }
+  if (compactXCross.previewVisible) {
+    throw new Error(`收纳模式 XCross 仍显示预览按钮: ${JSON.stringify(compactXCross)}`);
+  }
+
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const compactMobile = await page.locator("[data-ble-core-actions]").evaluate(el => ({
+    restored: window.__bleCross.compactMode,
+    saved: localStorage.getItem("bleCompactMode"),
+    display: getComputedStyle(el).display,
+    columns: getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length,
+    overflow: el.scrollWidth > el.clientWidth + 1,
+  }));
+  if (
+    !compactMobile.restored ||
+    compactMobile.saved !== "1" ||
+    compactMobile.display !== "grid" ||
+    compactMobile.columns !== 5 ||
+    compactMobile.overflow
+  ) {
+    throw new Error(`收纳模式刷新恢复或手机布局异常: ${JSON.stringify(compactMobile)}`);
+  }
+
+  await page.locator("[data-ble-compact-toggle]").click();
+  const compactExpanded = await page.evaluate(() => ({
+    compactMode: window.__bleCross.compactMode,
+    saved: localStorage.getItem("bleCompactMode"),
+    fullOnlyVisible: Array.from(document.querySelectorAll("[data-ble-full-only]")).some(el => getComputedStyle(el).display !== "none"),
+  }));
+  if (compactExpanded.compactMode || compactExpanded.saved !== "0" || !compactExpanded.fullOnlyVisible) {
+    throw new Error(`收纳模式展开恢复异常: ${JSON.stringify(compactExpanded)}`);
+  }
+
   const background = await page.evaluate(async () => {
     const vm = window.__bleCross;
     const before = vm.world.cube.serialize();

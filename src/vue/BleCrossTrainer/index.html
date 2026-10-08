@@ -13,12 +13,18 @@
     <div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: center;">
       <v-card
         class="ble-card"
+        :class="{'ble-card-compact': compactMode}"
         :style="{width: Math.min(size * 10, width * 0.96) + 'px'}"
         style="border-radius: 12px 12px 0 0;"
       >
         <v-card-text style="text-align: left; padding: 8px 12px 6px 12px;">
+          <div class="ble-compact-header">
+            <div style="flex: 1;"></div>
+            <v-btn data-ble-compact-toggle x-small @click="toggleCompactMode">{{ compactMode ? '展开' : '收纳' }}</v-btn>
+          </div>
+
           <!-- 行1: 蓝牙连接 + 设备信息 -->
-          <div style="display: flex; align-items: center; gap: 6px;">
+          <div v-show="!compactMode" data-ble-full-only style="display: flex; align-items: center; gap: 6px;">
             <v-btn
               x-small
               color="primary"
@@ -56,6 +62,8 @@
           <!-- 行1.5: 手动 MAC 输入框 (展开式; Web 模式断开态可见, 含手动练习中) -->
           <div
             v-if="webBt && !nativeBt && status === 'disconnected' && macInputOpen"
+            v-show="!compactMode"
+            data-ble-full-only
             style="display: flex; align-items: center; gap: 6px; margin-top: 5px;"
           >
             <input
@@ -80,8 +88,10 @@
           </div>
 
           <!-- 行2: 练习模式 + 打乱公式 -->
-          <div class="ble-scramble-actions">
+          <div data-ble-core-actions class="ble-scramble-actions" :class="{'ble-compact-actions': compactMode}">
             <select
+              v-show="!compactMode"
+              data-ble-full-only
               v-model="trainMode"
               @change="saveTrainMode"
               title="cross: 只还原十字; xcross: 十字 + 任一组 F2L"
@@ -122,18 +132,20 @@
               title="整体旋转 y' (调整观察视角: 手动练习=持握方向, 判定/最优解/步数自动换算; 蓝牙=纯屏幕视角, 3D 独立转动不影响镜像与判定, 新一轮开始时回正)"
               :style="{height: size * 0.55 + 'px'}"
             >y'</v-btn>
-            <v-btn
-              x-small
-              v-if="status === 'connected'"
-              :color="calibStep >= 0 ? 'warning' : ''"
-              @click="calibrate"
-              :title="calibStep >= 0 ? '点击取消校准' : '校准 (调试): 在白顶绿前零换算视角下, 按提示转 3 次实体魔方, 自动对比硬件上报记号是否对得上; 详细日志见控制台'"
-              :style="{height: size * 0.55 + 'px'}"
-            >{{ calibStep >= 0 ? '取消校准' : '校准' }}</v-btn>
+            <span v-show="!compactMode" data-ble-full-only>
+              <v-btn
+                x-small
+                v-if="status === 'connected'"
+                :color="calibStep >= 0 ? 'warning' : ''"
+                @click="calibrate"
+                :title="calibStep >= 0 ? '点击取消校准' : '校准 (调试): 在白顶绿前零换算视角下, 按提示转 3 次实体魔方, 自动对比硬件上报记号是否对得上; 详细日志见控制台'"
+                :style="{height: size * 0.55 + 'px'}"
+              >{{ calibStep >= 0 ? '取消校准' : '校准' }}</v-btn>
+            </span>
           </div>
 
           <!-- 行2.2: 自定义打乱输入 + 完整打乱信息 (与 CrossF2L 交互一致) -->
-          <div class="ble-scramble-input-row">
+          <div v-show="!compactMode" data-ble-full-only class="ble-scramble-input-row">
             <v-text-field
               v-model="customScramble"
               placeholder="输入打乱公式, 回车应用"
@@ -153,7 +165,7 @@
           </div>
 
           <!-- 行2.5: 无关块可视化: 色块半透明 / 隐藏无关贴纸 (+ xcross 槽位选择) -->
-          <div class="ble-visual-options" style="display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; min-height: 16px;">
+          <div v-show="!compactMode" data-ble-full-only class="ble-visual-options" style="display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; min-height: 16px;">
             <label style="display: flex; align-items: center; gap: 3px; color: #666; white-space: nowrap; cursor: pointer;" title="色块半透明模式: 本轮无关的块保留原色并变半透明 (不分方向, 视线无死角), 6 个中心块不透明度为 80%, 十字所需块高亮显示 —— 不转动魔方也能透视看到十字块在哪 (与「隐藏无关」独立, 都勾选时无关块使用灰色隐藏效果)">
               <input type="checkbox" v-model="visGhost" @change="saveVisGhost" style="width: 13px; height: 13px;" />半透明
             </label>
@@ -223,21 +235,24 @@
               style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
             >{{ statusText }}{{ autoNextCountdownText ? ' ' + autoNextCountdownText : '' }}</span>
             <div style="flex: 1;"></div>
-            <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
-              <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮
-            </label>
-            <label data-ble-retry-non-optimal style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="正确但未达到最优步数时，倒计时后重置同一局继续练习">
-              <input type="checkbox" v-model="retryNonOptimal" @change="saveRetryNonOptimal" style="width: 13px; height: 13px;" />非最优重试
-            </label>
-            <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="全程显示 WASM 推荐的最优解 (观察/还原/完成阶段都显示, 用于学习); 关闭后不求解也不展示">
-              <input type="checkbox" v-model="showBest" @change="saveShowBest" style="width: 13px; height: 13px;" />最优解
-            </label>
+            <div v-show="!compactMode" data-ble-full-only style="display: flex; align-items: center; gap: 8px;">
+              <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
+                <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮
+              </label>
+              <label data-ble-retry-non-optimal style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="正确但未达到最优步数时，倒计时后重置同一局继续练习">
+                <input type="checkbox" v-model="retryNonOptimal" @change="saveRetryNonOptimal" style="width: 13px; height: 13px;" />非最优重试
+              </label>
+              <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="全程显示 WASM 推荐的最优解 (观察/还原/完成阶段都显示, 用于学习); 关闭后不求解也不展示">
+                <input type="checkbox" v-model="showBest" @change="saveShowBest" style="width: 13px; height: 13px;" />最优解
+              </label>
+            </div>
             <span v-if="elapsedText" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedText }}</span>
             <span v-if="phase === 'solving' || phase === 'success'" style="color: #888; white-space: nowrap;">步数 {{ moveCount }}</span>
           </div>
 
           <!-- 行3.4: 最优解 (勾选即全程显示, 打乱等待期按打乱目标态预求解, 用于学习): Cross 单组 / XCross 四槽位; 录制 GIF 期间强制显示 (防丢失停止入口) -->
           <div
+            data-ble-solution-panel
             v-if="gifRecording || (showBest && (phase === 'observing' || phase === 'solving' || phase === 'success'))"
             style="margin-top: 5px; padding: 5px 8px; background: #f0f4fb; border: 1px solid #d8e4f8; border-radius: 6px; font-size: 12px; line-height: 1.7;"
           >
@@ -245,35 +260,37 @@
             <div v-if="trainMode === 'cross'" style="display: flex; gap: 6px; min-width: 0;">
               <span data-ble-best-label style="color: #1565c0; white-space: nowrap; font-weight: bold;">{{ z2On ? '白' : '黄' }}{{ bestReady ? bestSteps + '步' : '' }}</span>
               <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ bestReady ? (bestSolutionText || (bestWaitingScramble ? '(打乱拆散十字后自动求解)' : '(十字已复原, 无需转动)')) : '求解中…' }}</span>
-              <v-btn
-                x-small
-                :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) <= 0"
-                @click="stepBest(bestSolution, -1)"
-                title="退一步 (回退上一预览步)"
-                :style="previewBtnStyle"
-              >⏮</v-btn>
-              <v-btn
-                x-small
-                :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) >= bestStepCount(bestSolution)"
-                @click="stepBest(bestSolution, 1)"
-                title="下一步 (应用下一条预览步)"
-                :style="previewBtnStyle"
-              >⏭</v-btn>
-              <v-btn
-                x-small
-                :disabled="!bestReady || !bestSolution || playingBest"
-                @click="playBest(bestSolution)"
-                title="从起点播放完整解法 (预览, 不自动复原; 需还原点「重置」)"
-                :style="previewBtnStyle"
-              >▶</v-btn>
-              <v-btn
-                x-small
-                :color="gifRecording ? 'red' : undefined"
-                :dark="gifRecording"
-                @click="toggleGif"
-                :title="gifRecording ? '停止录制并下载 GIF (已录 ' + gifFrames + ' 帧)' : '一键演示 GIF: 自动重置→播放最优解→自动下载 (有最优解时; 录制中点击可提前停止)'"
-                :style="previewBtnStyle"
-              >{{ gifRecording ? '⏹' : 'GIF' }}</v-btn>
+              <div v-show="!compactMode" data-ble-preview-controls style="display: flex; gap: 6px;">
+                <v-btn
+                  x-small
+                  :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) <= 0"
+                  @click="stepBest(bestSolution, -1)"
+                  title="退一步 (回退上一预览步)"
+                  :style="previewBtnStyle"
+                >⏮</v-btn>
+                <v-btn
+                  x-small
+                  :disabled="!bestReady || !bestSolution || playingBest || bestStepAt(bestSolution) >= bestStepCount(bestSolution)"
+                  @click="stepBest(bestSolution, 1)"
+                  title="下一步 (应用下一条预览步)"
+                  :style="previewBtnStyle"
+                >⏭</v-btn>
+                <v-btn
+                  x-small
+                  :disabled="!bestReady || !bestSolution || playingBest"
+                  @click="playBest(bestSolution)"
+                  title="从起点播放完整解法 (预览, 不自动复原; 需还原点「重置」)"
+                  :style="previewBtnStyle"
+                >▶</v-btn>
+                <v-btn
+                  x-small
+                  :color="gifRecording ? 'red' : undefined"
+                  :dark="gifRecording"
+                  @click="toggleGif"
+                  :title="gifRecording ? '停止录制并下载 GIF (已录 ' + gifFrames + ' 帧)' : '一键演示 GIF: 自动重置→播放最优解→自动下载 (有最优解时; 录制中点击可提前停止)'"
+                  :style="previewBtnStyle"
+                >{{ gifRecording ? '⏹' : 'GIF' }}</v-btn>
+              </div>
             </div>
             <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
             <template v-else>
@@ -282,30 +299,32 @@
                   :style="{color: completedSlots.indexOf(b.slot) >= 0 ? '#2e7d32' : '#1565c0', whiteSpace: 'nowrap', fontWeight: 'bold'}"
                 >{{ b.slot }} {{ b.formula ? b.steps + '步' : '' }}</span>
                 <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ b.formula || (bestXReady ? '—' : '求解中…') }}</span>
-                <v-btn
-                  x-small
-                  :disabled="!b.formula || playingBest || bestStepAt(b.raw) <= 0"
-                  @click="stepBest(b.raw, -1)"
-                  title="退一步 (回退上一预览步)"
-                  :style="previewBtnStyle"
-                >⏮</v-btn>
-                <v-btn
-                  x-small
-                  :disabled="!b.formula || playingBest || bestStepAt(b.raw) >= bestStepCount(b.raw)"
-                  @click="stepBest(b.raw, 1)"
-                  title="下一步 (应用下一条预览步)"
-                  :style="previewBtnStyle"
-                >⏭</v-btn>
-                <v-btn
-                  x-small
-                  :disabled="!b.formula || playingBest"
-                  @click="playBest(b.raw)"
-                  title="从起点播放完整解法 (预览, 不自动复原; 需还原点「重置」)"
-                  :style="previewBtnStyle"
-                >▶</v-btn>
+                <div v-show="!compactMode" data-ble-preview-controls style="display: flex; gap: 6px;">
+                  <v-btn
+                    x-small
+                    :disabled="!b.formula || playingBest || bestStepAt(b.raw) <= 0"
+                    @click="stepBest(b.raw, -1)"
+                    title="退一步 (回退上一预览步)"
+                    :style="previewBtnStyle"
+                  >⏮</v-btn>
+                  <v-btn
+                    x-small
+                    :disabled="!b.formula || playingBest || bestStepAt(b.raw) >= bestStepCount(b.raw)"
+                    @click="stepBest(b.raw, 1)"
+                    title="下一步 (应用下一条预览步)"
+                    :style="previewBtnStyle"
+                  >⏭</v-btn>
+                  <v-btn
+                    x-small
+                    :disabled="!b.formula || playingBest"
+                    @click="playBest(b.raw)"
+                    title="从起点播放完整解法 (预览, 不自动复原; 需还原点「重置」)"
+                    :style="previewBtnStyle"
+                  >▶</v-btn>
+                </div>
               </div>
               <div v-if="!bestXReady" style="color: #999;">4 组槽位最优解求解中…</div>
-              <div style="display: flex; justify-content: flex-end; margin-top: 3px;">
+              <div v-show="!compactMode" data-ble-preview-controls style="display: flex; justify-content: flex-end; margin-top: 3px;">
                 <v-btn
                   x-small
                   :color="gifRecording ? 'red' : undefined"
@@ -320,7 +339,7 @@
 
           <!-- 行3.4: 实时步骤 (还原中): 随转动即时显示已拧步骤。容器常驻占位 (固定高度),
                避免 solving 进入/退出时行出现消失导致页面跳动 -->
-          <div style="margin-top: 5px; padding: 5px 8px; background: #f5f8fc; border: 1px solid #dce6f2; border-radius: 6px; font-size: 12px; line-height: 1.7;">
+          <div data-ble-live-result style="margin-top: 5px; padding: 5px 8px; background: #f5f8fc; border: 1px solid #dce6f2; border-radius: 6px; font-size: 12px; line-height: 1.7;">
             <div v-show="phase === 'solving'" style="display: flex; gap: 6px; min-width: 0; min-height: 20px;">
               <span style="color: #1565c0; white-space: nowrap; font-weight: bold;">已拧 {{ moveCount }}步</span>
               <span style="flex: 1; min-width: 0; word-break: break-all; color: #333;">{{ liveStepsText }}</span>
@@ -328,7 +347,7 @@
           </div>
 
           <!-- 行3.5: 结果对比 (完成后): 你的解法 + 成败计数 -->
-          <div v-if="phase === 'success'" style="margin-top: 5px; padding: 5px 8px; background: #f0f7f0; border: 1px solid #d8ecd8; border-radius: 6px; font-size: 12px; line-height: 1.7;">
+          <div data-ble-success-result v-if="phase === 'success'" style="margin-top: 5px; padding: 5px 8px; background: #f0f7f0; border: 1px solid #d8ecd8; border-radius: 6px; font-size: 12px; line-height: 1.7;">
             <div style="display: flex; gap: 6px; min-width: 0;">
               <span style="color: #2e7d32; white-space: nowrap; font-weight: bold;">你的解法 {{ moveCount }}步</span>
               <span v-if="trainMode === 'xcross' && completedSlots.length" style="color: #2e7d32; white-space: nowrap;">({{ completedSlots.join('/') }})</span>
@@ -339,7 +358,7 @@
           </div>
 
           <!-- 行4: Mock 演示控件 (仅模拟魔方显示) -->
-          <div v-if="isMock" style="display: flex; align-items: center; gap: 5px; margin-top: 5px;">
+          <div v-if="isMock" v-show="!compactMode" data-ble-full-only style="display: flex; align-items: center; gap: 5px; margin-top: 5px;">
             <v-btn x-small color="primary" @click="mockDemo" title="注入打乱并自动还原十字, 演示完整训练循环" :style="{height: size * 0.5 + 'px'}">自动演示</v-btn>
             <input
               v-model="mockInput"
