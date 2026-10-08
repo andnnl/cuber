@@ -319,6 +319,9 @@ export default class BleCrossTrainer extends Vue {
   readonly backgroundPresets = BLE_BACKGROUND_PRESETS;
   // xcross 模式下保留显示的 F2L 槽位 (棱块+角块), 与屏幕四下槽位同帧 (localStorage "bleVisSlot")
   visSlot = "FL";
+  // 相关块按颜色组合追踪，不按当前位置追踪。整体拖动或普通层转只会移动块，
+  // 不会改变块的颜色组合；显式视角/训练设置变化时才清空并重建。
+  private visibilityNeededSignatures: Set<string> | null = null;
   statusText = "未连接魔方: 点「新打乱」免蓝牙直接练习";
 
   // ---- 计时 (data 属性 + rAF/interval 双刷新, 不能用 computed: 依赖不变会缓存冻结) ----
@@ -831,6 +834,7 @@ export default class BleCrossTrainer extends Vue {
     this.z2On = !this.z2On;
     window.localStorage.setItem("bleZ2On", this.z2On ? "1" : "0");
     this.cancelDifficultyGeneration();
+    this.invalidateVisibilityTargets();
     // 翻转记入视图链时间线 (当前链末尾): 此后的整体转/核心帧换算/展示换名
     // 均按含此翻转的完整链精确处理 (共轭场景不再依赖纯 z2 剥离假设)
     this.z2Marks.push(this.observedOps.length);
@@ -861,12 +865,17 @@ export default class BleCrossTrainer extends Vue {
    * 判定/最优解/步数自动按新持握方向换算 (观察期不结束观察/不计步)。
    * 蓝牙模式同样可用: 纯屏幕视角切换 (3D 独立转动, 实体不动), 见方法内分支注释。
    * 方向按屏幕语义: z2 翻转把 y 轴也倒了 (z2·y·z2 = y'), z2On 时物理转反向,
-   * 保证黄顶视角下按 y 仍是「右面转向前」的观感 (与标准姿态一致) */
+  * 保证黄顶视角下按 y 仍是「右面转向前」的观感 (与标准姿态一致) */
   rotateWholeY(times: number): void {
+    // 先落定拖动/镜像队列，再登记本按钮的一次性重算意图。否则前序动画的 drop
+    // 回调可能提前消费计数，形成「最终视角链 + 中间 3D 画面」的混帧求解。
+    this.world.cube.twister.finish();
     CubeGroup.durationScale = 1; // 非镜像动画恒常速 (清掉镜像提速残留)
     // 方向按屏幕语义: z2 翻转把 y 轴也倒了 (z2·y·z2 = y'), z2On 时物理转反向,
     // 保证黄顶视角下按 y 仍是「右面转向前」的观感 (与标准姿态一致)
     const physicalTimes = this.z2On ? -times : times;
+    this.pendingViewButtonRecomputes++;
+    this.invalidateVisibilityTargets();
     if (this.isManual) {
       // 手动: 物理转动并入 history → drop 回调 onManualTwist 刷新 observedOps/判定/最优解
       this.world.cube.twister.push(physicalTimes > 0 ? "y" : "y'");
@@ -1598,12 +1607,21 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     const cube = this.world.cube;
-    // 所有输入模式都在整体转落定后同步视图链并重算；层转不会改变签名，因而不会
-    // 触发持续重算。y/y' 视角变化 (两模式) 触发最优解按新视角重求 (展示换名适配)
+    // 所有输入模式都在整体转落定后同步视图链。只有 y/y' 按钮登记的一次性标记
+    // 会触发重算；鼠标/触摸拖动只更新坐标链和签名，避免手机误触后算法变化。
     this.syncObservedOps();
     const sig = JSON.stringify(this.observedOps);
-    if (sig !== this.bestRotationSig && this.currentBestBase()) {
-      this.recomputeBestFromCurrent();
+    if (sig !== this.bestRotationSig) {
+      if (this.pendingViewButtonRecomputes > 0) {
+        this.pendingViewButtonRecomputes--;
+        if (this.currentBestBase()) {
+          this.recomputeBestFromCurrent();
+        } else {
+          this.bestRotationSig = sig;
+        }
+      } else {
+        this.bestRotationSig = sig;
+      }
     }
     if (this.phase === "observing") {
       // 观察期整体转 (含 y 后 y' 合并抵消): 保留当前姿态继续观察, 不计步不结束观察
@@ -1772,6 +1790,8 @@ export default class BleCrossTrainer extends Vue {
 
   /** 对指定状态求十字最优解 (失败/出错时留空, 展示层显示占位) */
   private bestReqId = 0;
+  /** y/y' 按钮排入动画队列后等待消费的重算次数；拖动整体转不会增加。 */
+  private pendingViewButtonRecomputes = 0;
   /** 上次请求最优解时的整体转签名 (observedOps 序列化): 变化则需按新视角重求 */
   private bestRotationSig = "[]";
   private async requestBestSolution(state: string, viewOps: BaseOp[]): Promise<void> {
@@ -2362,12 +2382,14 @@ export default class BleCrossTrainer extends Vue {
   /** 「色块半透明」勾选变更: 独立开关 (无关块保留原色淡化; 与「隐藏无关」可同开, 无关块取灰色隐藏档), 持久化并立即重刷 */
   saveVisGhost(): void {
     window.localStorage.setItem("bleVisGhost", this.visGhost ? "1" : "0");
+    this.invalidateVisibilityTargets();
     this.applyVisibility();
   }
 
   /** 「隐藏无关」勾选变更: 独立开关 (无关贴纸灰色半透明, 隐约可见; 与「色块半透明」可同开), 持久化并立即重刷 */
   saveVisHide(): void {
     window.localStorage.setItem("bleVisHide", this.visHide ? "1" : "0");
+    this.invalidateVisibilityTargets();
     this.applyVisibility();
   }
 
@@ -2381,7 +2403,16 @@ export default class BleCrossTrainer extends Vue {
   /** XCross 槽位选择变更: 持久化并重刷 (所需棱块+角块随槽位变化) */
   saveVisSlot(): void {
     window.localStorage.setItem("bleVisSlot", this.visSlot);
+    this.invalidateVisibilityTargets();
     this.applyVisibility();
+  }
+
+  private pieceColorSignature(colors: string[]): string {
+    return colors.filter(Boolean).slice().sort().join("");
+  }
+
+  private invalidateVisibilityTargets(): void {
+    this.visibilityNeededSignatures = null;
   }
 
   /** 块可视化 (两个独立开关, 目标: 不转动魔方也能透视看到十字相关块与目标槽位):
@@ -2411,26 +2442,13 @@ export default class BleCrossTrainer extends Vue {
     // 不能用世界帧 s[31]: 持握 (z2/y) 会改世界帧中心分布, 与训练目标底色无关
     const core = this.mapStateForJudge(s);
     const bottom = this.z2On ? core[4] : core[31];
-    // 所需块位置集: 十字 = 含底色的 4 条棱; xcross 另加所选槽位 (屏幕帧:
-    // 前s[22]/右s[13]/后s[49]/左s[40] 中心色) 的棱+角
-    const needed = new Set<number>();
-    if (active) {
-      const bySig = new Map<string, number>();
-      for (let p = 0; p < 27; p++) {
-        const colors = posColors[p].filter(Boolean);
-        if (colors.length >= 2) {
-          bySig.set(colors.slice().sort().join(""), p);
-        }
-      }
-      const find = (...colors: string[]): number => {
-        const p = bySig.get(colors.slice().sort().join(""));
-        return p === undefined ? -1 : p;
-      };
+    // 所需块颜色签名: 十字 = 底色与 4 个侧色组成的棱；XCross 再加当前槽位棱角。
+    // 签名缓存建立后，整体拖动和普通层转只按颜色组合追踪同一批实体块，不重新按
+    // 屏幕中心选块。仅显式按钮/设置变更会 invalidate 后按新视角重建。
+    if (active && this.visibilityNeededSignatures === null) {
+      const needed = new Set<string>();
       for (const side of [s[13], s[22], s[40], s[49]]) {
-        const p = find(bottom, side);
-        if (p >= 0) {
-          needed.add(p);
-        }
+        needed.add(this.pieceColorSignature([bottom, side]));
       }
       if (this.trainMode === "xcross") {
         const front = s[22];
@@ -2441,15 +2459,10 @@ export default class BleCrossTrainer extends Vue {
           BR: [s[49], s[13]],
         };
         const pair = pairs[this.visSlot] || pairs.FL;
-        const edge = find(pair[0], pair[1]);
-        if (edge >= 0) {
-          needed.add(edge);
-        }
-        const corner = find(bottom, pair[0], pair[1]);
-        if (corner >= 0) {
-          needed.add(corner);
-        }
+        needed.add(this.pieceColorSignature(pair));
+        needed.add(this.pieceColorSignature([bottom, pair[0], pair[1]]));
       }
+      this.visibilityNeededSignatures = needed;
     }
     // 逐块刷材质。等级: 无关块→淡化 (hide 开取更透明档, 涵盖半透明); 所需块→高亮;
     // 半透明模式中心块→80%; 未开启→标准色。getFace(世界面)→局部面: 块姿态任意时也能定位到正确贴纸
@@ -2459,8 +2472,9 @@ export default class BleCrossTrainer extends Vue {
         continue;
       }
       const colors = posColors[p].filter(Boolean);
-      const irrelevant = active && colors.length > 1 && !needed.has(p);
-      const isNeeded = active && colors.length > 1 && needed.has(p);
+      const signature = this.pieceColorSignature(colors);
+      const isNeeded = active && colors.length > 1 && !!this.visibilityNeededSignatures?.has(signature);
+      const irrelevant = active && colors.length > 1 && !isNeeded;
       const isCenter = colors.length === 1;
       const mode: "normal" | "ghost" | "center" | "soft" | "bright" = irrelevant
         ? hide
@@ -2516,6 +2530,7 @@ export default class BleCrossTrainer extends Vue {
   saveTrainMode(): void {
     window.localStorage.setItem("bleTrainMode", this.trainMode);
     this.world.cube.twister.finish(); // 模式切换可发生在动画中，先落定再读取当前 3D 状态
+    this.invalidateVisibilityTargets();
     this.recomputeBestFromCurrent();
     this.applyVisibility(); // cross↔xcross 所需块集不同 (xcross 另加槽位棱+角), 重刷可视化
   }
@@ -2533,6 +2548,9 @@ export default class BleCrossTrainer extends Vue {
    * z2On 的翻转姿态由调用方随后 applyZ2Flip 恢复 */
   private syncScene(facelets: string, tag = ""): void {
     const cube = this.world.cube;
+    // 权威重绘/重置会丢弃原动画队列；此前尚未落定的按钮重算意图也随之失效，
+    // 防止下一次鼠标或触摸拖动误消费旧标记并改变算法。
+    this.pendingViewButtonRecomputes = 0;
     if (this.playingBest) {
       this.cancelBestPlay(); // 打断预览: 新打乱/重置/权威重绘即将整体重建画面
     }

@@ -1766,4 +1766,129 @@ async page => {
   ) {
     throw new Error(`BLE 新打乱/重置没有与手动路径统一: ${JSON.stringify(bleRoundVisualReset)}`);
   }
+
+  const explicitViewRefresh = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const solved = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    const originalRecompute = vm.recomputeBestFromCurrent;
+    const originalRequestBest = vm.requestBest;
+    let recomputes = 0;
+    let requests = 0;
+    const recomputeSnapshots = [];
+
+    vm.rebasing = true;
+    vm.world.cube.twister.finish();
+    vm.z2On = false;
+    vm.baseOps = [];
+    vm.observedOps = [];
+    vm.z2Marks = [];
+    vm.syncScene(solved, "explicit-view-refresh-test");
+    vm.world.cube.history.clear();
+    vm.rebasing = false;
+    vm.phase = "disconnected";
+    vm.solveBaseState = solved;
+    vm.solveBaseScreenFrame = false;
+    vm.bestRotationSig = "[]";
+    vm.trainMode = "xcross";
+    vm.visSlot = "FL";
+    vm.visGhost = true;
+    vm.visHide = false;
+    vm.applyVisibility();
+
+    vm.recomputeBestFromCurrent = () => {
+      recomputes++;
+      recomputeSnapshots.push({
+        signature: JSON.stringify(vm.observedOps),
+        state: vm.world.cube.serialize(),
+        view: JSON.stringify(vm.effectiveViewOps()),
+      });
+    };
+    vm.requestBest = () => {
+      requests++;
+    };
+
+    const signatures = () => Array.from(vm.visibilityNeededSignatures || []).sort();
+    const initialRef = vm.visibilityNeededSignatures;
+    const initialSignatures = signatures();
+
+    for (const move of ["x", "y", "z"]) {
+      vm.world.cube.twister.push(move);
+      vm.world.cube.twister.finish();
+    }
+    const afterDragRef = vm.visibilityNeededSignatures;
+    const afterDragSignatures = signatures();
+    const dragRecomputes = recomputes;
+
+    vm.world.cube.twister.push("R");
+    vm.world.cube.twister.finish();
+    const afterLayerRef = vm.visibilityNeededSignatures;
+    const afterLayerSignatures = signatures();
+
+    vm.rotateWholeY(1);
+    vm.world.cube.twister.finish();
+    const afterYRef = vm.visibilityNeededSignatures;
+    const yButtonRecomputes = recomputes;
+
+    vm.world.cube.twister.push("x");
+    vm.rotateWholeY(1);
+    vm.world.cube.twister.finish();
+    const queuedButtonRecomputes = recomputes - yButtonRecomputes;
+    const queuedSnapshot = recomputeSnapshots[recomputeSnapshots.length - 1];
+    const queuedButtonUsesFinalView = queuedSnapshot.signature === JSON.stringify(vm.observedOps);
+    const queuedButtonUsesFinalState = queuedSnapshot.state === vm.world.cube.serialize();
+    const queuedButtonUsesFinalEffectiveView = queuedSnapshot.view === JSON.stringify(vm.effectiveViewOps());
+
+    const beforeZ2Ref = vm.visibilityNeededSignatures;
+    vm.toggleZ2();
+    vm.world.cube.twister.finish();
+    const afterZ2Ref = vm.visibilityNeededSignatures;
+    const z2Requests = requests;
+
+    const beforeSlotRef = vm.visibilityNeededSignatures;
+    vm.visSlot = "FR";
+    vm.saveVisSlot();
+    const afterSlotRef = vm.visibilityNeededSignatures;
+
+    vm.recomputeBestFromCurrent = originalRecompute;
+    vm.requestBest = originalRequestBest;
+
+    return {
+      cacheAvailable: initialRef instanceof Set,
+      initialSignatureCount: initialSignatures.length,
+      dragRecomputes,
+      dragKeepsCache: afterDragRef === initialRef,
+      dragKeepsSignatures: JSON.stringify(afterDragSignatures) === JSON.stringify(initialSignatures),
+      layerKeepsCache: afterLayerRef === afterDragRef,
+      layerKeepsSignatures: JSON.stringify(afterLayerSignatures) === JSON.stringify(initialSignatures),
+      yButtonRecomputes,
+      yButtonRefreshesCache: afterYRef instanceof Set && afterYRef !== afterLayerRef,
+      queuedButtonRecomputes,
+      queuedButtonUsesFinalView,
+      queuedButtonUsesFinalState,
+      queuedButtonUsesFinalEffectiveView,
+      z2Requests,
+      z2RefreshesCache: afterZ2Ref instanceof Set && afterZ2Ref !== beforeZ2Ref,
+      slotRefreshesCache: afterSlotRef instanceof Set && afterSlotRef !== beforeSlotRef,
+    };
+  });
+  if (
+    !explicitViewRefresh.cacheAvailable ||
+    explicitViewRefresh.initialSignatureCount !== 6 ||
+    explicitViewRefresh.dragRecomputes !== 0 ||
+    !explicitViewRefresh.dragKeepsCache ||
+    !explicitViewRefresh.dragKeepsSignatures ||
+    !explicitViewRefresh.layerKeepsCache ||
+    !explicitViewRefresh.layerKeepsSignatures ||
+    explicitViewRefresh.yButtonRecomputes !== 1 ||
+    !explicitViewRefresh.yButtonRefreshesCache ||
+    explicitViewRefresh.queuedButtonRecomputes !== 1 ||
+    !explicitViewRefresh.queuedButtonUsesFinalView ||
+    !explicitViewRefresh.queuedButtonUsesFinalState ||
+    !explicitViewRefresh.queuedButtonUsesFinalEffectiveView ||
+    explicitViewRefresh.z2Requests !== 1 ||
+    !explicitViewRefresh.z2RefreshesCache ||
+    !explicitViewRefresh.slotRefreshesCache
+  ) {
+    throw new Error(`BLE 显式按钮与拖动刷新边界异常: ${JSON.stringify(explicitViewRefresh)}`);
+  }
 }
