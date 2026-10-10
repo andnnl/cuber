@@ -1,6 +1,6 @@
 # Android 蓝牙魔方 App 实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]`）语法来跟踪进度。
 
 **目标：** 生成安装后直接进入蓝牙十字训练、支持现有 GAN 蓝牙协议且 release 关闭 WebView 调试的 Android APK。
 
@@ -25,7 +25,7 @@
 - 创建：`scripts/test-android-app.js`
 - 修改：`package.json`
 
-- [ ] **步骤 1：编写失败的配置测试**
+- [x] **步骤 1：编写失败的配置测试**
 
 ```js
 const assert = require("assert");
@@ -51,13 +51,13 @@ console.log("Android app configuration tests passed");
 "test:android": "node scripts/test-android-app.js"
 ```
 
-- [ ] **步骤 2：运行测试并确认因旧配置失败**
+- [x] **步骤 2：运行测试并确认因旧配置失败**
 
 运行：`npm run test:android`
 
 预期：FAIL，首先报告找不到 `index.html?mode=blecross`。
 
-- [ ] **步骤 3：提交测试**
+- [x] **步骤 3：提交测试**
 
 ```bash
 git add package.json scripts/test-android-app.js
@@ -70,7 +70,7 @@ git commit -m "test(Android): 添加应用配置回归检查"
 - 修改：`android/app/src/main/java/com/cuber/trainer/MainActivity.java:27-29,72-73`
 - 修改：`android/app/build.gradle.kts:10-16`
 
-- [ ] **步骤 1：修改默认入口和调试开关**
+- [x] **步骤 1：修改默认入口和调试开关**
 
 将启动 URL 改为：
 
@@ -85,20 +85,20 @@ private static final String START_URL =
 WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
 ```
 
-- [ ] **步骤 2：升级应用版本**
+- [x] **步骤 2：升级应用版本**
 
 ```kotlin
 versionCode = 6
 versionName = "1.0.5"
 ```
 
-- [ ] **步骤 3：运行 Android 配置测试**
+- [x] **步骤 3：运行 Android 配置测试**
 
 运行：`npm run test:android`
 
 预期：PASS，输出 `Android app configuration tests passed`。
 
-- [ ] **步骤 4：提交 Android 配置**
+- [x] **步骤 4：提交 Android 配置**
 
 ```bash
 git add android/app/src/main/java/com/cuber/trainer/MainActivity.java android/app/build.gradle.kts
@@ -110,7 +110,7 @@ git commit -m "feat(Android): 默认进入蓝牙十字训练"
 **文件：**
 - 修改：`android/build-apk.sh`
 
-- [ ] **步骤 1：扩展配置测试以检查 JDK 选择逻辑**
+- [x] **步骤 1：扩展配置测试以检查 JDK 选择逻辑**
 
 在 `scripts/test-android-app.js` 读取 `android/build-apk.sh` 并增加：
 
@@ -120,13 +120,13 @@ assert.match(buildScript, /java-21-openjdk-amd64/);
 assert.match(buildScript, /JAVA_HOME/);
 ```
 
-- [ ] **步骤 2：运行测试并确认缺少 JDK 选择逻辑**
+- [x] **步骤 2：运行测试并确认缺少 JDK 选择逻辑**
 
 运行：`npm run test:android`
 
 预期：FAIL，报告构建脚本不包含 `java-21-openjdk-amd64`。
 
-- [ ] **步骤 3：在构建脚本中选择 JDK 21**
+- [x] **步骤 3：在构建脚本中选择 JDK 21**
 
 在 Gradle 构建前增加：
 
@@ -145,13 +145,13 @@ npm run test:android
 npm run test:ble
 ```
 
-- [ ] **步骤 4：运行配置测试**
+- [x] **步骤 4：运行配置测试**
 
 运行：`npm run test:android`
 
 预期：PASS。
 
-- [ ] **步骤 5：提交构建脚本**
+- [x] **步骤 5：提交构建脚本**
 
 ```bash
 git add scripts/test-android-app.js android/build-apk.sh
@@ -163,7 +163,7 @@ git commit -m "build(Android): 自动选择 JDK 21"
 **文件：**
 - 修改：`android/README.md`
 
-- [ ] **步骤 1：更新文档内容**
+- [x] **步骤 1：更新文档内容**
 
 明确记录：
 
@@ -175,7 +175,7 @@ git commit -m "build(Android): 自动选择 JDK 21"
 - 构建脚本会优先使用 /usr/lib/jvm/java-21-openjdk-amd64。
 ```
 
-- [ ] **步骤 2：提交文档**
+- [x] **步骤 2：提交文档**
 
 ```bash
 git add android/README.md
@@ -189,13 +189,13 @@ git commit -m "docs(Android): 更新蓝牙应用打包说明"
 - 生成：`android/app/build/outputs/apk/debug/app-debug.apk`
 - 生成：`android/app/build/outputs/apk/release/app-release.apk`
 
-- [ ] **步骤 1：执行完整 Android 构建**
+- [x] **步骤 1：执行完整 Android 构建**
 
 运行：`bash android/build-apk.sh`
 
 预期：BLE 测试、webpack、搜索表生成以及 `assembleDebug assembleRelease` 全部成功。
 
-- [ ] **步骤 2：检查 APK 元数据与资源**
+- [x] **步骤 2：检查 APK 元数据与资源**
 
 运行：
 
@@ -206,7 +206,7 @@ unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E 'assets
 
 预期：包名为 `com.cuber.trainer`，版本为 `1.0.5`/`6`，三个关键资源均存在。
 
-- [ ] **步骤 3：检查工作区和最终差异**
+- [x] **步骤 3：检查工作区和最终差异**
 
 运行：
 
@@ -218,6 +218,6 @@ git log -5 --oneline
 
 预期：不存在空白错误；用户原有 `README.md`、`.superpowers/`、`.trae/` 和 `dist/cube_cross_table.bin` 不被误提交或删除。
 
-- [ ] **步骤 4：报告真机验证边界**
+- [x] **步骤 4：报告真机验证边界**
 
 说明 APK 已完成静态和构建验证，但真实扫描、连接、转动同步及断线重连仍需 Android 手机和 GAN 魔方进行最终验收。
