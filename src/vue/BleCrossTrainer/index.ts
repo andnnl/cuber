@@ -252,6 +252,7 @@ export default class BleCrossTrainer extends Vue {
   scanDevices: { address: string; name: string }[] = [];
   scanStatus = "";
   private scanCbRegistered = false;
+  private scanStartTimer: any = null;
   private scanEmptyTimer: any = null;
 
   // ---- 训练状态机: disconnected → ready → observing → solving → success (→ observing) ----
@@ -636,7 +637,15 @@ export default class BleCrossTrainer extends Vue {
       window.clearTimeout(this.scanEmptyTimer);
     }
     // stopScan/startScan 都经原生 UI 线程排队；稍作间隔确保重复扫描真正重启。
-    window.setTimeout(() => transport.startScan(15000), 100);
+    if (this.scanStartTimer) {
+      window.clearTimeout(this.scanStartTimer);
+    }
+    this.scanStartTimer = window.setTimeout(() => {
+      this.scanStartTimer = null;
+      if (this.scanDialog) {
+        transport.startScan(15000);
+      }
+    }, 100);
     this.scanEmptyTimer = window.setTimeout(() => {
       if (this.scanDialog && this.scanDevices.length === 0) {
         this.scanStatus = "未发现魔方, 请确认已开机且靠近手机后重试";
@@ -645,6 +654,10 @@ export default class BleCrossTrainer extends Vue {
   }
 
   closeScanDialog(): void {
+    if (this.scanStartTimer) {
+      window.clearTimeout(this.scanStartTimer);
+      this.scanStartTimer = null;
+    }
     if (this.scanEmptyTimer) {
       window.clearTimeout(this.scanEmptyTimer);
       this.scanEmptyTimer = null;
