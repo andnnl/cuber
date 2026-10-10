@@ -21,6 +21,7 @@ const { CubeLink } = req("cube-link.js");
 const registry = req("protocols/registry.js");
 const vendorCore = req("protocols/vendor/gan-protocol-core.js");
 const { MockGanCubeTransport } = req("mock-transport.js");
+const { NativeBridgeTransport } = req("transport/native.js");
 
 let passed = 0;
 let failed = 0;
@@ -619,6 +620,23 @@ async function main() {
     transport.connect = async () => ({ name: "GAN", brand: "GAN", serviceUuids: ["6e400001-b5a3-f393-e0a9-e50e24dc4179"] });
     const link = new gan.GanCubeLink(transport);
     await assert.rejects(() => link.connect(), /MAC/);
+  });
+
+  await test("Native transport 将非连接阶段原生错误送达扫描 UI", () => {
+    global.window = {
+      __bleNative: { scan() {}, stopScan() {}, connect() {}, disconnect() {}, write() {} },
+      setTimeout,
+      clearTimeout,
+    };
+    try {
+      const transport = new NativeBridgeTransport();
+      let got = "";
+      transport.onError((message) => (got = message));
+      global.window.__ble.dispatch("error", JSON.stringify({ message: "权限被拒绝" }));
+      assert.strictEqual(got, "权限被拒绝");
+    } finally {
+      delete global.window;
+    }
   });
 
   console.log(`\n结果: ${passed} 通过, ${failed} 失败`);

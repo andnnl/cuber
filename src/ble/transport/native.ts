@@ -40,6 +40,7 @@ export class NativeBridgeTransport implements BleTransport {
   private bytesCb: ((data: Uint8Array) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
   private scanCbs: ((devices: { address: string; name: string }[]) => void)[] = [];
+  private errorCbs: ((message: string) => void)[] = [];
   private devices = new Map<string, { address: string; name: string }>();
   private scanTimer: any = null;
 
@@ -85,6 +86,10 @@ export class NativeBridgeTransport implements BleTransport {
     cb(this.currentDevices()); // 立即回放当前已发现的列表
   }
 
+  onError(cb: (message: string) => void): void {
+    this.errorCbs.push(cb);
+  }
+
   currentDevices(): { address: string; name: string }[] {
     return Array.from(this.devices.values());
   }
@@ -93,6 +98,12 @@ export class NativeBridgeTransport implements BleTransport {
     const list = this.currentDevices();
     for (const cb of this.scanCbs) {
       cb(list);
+    }
+  }
+
+  private emitError(message: string): void {
+    for (const cb of this.errorCbs) {
+      cb(message);
     }
   }
 
@@ -222,11 +233,16 @@ export class NativeBridgeTransport implements BleTransport {
           this.failConnect(new Error(message));
           return;
         }
+        this.emitError(message);
         console.error("[BleBridge]", message);
         break;
       }
+      case "bluetoothOn": {
+        this.emitError("蓝牙已开启，请重新扫描");
+        break;
+      }
       default:
-        break; // scanStart / bluetoothOn 等无需处理
+        break; // scanStart 等无需处理
     }
   }
 
