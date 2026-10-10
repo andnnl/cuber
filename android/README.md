@@ -1,6 +1,9 @@
 # Android APK 打包教程
 
-本文档说明如何将魔方训练器（CrossF2LTrainer）打包为 Android APP。
+本文档说明如何将蓝牙魔方十字训练器（BLECrossTrainer）打包为 Android APP。
+
+当前 Android 版本为 **1.0.5（versionCode 6）**。App 安装启动后默认进入
+`mode=blecross`，可直接使用原生 BLE 桥扫描和连接支持的 GAN 蓝牙魔方。
 
 ## 架构说明
 
@@ -20,6 +23,9 @@ APP 采用**原生 WebView 壳**方案（纯 Java，零 Kotlin/Compose 依赖）
 | gradle | 8.13（wrapper 自动下载） | 走腾讯镜像，国内直连 |
 | AGP | 8.11.1 | 走阿里云 maven 镜像 |
 
+构建脚本在本机存在 `/usr/lib/jvm/java-21-openjdk-amd64` 时会自动选用该 JDK，
+避免系统默认 JDK 8 无法运行新版 Android Gradle Plugin。
+
 SDK 路径配置在 [local.properties](local.properties)（`sdk.dir=/dd/AndoridSdk`），按实际位置修改。
 
 > **注意**：若 SDK 是从 Windows 拷贝的（build-tools 目录里全是 `.exe`），需先用 cmdline-tools 重装 Linux 版：
@@ -37,10 +43,11 @@ bash android/build-apk.sh
 
 脚本自动完成 4 步：
 
-1. **webpack 生产构建**：`npx webpack --mode=production` → `dist/`
-2. **生成搜索表 bin**：`node scripts/gen-table.mjs dist` → `dist/cube_cross_table.bin`（Node 直接调用 wasm 生成，幂等可跳过已有表）
-3. **同步 assets**：`dist/*` → `android/app/src/main/assets/www/`
-4. **gradle 打包**：`assembleDebug` + `assembleRelease`
+1. **环境与回归检查**：确认 Java 版本并运行 Android 配置测试、BLE 测试
+2. **webpack 生产构建**：`npx webpack --mode=production` → `dist/`
+3. **生成搜索表 bin**：`node scripts/gen-table.mjs dist` → `dist/cube_cross_table.bin`（Node 直接调用 wasm 生成，幂等可跳过已有表）
+4. **同步 assets**：`dist/*` → `android/app/src/main/assets/www/`
+5. **gradle 打包**：`assembleDebug` + `assembleRelease`
 
 产物：
 
@@ -48,6 +55,9 @@ bash android/build-apk.sh
 |------|------|
 | `android/app/build/outputs/apk/release/app-release.apk` | release 版（debug 签名，可直接安装） |
 | `android/app/build/outputs/apk/debug/app-debug.apk` | debug 版 |
+
+> 当前 release APK 为方便个人安装仍使用 debug 签名，不适合直接提交应用商店。
+> debug 包允许通过 `chrome://inspect` 调试 WebView，release 包会关闭该调试入口。
 
 ## 修改版本号
 
