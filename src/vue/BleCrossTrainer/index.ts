@@ -252,6 +252,7 @@ export default class BleCrossTrainer extends Vue {
   scanDevices: { address: string; name: string }[] = [];
   scanStatus = "";
   private scanCbRegistered = false;
+  private scanEmptyTimer: any = null;
 
   // ---- 训练状态机: disconnected → ready → observing → solving → success (→ observing) ----
   // 打乱后统一进入 observing: 首次层转 (实体拧动或鼠标) 才进入 solving 计时
@@ -608,8 +609,6 @@ export default class BleCrossTrainer extends Vue {
   /** 打开扫描弹窗并开始 BLE 扫描 (APK) */
   openScanDialog(): void {
     this.scanDialog = true;
-    this.scanDevices = [];
-    this.scanStatus = "扫描中, 请确保魔方已开机...";
     const transport = getNativeTransport();
     if (!this.scanCbRegistered) {
       this.scanCbRegistered = true;
@@ -619,18 +618,43 @@ export default class BleCrossTrainer extends Vue {
           this.scanStatus = "点击要连接的魔方";
         }
       });
+      transport.onError((message) => {
+        if (this.scanDialog) {
+          this.scanStatus = message;
+        }
+      });
     }
-    transport.startScan(15000);
-    window.setTimeout(() => {
+    this.restartScan();
+  }
+
+  restartScan(): void {
+    const transport = getNativeTransport();
+    transport.stopScan();
+    this.scanDevices = [];
+    this.scanStatus = "扫描中, 请确保魔方已开机...";
+    if (this.scanEmptyTimer) {
+      window.clearTimeout(this.scanEmptyTimer);
+    }
+    // stopScan/startScan 都经原生 UI 线程排队；稍作间隔确保重复扫描真正重启。
+    window.setTimeout(() => transport.startScan(15000), 100);
+    this.scanEmptyTimer = window.setTimeout(() => {
       if (this.scanDialog && this.scanDevices.length === 0) {
         this.scanStatus = "未发现魔方, 请确认已开机且靠近手机后重试";
       }
     }, 15500);
   }
 
-  async pickDevice(address: string): Promise<void> {
-    this.scanDialog = false;
+  closeScanDialog(): void {
+    if (this.scanEmptyTimer) {
+      window.clearTimeout(this.scanEmptyTimer);
+      this.scanEmptyTimer = null;
+    }
     getNativeTransport().stopScan();
+    this.scanDialog = false;
+  }
+
+  async pickDevice(address: string): Promise<void> {
+    this.closeScanDialog();
     await this.connect("native", { address });
   }
 
