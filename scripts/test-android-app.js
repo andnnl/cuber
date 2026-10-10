@@ -13,6 +13,7 @@ assert.match(main, /index\.html\?mode=blecross/);
 assert.match(main, /setWebContentsDebuggingEnabled\(BuildConfig\.DEBUG\)/);
 assert.match(gradle, /versionCode\s*=\s*6/);
 assert.match(gradle, /versionName\s*=\s*"1\.0\.5"/);
+assert.match(gradle, /buildFeatures\s*\{[\s\S]*buildConfig\s*=\s*true[\s\S]*\}/);
 
 for (const permission of ["BLUETOOTH_SCAN", "BLUETOOTH_CONNECT", "ACCESS_FINE_LOCATION"]) {
   assert.match(manifest, new RegExp(`android\\.permission\\.${permission}`));

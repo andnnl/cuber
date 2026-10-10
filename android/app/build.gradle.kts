@@ -14,6 +14,10 @@ android {
         versionName = "1.0.5"
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     // 纯 WebView 壳, 无混淆必要, 关闭以加速构建
     buildTypes {
         getByName("release") {
