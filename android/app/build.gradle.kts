@@ -10,8 +10,8 @@ android {
         applicationId = "com.cuber.trainer"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.0.5"
     }
 
     // 纯 WebView 壳, 无混淆必要, 关闭以加速构建

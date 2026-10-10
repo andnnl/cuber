@@ -26,7 +26,7 @@ import androidx.webkit.WebViewClientCompat;
 public class MainActivity extends Activity {
 
     private static final String START_URL =
-            "https://appassets.androidplatform.net/assets/www/index.html?mode=crossf2l";
+            "https://appassets.androidplatform.net/assets/www/index.html?mode=blecross";
 
     private WebView webView;
     private WebViewAssetLoader assetLoader;
@@ -76,8 +76,8 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        // 远程调试: chrome://inspect 可直接查看页面 console 与网络 (排查用)
-        WebView.setWebContentsDebuggingEnabled(true);
+        // debug 包可用 chrome://inspect 排查；release 包关闭调试入口。
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
         // 原生 BLE 桥 (蓝牙魔方训练): 页面仅来自本地 assets, 接口收窄为 5 个方法
         bleBridge = new BleBridge(this, webView);
         webView.addJavascriptInterface(bleBridge, "__bleNative");
