@@ -11,7 +11,8 @@
     "verify": "node src/verify/cli.js",
     "verify:blecross": "playwright-cli run-code --filename scripts/verify-blecross-recompute.js",
     "verify:bleconnect": "playwright-cli run-code --filename scripts/verify-bleconnect.js",
-    "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js"
+    "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js",
+    "test:android": "node scripts/test-android-app.js"
   },
   "devDependencies": {
     "@types/three": "0.130.0",
