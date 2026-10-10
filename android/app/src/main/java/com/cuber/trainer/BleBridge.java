@@ -88,6 +88,7 @@ public class BleBridge {
 
     @JavascriptInterface
     public void scan() {
+        Log.i(TAG, "scan requested");
         activity.runOnUiThread(this::startScanWithPermission);
     }
 
@@ -98,6 +99,7 @@ public class BleBridge {
 
     @JavascriptInterface
     public void connect(final String address) {
+        Log.i(TAG, "connect requested: " + address);
         activity.runOnUiThread(() -> {
             if (adapter == null) {
                 dispatchError("设备不支持蓝牙");
@@ -142,8 +144,10 @@ public class BleBridge {
             addIfMissing(missing, Manifest.permission.ACCESS_FINE_LOCATION);
         }
         if (missing.isEmpty()) {
+            Log.i(TAG, "BLE permissions already granted (sdk=" + Build.VERSION.SDK_INT + ")");
             return true;
         }
+        Log.i(TAG, "requesting BLE permissions (sdk=" + Build.VERSION.SDK_INT + "): " + missing);
         activity.requestPermissions(missing.toArray(new String[0]), REQ_PERMISSIONS);
         return false;
     }
@@ -156,6 +160,7 @@ public class BleBridge {
 
     /** MainActivity.onRequestPermissionsResult 转发 */
     public void onPermissionResult(boolean granted) {
+        Log.i(TAG, "permission result: granted=" + granted + ", pendingAction=" + pendingAction);
         if (!granted) {
             dispatchError("未授予蓝牙权限, 无法扫描/连接魔方");
             return;
@@ -171,6 +176,7 @@ public class BleBridge {
     /** MainActivity.onActivityResult 转发 (REQ_ENABLE_BT) */
     public void onActivityResult(int requestCode, int resultCode) {
         if (requestCode == REQ_ENABLE_BT && resultCode == Activity.RESULT_OK) {
+            Log.i(TAG, "bluetooth enabled by user");
             dispatch("bluetoothOn", new JSONObject());
         }
     }
@@ -179,10 +185,12 @@ public class BleBridge {
 
     private void startScanWithPermission() {
         if (adapter == null) {
+            Log.e(TAG, "scan unavailable: no Bluetooth adapter");
             dispatchError("设备不支持蓝牙");
             return;
         }
         if (!adapter.isEnabled()) {
+            Log.w(TAG, "scan paused: Bluetooth is disabled");
             // 拉起系统开启弹窗, 开启后 JS 收到 bluetoothOn 可提示重试
             dispatchError("蓝牙未开启");
             activity.startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), REQ_ENABLE_BT);
@@ -198,10 +206,12 @@ public class BleBridge {
     @SuppressLint("MissingPermission")
     private void startScanInternal() {
         if (scanning) {
+            Log.i(TAG, "scan already running");
             return;
         }
         BluetoothLeScanner scanner = adapter.getBluetoothLeScanner();
         if (scanner == null) {
+            Log.e(TAG, "scan unavailable: BluetoothLeScanner is null");
             dispatchError("BLE 扫描不可用");
             return;
         }
@@ -209,9 +219,11 @@ public class BleBridge {
         scanning = true;
         try {
             scanner.startScan(scanCallback);
+            Log.i(TAG, "scan started");
             dispatch("scanStart", new JSONObject());
         } catch (SecurityException e) {
             scanning = false;
+            Log.e(TAG, "scan failed: permission denied", e);
             dispatchError("权限不足: " + e.getMessage());
         }
     }
@@ -229,6 +241,7 @@ public class BleBridge {
             Log.w(TAG, "stopScan: " + e.getMessage());
         }
         scanning = false;
+        Log.i(TAG, "scan stopped");
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
@@ -249,6 +262,7 @@ public class BleBridge {
                 return;
             }
             scanResults.put(address, name);
+            Log.i(TAG, "device found: name=" + name + ", address=" + address);
             try {
                 dispatch("scan", new JSONObject()
                         .put("address", address)
@@ -256,11 +270,19 @@ public class BleBridge {
             } catch (Exception ignored) {
             }
         }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            scanning = false;
+            Log.e(TAG, "scan failed: errorCode=" + errorCode);
+            dispatchError("BLE 扫描失败 (errorCode=" + errorCode + ")");
+        }
     };
 
     // ================= GATT 连接 =================
 
     private void connectInternal(String address) {
+        Log.i(TAG, "connect starting: " + address);
         stopScanInternal();
         closeGatt();
         try {
@@ -276,6 +298,7 @@ public class BleBridge {
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+            Log.i(TAG, "GATT state changed: status=" + status + ", newState=" + newState);
             if (g != gatt) {
                 // closeGatt() 操作的是全局当前连接；旧 GATT 的迟到断开绝不能关闭新连接。
                 try {
@@ -285,12 +308,14 @@ public class BleBridge {
                 return;
             }
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                Log.i(TAG, "GATT connected; discovering services");
                 try {
                     g.discoverServices();
                 } catch (SecurityException e) {
                     dispatchError("权限不足: " + e.getMessage());
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                Log.i(TAG, "GATT disconnected");
                 closeGatt();
                 dispatch("disconnected", new JSONObject());
             }
@@ -298,6 +323,7 @@ public class BleBridge {
 
         @Override
         public void onServicesDiscovered(BluetoothGatt g, int status) {
+            Log.i(TAG, "services discovered: status=" + status);
             if (g != gatt) {
                 return;
             }
@@ -337,6 +363,7 @@ public class BleBridge {
                 return;
             }
             pendingServices = services;
+            Log.i(TAG, "usable services=" + services.length() + ", notify characteristics=" + notifyQueue.size());
             enableNextNotification();
         }
 
@@ -390,6 +417,7 @@ public class BleBridge {
             JSONArray services = pendingServices;
             pendingServices = null;
             if (services != null) {
+                Log.i(TAG, "notification subscriptions complete; dispatching services");
                 try {
                     dispatch("services", new JSONObject().put("services", services));
                 } catch (Exception ignored) {
@@ -534,6 +562,7 @@ public class BleBridge {
     }
 
     private void dispatchError(String message) {
+        Log.e(TAG, message);
         try {
             dispatch("error", new JSONObject().put("message", message));
         } catch (Exception ignored) {
