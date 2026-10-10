@@ -25,7 +25,7 @@
 **文件：**
 - 修改：`scripts/test-android-app.js`
 
-- [ ] **步骤 1：增加模板和日志断言**
+- [x] **步骤 1：增加模板和日志断言**
 
 ```js
 const bleTemplate = fs.readFileSync("src/vue/BleCrossTrainer/index.html", "utf8");
@@ -44,13 +44,13 @@ assert.match(bleBridge, /Log\.i\(TAG, "scan started"\)/);
 assert.match(bleBridge, /Log\.i\(TAG, "connect requested:/);
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`npm run test:android`
 
 预期：FAIL，首先报告模板缺少 `v-model="scanDialog"`。
 
-- [ ] **步骤 3：提交失败测试**
+- [x] **步骤 3：提交失败测试**
 
 ```bash
 git add scripts/test-android-app.js
@@ -63,7 +63,7 @@ git commit -m "test(Android): 覆盖蓝牙扫描弹窗与日志"
 - 修改：`scripts/test-ble.js`
 - 修改：`src/ble/transport/native.ts`
 
-- [ ] **步骤 1：增加失败的传输层测试**
+- [x] **步骤 1：增加失败的传输层测试**
 
 在 Node 测试中创建假的 `window.__bleNative`，构造 `NativeBridgeTransport`，注册 `onError()`，通过 `window.__ble.dispatch("error", ...)` 发送扫描错误，并断言收到错误文本。
 
@@ -84,13 +84,13 @@ await test("Native transport 将非连接阶段原生错误送达扫描 UI", () 
 });
 ```
 
-- [ ] **步骤 2：运行 BLE 测试确认失败**
+- [x] **步骤 2：运行 BLE 测试确认失败**
 
 运行：`npm run test:ble`
 
 预期：FAIL，`transport.onError is not a function`。
 
-- [ ] **步骤 3：实现最小错误监听**
+- [x] **步骤 3：实现最小错误监听**
 
 在 `NativeBridgeTransport` 中加入：
 
@@ -110,13 +110,13 @@ private emitError(message: string): void {
 
 `error` 事件在没有 `connectReject` 时调用 `emitError(message)`；`bluetoothOn` 事件调用 `emitError("蓝牙已开启，请重新扫描")`。
 
-- [ ] **步骤 4：运行 BLE 测试确认通过**
+- [x] **步骤 4：运行 BLE 测试确认通过**
 
 运行：`npm run test:ble`
 
 预期：39 个测试通过，0 失败。
 
-- [ ] **步骤 5：提交传输层改动**
+- [x] **步骤 5：提交传输层改动**
 
 ```bash
 git add scripts/test-ble.js src/ble/transport/native.ts
@@ -129,7 +129,7 @@ git commit -m "fix(蓝牙): 向扫描界面传递原生错误"
 - 修改：`src/vue/BleCrossTrainer/index.ts:609-635`
 - 修改：`src/vue/BleCrossTrainer/index.html`
 
-- [ ] **步骤 1：增加扫描生命周期方法**
+- [x] **步骤 1：增加扫描生命周期方法**
 
 ```ts
 restartScan(): void {
@@ -154,7 +154,7 @@ transport.onError((message) => {
 });
 ```
 
-- [ ] **步骤 2：增加 Vuetify 对话框**
+- [x] **步骤 2：增加 Vuetify 对话框**
 
 在根 `<v-app>` 内增加：
 
@@ -183,13 +183,13 @@ transport.onError((message) => {
 </v-dialog>
 ```
 
-- [ ] **步骤 3：运行 Android 静态测试**
+- [x] **步骤 3：运行 Android 静态测试**
 
 运行：`npm run test:android`
 
 预期：模板断言通过，Java 日志断言仍因日志尚未实现而失败。
 
-- [ ] **步骤 4：提交扫描弹窗**
+- [x] **步骤 4：提交扫描弹窗**
 
 ```bash
 git add src/vue/BleCrossTrainer/index.ts src/vue/BleCrossTrainer/index.html
@@ -201,15 +201,15 @@ git commit -m "fix(蓝牙): 显示 Android 设备扫描弹窗"
 **文件：**
 - 修改：`android/app/src/main/java/com/cuber/trainer/BleBridge.java`
 
-- [ ] **步骤 1：记录权限与扫描边界**
+- [x] **步骤 1：记录权限与扫描边界**
 
 增加 `Log.i/w/e`：`scan requested`、缺失权限列表、权限结果、蓝牙关闭、`scan started`、`scan stopped` 和发现设备。
 
-- [ ] **步骤 2：记录连接边界**
+- [x] **步骤 2：记录连接边界**
 
 增加 `connect requested: <address>`、GATT 状态、服务发现状态、服务数量、通知订阅完成、错误与断开日志。
 
-- [ ] **步骤 3：运行 Android 静态测试和 Java 编译**
+- [x] **步骤 3：运行 Android 静态测试和 Java 编译**
 
 运行：
 
@@ -220,7 +220,7 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 PATH=/usr/lib/jvm/java-21-openjdk-a
 
 预期：配置测试通过，Java 编译 `BUILD SUCCESSFUL`。
 
-- [ ] **步骤 4：提交原生日志**
+- [x] **步骤 4：提交原生日志**
 
 ```bash
 git add android/app/src/main/java/com/cuber/trainer/BleBridge.java
@@ -234,20 +234,20 @@ git commit -m "feat(Android): 增加蓝牙连接诊断日志"
 - 生成：`android/app/build/outputs/apk/debug/app-debug.apk`
 - 生成：`android/app/build/outputs/apk/release/app-release.apk`
 
-- [ ] **步骤 1：执行完整构建**
+- [x] **步骤 1：执行完整构建**
 
 运行：`bash android/build-apk.sh`
 
 预期：Android 配置测试通过、BLE 39/39 通过、webpack 成功、Gradle `BUILD SUCCESSFUL`。
 
-- [ ] **步骤 2：同步并提交最新 assets**
+- [x] **步骤 2：同步并提交最新 assets**
 
 ```bash
 git add -A android/app/src/main/assets/www
 git commit -m "build(Android): 同步扫描弹窗前端资源"
 ```
 
-- [ ] **步骤 3：检查 APK 内容和校验值**
+- [x] **步骤 3：检查 APK 内容和校验值**
 
 运行：
 
@@ -259,7 +259,7 @@ sha256sum android/app/build/outputs/apk/debug/app-debug.apk
 
 预期：版本仍为 1.0.5/6，DEX 包含日志文本，并输出新版 APK SHA-256。
 
-- [ ] **步骤 4：最终检查**
+- [x] **步骤 4：最终检查**
 
 运行：
 
