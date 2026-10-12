@@ -260,3 +260,40 @@ git log -5 --oneline
 ```
 
 预期：本次源代码、测试和 Android assets 已提交；用户已有的无关工作区改动保持原样。
+
+## 任务 4：修复审查发现的 XCross 持握方向回归
+
+代码审查发现：手动模式跨轮保留 y/y′ 持握方向时，原实现会在重放
+`baseOps` 之前建立相关块缓存。普通 Cross 的四条底棱集合不受影响，但
+XCross 的 FL/FR/BL/BR 槽位会随最终屏幕方向变化。
+
+- [x] **步骤 1：新增 XCross + y 持握回归测试并验证红灯**
+
+在 `scripts/verify-blecross-recompute.js` 中保存 `z2 + XCross FL`，先执行
+y 持握，再开启新一轮；比较开轮缓存与在最终视角强制重建后的缓存。
+
+红灯证据：开轮缓存为 `FR/FRU`，最终视角正确缓存为 `BR/BRU`。
+
+- [x] **步骤 2：把相关块缓存延后到最终视角建立**
+
+`restoreViewAfterSceneReset()` 只恢复 z2。初始化和手动开轮分别在完整姿态
+恢复后调用 `invalidateVisibilityTargets()` 与 `applyVisibility()`；手动开轮
+必须等 `applyBaseOrientation()` 与 `syncObservedOps()` 完成。
+
+- [x] **步骤 3：运行页面与 BLE 回归验证**
+
+```bash
+npm run verify:blecross
+npm run test:ble
+```
+
+结果：页面完整回归通过；BLE `39 通过, 0 失败`。
+
+- [x] **步骤 4：重新构建 Android 产物**
+
+```bash
+bash android/build-apk.sh
+```
+
+结果：Android 配置测试通过、BLE `39 通过, 0 失败`、Gradle
+`BUILD SUCCESSFUL`，内置入口更新为 `index.89343e576139606bf29d.js`。
