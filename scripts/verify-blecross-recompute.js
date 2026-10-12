@@ -7,6 +7,8 @@ async page => {
       localStorage.setItem("bleZ2On", value ? "1" : "0");
       localStorage.setItem("bleVisHide", "1");
       localStorage.setItem("bleDifficulty", "random");
+      localStorage.removeItem("bleTrainMode");
+      localStorage.removeItem("bleVisSlot");
     }, enabled);
     await page.reload();
     await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
@@ -41,9 +43,42 @@ async page => {
   }
 
   await page.evaluate(() => {
+    localStorage.setItem("bleZ2On", "1");
+    localStorage.setItem("bleVisHide", "1");
+    localStorage.setItem("bleDifficulty", "random");
+    localStorage.setItem("bleTrainMode", "xcross");
+    localStorage.setItem("bleVisSlot", "FL");
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  const initialXCrossHeldView = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    vm.rotateWholeY(1);
+    vm.world.cube.twister.finish();
+    await vm.newScramble();
+    const afterRound = Array.from(vm.visibilityNeededSignatures || []).sort();
+    vm.invalidateVisibilityTargets();
+    vm.applyVisibility();
+    const rebuiltOnFinalView = Array.from(vm.visibilityNeededSignatures || []).sort();
+    return {
+      baseOps: vm.baseOps.slice(),
+      afterRound,
+      rebuiltOnFinalView,
+    };
+  });
+  if (
+    initialXCrossHeldView.baseOps.length === 0 ||
+    JSON.stringify(initialXCrossHeldView.afterRound) !== JSON.stringify(initialXCrossHeldView.rebuiltOnFinalView)
+  ) {
+    throw new Error(`XCross 持握方向后的首次打乱相关块异常: ${JSON.stringify(initialXCrossHeldView)}`);
+  }
+
+  await page.evaluate(() => {
     localStorage.removeItem("bleZ2On");
     localStorage.removeItem("bleVisHide");
     localStorage.removeItem("bleDifficulty");
+    localStorage.removeItem("bleTrainMode");
+    localStorage.removeItem("bleVisSlot");
   });
   await page.reload();
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
