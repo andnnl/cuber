@@ -2,6 +2,52 @@ async page => {
   await page.goto("http://127.0.0.1:8080/?mode=blecross");
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
 
+  const verifyInitialZ2Scramble = async (enabled, expectedSignatures) => {
+    await page.evaluate(value => {
+      localStorage.setItem("bleZ2On", value ? "1" : "0");
+      localStorage.setItem("bleVisHide", "1");
+      localStorage.setItem("bleDifficulty", "random");
+    }, enabled);
+    await page.reload();
+    await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+    return page.evaluate(async expected => {
+      const vm = window.__bleCross;
+      await vm.newScramble();
+      vm.applyVisibility();
+      return {
+        z2On: vm.z2On,
+        saved: localStorage.getItem("bleZ2On"),
+        signatures: Array.from(vm.visibilityNeededSignatures || []).sort(),
+        expected,
+      };
+    }, expectedSignatures);
+  };
+
+  const initialWhiteCross = await verifyInitialZ2Scramble(true, ["BU", "FU", "LU", "RU"]);
+  const initialYellowCross = await verifyInitialZ2Scramble(false, ["BD", "DF", "DL", "DR"]);
+  if (
+    !initialWhiteCross.z2On ||
+    initialWhiteCross.saved !== "1" ||
+    JSON.stringify(initialWhiteCross.signatures) !== JSON.stringify(initialWhiteCross.expected)
+  ) {
+    throw new Error(`保存 z2 开启后的首次打乱底色异常: ${JSON.stringify(initialWhiteCross)}`);
+  }
+  if (
+    initialYellowCross.z2On ||
+    initialYellowCross.saved !== "0" ||
+    JSON.stringify(initialYellowCross.signatures) !== JSON.stringify(initialYellowCross.expected)
+  ) {
+    throw new Error(`保存 z2 关闭后的首次打乱底色异常: ${JSON.stringify(initialYellowCross)}`);
+  }
+
+  await page.evaluate(() => {
+    localStorage.removeItem("bleZ2On");
+    localStorage.removeItem("bleVisHide");
+    localStorage.removeItem("bleDifficulty");
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+
   await page.evaluate(() => localStorage.removeItem("bleCompactMode"));
   await page.reload();
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
