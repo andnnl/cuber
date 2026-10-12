@@ -418,6 +418,17 @@ export default class BleCrossTrainer extends Vue {
       style.textContent = BLE_THEME_CSS;
       document.head.appendChild(style);
     }
+    // 先同步恢复所有会影响初始场景的设置，再安排 3D 重建。否则 nextTick 内的姿态恢复
+    // 与 mounted 后续的 z2/可视化赋值分属两条时序，按钮状态可能已经是白底，场景缓存
+    // 却仍按黄底建立，首次「新打乱」便会继续突出黄色十字块。
+    this.compactMode = window.localStorage.getItem("bleCompactMode") === "1";
+    this.autoNext = window.localStorage.getItem("bleAutoNext") !== "0";
+    this.retryNonOptimal = window.localStorage.getItem("bleRetryNonOptimal") === "1";
+    this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
+    this.visGhost = window.localStorage.getItem("bleVisGhost") === "1";
+    this.visHide = window.localStorage.getItem("bleVisHide") === "1";
+    this.difficulty = parseCrossDifficulty(window.localStorage.getItem("bleDifficulty"));
+    this.z2On = window.localStorage.getItem("bleZ2On") === "1";
     // 与 CrossF2L mounted 一致: 把存档的显示偏好与配色刷到 3D 场景
     // (不刷的话材质停留在原版 COLORS: U=黄 → 打开就是黄顶, 而 CrossF2L 是白顶)。
     // 须包 $nextTick (CrossF2L 同款写法): 同步调用时 preferance 的 dark setter 会访问
@@ -438,19 +449,16 @@ export default class BleCrossTrainer extends Vue {
           console.log("[配色] 检测到 U 面为黄色 (会显示成黄顶), 已自动切换为「默认」白顶预设");
         }
       }
-      if (this.z2On) {
-        this.applyZ2Flip(true);
-      }
+      // 初始场景也走与新打乱相同的「标准态重建 → 恢复当前视角」路径，避免仅恢复
+      // z2 布尔值却没有同步 3D 姿态和相关块目标缓存。
+      this.rebasing = true;
+      this.syncScene(SOLVED_FACELETS, "init");
+      this.baseOps = [];
+      this.observedOps = [];
+      this.restoreViewAfterSceneReset();
+      this.syncObservedOps();
+      this.rebasing = false;
     });
-    this.compactMode = window.localStorage.getItem("bleCompactMode") === "1";
-    this.autoNext = window.localStorage.getItem("bleAutoNext") !== "0";
-    this.retryNonOptimal = window.localStorage.getItem("bleRetryNonOptimal") === "1";
-    this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
-    this.visGhost = window.localStorage.getItem("bleVisGhost") === "1";
-    this.visHide = window.localStorage.getItem("bleVisHide") === "1";
-    this.difficulty = parseCrossDifficulty(window.localStorage.getItem("bleDifficulty"));
-    this.z2On = window.localStorage.getItem("bleZ2On") === "1";
-    this.z2Marks = this.z2On ? [0] : [];
     this.backgroundColor = normalizeBackgroundColor(window.localStorage.getItem("bleBackgroundColor"));
     // 统一修正旧值大小写，并把非法值持久化回默认值，刷新后的状态保持稳定
     window.localStorage.setItem("bleBackgroundColor", this.backgroundColor);
@@ -853,6 +861,16 @@ export default class BleCrossTrainer extends Vue {
       group.twist(Math.PI, fast);
     }
     this.world.dirty = true;
+  }
+
+  /** 标准态/打乱态重建后，按当前设置恢复一次视角，并在最终姿态重建相关块缓存。 */
+  private restoreViewAfterSceneReset(): void {
+    this.z2Marks = this.z2On ? [0] : [];
+    if (this.z2On) {
+      this.applyZ2Flip(true);
+    }
+    this.invalidateVisibilityTargets();
+    this.applyVisibility();
   }
 
   /**
@@ -2110,7 +2128,6 @@ export default class BleCrossTrainer extends Vue {
       this.baseOps = this.observedOps.slice();
       // 重放链时序: z2 翻转 (若开) 先于 y/y' 基准持握重放 —— z2Marks 记录该时序,
       // 后续核心帧换算按 [z2, ...baseOps, ...history] 复合 (共轭精确, 见 effectiveViewOps)
-      this.z2Marks = this.z2On ? [0] : [];
       this.running = false;
       // 贴纸复位: cube.reset 只归位 index 不清贴纸, 而本组件 syncScene 用 stick 改写过
       // 贴纸 (上轮基准态) —— 不复位的话 setup 作用于残留布局, 姿态链路全错。
@@ -2119,9 +2136,7 @@ export default class BleCrossTrainer extends Vue {
       this.rebasing = true; // 屏蔽 finish/setup 快转 drop 回调的活体判定: 放弃已计失败, 防中间态再误判成功 (resetRound 同款)
       this.syncScene(SOLVED_FACELETS);
       cube.twister.setup(formula);
-      if (this.z2On) {
-        this.applyZ2Flip(true); // 先恢复 z2 翻转 (上一轮 z2On 时刻先于 y/y' 持握, 时序一致)
-      }
+      this.restoreViewAfterSceneReset(); // 先恢复 z2 与相关块缓存 (上一轮 z2On 时刻先于 y/y' 持握)
       this.applyBaseOrientation(); // 再重放 y/y' 基准持握
       this.syncObservedOps(); // observedOps = baseOps (供 startSolving 记录整体转签名)
       this.startSolving(cube.serialize(), true); // 基准态=屏幕帧 (已含 z2+baseOps 重放)
