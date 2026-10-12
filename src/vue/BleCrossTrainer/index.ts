@@ -457,6 +457,8 @@ export default class BleCrossTrainer extends Vue {
       this.observedOps = [];
       this.restoreViewAfterSceneReset();
       this.syncObservedOps();
+      this.invalidateVisibilityTargets();
+      this.applyVisibility();
       this.rebasing = false;
     });
     this.backgroundColor = normalizeBackgroundColor(window.localStorage.getItem("bleBackgroundColor"));
@@ -863,14 +865,12 @@ export default class BleCrossTrainer extends Vue {
     this.world.dirty = true;
   }
 
-  /** 标准态/打乱态重建后，按当前设置恢复一次视角，并在最终姿态重建相关块缓存。 */
+  /** 标准态/打乱态重建后，按当前设置恢复一次 z2 视角。 */
   private restoreViewAfterSceneReset(): void {
     this.z2Marks = this.z2On ? [0] : [];
     if (this.z2On) {
       this.applyZ2Flip(true);
     }
-    this.invalidateVisibilityTargets();
-    this.applyVisibility();
   }
 
   /**
@@ -2136,9 +2136,12 @@ export default class BleCrossTrainer extends Vue {
       this.rebasing = true; // 屏蔽 finish/setup 快转 drop 回调的活体判定: 放弃已计失败, 防中间态再误判成功 (resetRound 同款)
       this.syncScene(SOLVED_FACELETS);
       cube.twister.setup(formula);
-      this.restoreViewAfterSceneReset(); // 先恢复 z2 与相关块缓存 (上一轮 z2On 时刻先于 y/y' 持握)
+      this.restoreViewAfterSceneReset(); // 先恢复 z2 (上一轮 z2On 时刻先于 y/y' 持握)
       this.applyBaseOrientation(); // 再重放 y/y' 基准持握
       this.syncObservedOps(); // observedOps = baseOps (供 startSolving 记录整体转签名)
+      // XCross 槽位会随 y/y' 持握改变屏幕方向，必须等完整视角重放完成后再建缓存。
+      this.invalidateVisibilityTargets();
+      this.applyVisibility();
       this.startSolving(cube.serialize(), true); // 基准态=屏幕帧 (已含 z2+baseOps 重放)
       this.rebasing = false; // 重放完毕, 恢复活体判定 (此后 phase 已切 observing)
       this.phase = "observing";
