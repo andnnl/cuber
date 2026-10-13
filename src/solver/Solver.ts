@@ -2,6 +2,7 @@ import CubieCube from "./CubieCube";
 import CoordCube from "./CoordCube";
 import Util from "./Util";
 import * as WasmSolver from "../wasm/WasmSolver";
+import { debugLog } from "../util/debug-log";
 
 export default class Solver {
   private static MAX_PRE_MOVES = 20;
@@ -402,32 +403,32 @@ export default class Solver {
       return ["error: " + verify];
     }
 
-    console.log("[底层十字求解] 初始魔方状态: " + facelets);
+    debugLog("[底层十字求解] 初始魔方状态: " + facelets);
 
     // 检查初始状态是否已完成十字
     if (this.isCrossSolved(this.cc)) {
-      console.log("[底层十字求解] 初始状态已完成底层十字");
+      debugLog("[底层十字求解] 初始状态已完成底层十字");
       return ['']; // 空解法
     }
 
     // 尝试使用 WASM 求解器
     try {
       if (WasmSolver.isWasmLoaded() && WasmSolver.isTableLoaded()) {
-        console.log("[底层十字求解] 使用 WASM 求解器");
+        debugLog("[底层十字求解] 使用 WASM 求解器");
         
         // 将魔方状态转换为打乱公式
         // const scramble = this.cubeToScramble(this.cc);
-        // console.log("[底层十字求解] 转换后的打乱公式: " + scramble);
+        // debugLog("[底层十字求解] 转换后的打乱公式: " + scramble);
         
         // 使用 WASM 求解器求解
         const solutions = await WasmSolver.solveMulti(facelets, maxSolutions);
-        console.log(`[底层十字求解] WASM 求解完成，找到 ${solutions.length} 个解法`);
+        debugLog(`[底层十字求解] WASM 求解完成，找到 ${solutions.length} 个解法`);
 
         // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[],
         // 出口统一归一化为「空格分隔的解法字符串」数组 (与 solveXCross 出口一致)
         return (solutions || []).map((s: any) => (Array.isArray(s) ? s.join(" ") : String(s)).trim());
       } else {
-        console.log("[底层十字求解] WASM 求解器未就绪，使用原始求解器");
+        debugLog("[底层十字求解] WASM 求解器未就绪，使用原始求解器");
         return this.solveCrossFallback(facelets, maxSolutions, maxDepth);
       }
     } catch (error) {
@@ -504,7 +505,7 @@ export default class Solver {
     }
 
     // 打印初始魔方状态
-    console.log("[底层十字求解] 初始魔方状态: " + facelets);
+    debugLog("[底层十字求解] 初始魔方状态: " + facelets);
 
     const solutions: string[] = [];
     // 使用更高效的Set存储已访问状态
@@ -516,7 +517,7 @@ export default class Solver {
 
     // 检查初始状态是否已经完成十字
     if (this.isCrossSolved(initialCube)) {
-      console.log("[底层十字求解] 初始状态已完成底层十字");
+      debugLog("[底层十字求解] 初始状态已完成底层十字");
       solutions.push(''); // 空解法
       return solutions;
     }
@@ -541,7 +542,7 @@ export default class Solver {
 
       // 增加日志输出频率，每1000次迭代输出一次
       if (iterations % 1000 === 0) {
-        console.log(`[底层十字求解] 迭代次数: ${iterations}, 当前深度: ${depth}, 已找到解法数: ${solutions.length}`);
+        debugLog(`[底层十字求解] 迭代次数: ${iterations}, 当前深度: ${depth}, 已找到解法数: ${solutions.length}`);
       }
 
       // 检查是否完成十字
@@ -570,8 +571,8 @@ export default class Solver {
           }
         }
         solutions.push(solution.trim());
-        console.log(`[底层十字求解] 找到解法: ${solution.trim()}, 当前深度: ${depth}`);
-        console.log(`[底层十字求解] 解法步骤数组: [${moves.join(', ')}]`);
+        debugLog(`[底层十字求解] 找到解法: ${solution.trim()}, 当前深度: ${depth}`);
+        debugLog(`[底层十字求解] 解法步骤数组: [${moves.join(', ')}]`);
         
         // 验证解法是否正确
         if (solution.trim() !== '') {
@@ -616,7 +617,7 @@ export default class Solver {
       }
     }
 
-    console.log(`[底层十字求解] 搜索完成, 总迭代次数: ${iterations}, 找到解法数: ${solutions.length}`);
+    debugLog(`[底层十字求解] 搜索完成, 总迭代次数: ${iterations}, 找到解法数: ${solutions.length}`);
     return solutions;
   }
 
@@ -651,7 +652,7 @@ export default class Solver {
     
     // 将解法字符串转换为移动数组
     const moves = solution.split(' ').filter(move => move.length > 0);
-    console.log(`[解法验证] 初始状态: ${initialFacelets}`);
+    debugLog(`[解法验证] 初始状态: ${initialFacelets}`);
     
     // 应用每个移动
     for (const moveStr of moves) {
@@ -672,18 +673,18 @@ export default class Solver {
         CubieCube.EdgeMult(cube, CubieCube.MoveCube[moveIndex], newCube);
         cube.copy(newCube);
       } else {
-        console.log(`[解法验证] 无法找到移动 ${moveStr} 的索引`);
+        debugLog(`[解法验证] 无法找到移动 ${moveStr} 的索引`);
       }
     }
     
     const finalState = cube.serialize();
-    console.log(`[解法验证] 应用解法后的状态: ${finalState}`);
+    debugLog(`[解法验证] 应用解法后的状态: ${finalState}`);
     
     // 检查是否完成底层十字
     if (this.isCrossSolved(cube)) {
-      console.log(`[解法验证] 解法正确，已完成底层十字`);
+      debugLog(`[解法验证] 解法正确，已完成底层十字`);
     } else {
-      console.log(`[解法验证] 解法错误，未完成底层十字`);
+      debugLog(`[解法验证] 解法错误，未完成底层十字`);
       // 以二维平面方式打印最终状态
       cube.printCube(finalState);
     }
@@ -736,7 +737,7 @@ export default class Solver {
     }
 
     // 打印当前魔方状态和中心块颜色
-    // console.log(`[十字判断] 十字面: ${crossFace}, 中心块位置: ${centerPosition}, 中心块颜色: ${crossFaceCenter}`);
+    // debugLog(`[十字判断] 十字面: ${crossFace}, 中心块位置: ${centerPosition}, 中心块颜色: ${crossFaceCenter}`);
     // 以二维平面方式打印魔方
     //cube.printCube(facelets);
     // 根据十字面确定需要检查的边缘块
@@ -765,7 +766,7 @@ export default class Solver {
         break;
     }
 
-    // console.log(`[十字判断] 需要检查的边缘块: ${crossEdges.join(', ')}`);
+    // debugLog(`[十字判断] 需要检查的边缘块: ${crossEdges.join(', ')}`);
 
     for (const edge of crossEdges) {
       // 获取边缘块的位置和方向
@@ -774,19 +775,19 @@ export default class Solver {
       const edgeOri = edgeVal & 1; // 取最低位获取方向
 
       // 打印当前边缘块的信息
-      // console.log(`[十字判断] 边缘块 ${edge}: 位置=${edgePos}, 方向=${edgeOri}`);
+      // debugLog(`[十字判断] 边缘块 ${edge}: 位置=${edgePos}, 方向=${edgeOri}`);
 
       // 检查边缘块是否在正确的位置（对于底层十字，边缘块应该在底层）
       // 对于底层十字，我们检查的是边缘块是否在底层的正确位置
       const isOnBottomLayer = edgePos >= 4 && edgePos <= 7;
       if (!isOnBottomLayer) {
-        // console.log(`[十字判断] 边缘块 ${edge} 不在底层 (位置: ${edgePos})`);
+        // debugLog(`[十字判断] 边缘块 ${edge} 不在底层 (位置: ${edgePos})`);
         return false;
       }
 
       // 检查边缘块的方向是否正确
       if (edgeOri !== 0) {
-        // console.log(`[十字判断] 边缘块 ${edge} 方向不正确 (方向: ${edgeOri})`);
+        // debugLog(`[十字判断] 边缘块 ${edge} 方向不正确 (方向: ${edgeOri})`);
         return false;
       }
 
@@ -806,14 +807,14 @@ export default class Solver {
       }
 
       if (crossFaceletPos === -1 || adjacentFaceletPos === -1) {
-        // console.log(`[十字判断] 边缘块 ${edge} 面块位置不完整`);
+        // debugLog(`[十字判断] 边缘块 ${edge} 面块位置不完整`);
         return false; // 边缘块面块位置不完整
       }
 
       const edgeCrossColor = facelets[crossFaceletPos];
-      // console.log(`[十字判断] 边缘块 ${edge} 的十字面颜色: ${edgeCrossColor}, 期望颜色: ${crossFaceCenter}`);
+      // debugLog(`[十字判断] 边缘块 ${edge} 的十字面颜色: ${edgeCrossColor}, 期望颜色: ${crossFaceCenter}`);
       if (edgeCrossColor !== crossFaceCenter) {
-        // console.log(`[十字判断] 边缘块 ${edge} 十字面颜色不匹配 (实际: ${edgeCrossColor}, 期望: ${crossFaceCenter})`);
+        // debugLog(`[十字判断] 边缘块 ${edge} 十字面颜色不匹配 (实际: ${edgeCrossColor}, 期望: ${crossFaceCenter})`);
         return false;
       }
 
@@ -822,14 +823,14 @@ export default class Solver {
       const adjacentCenterPos = adjacentFaceIndex * 9 + 4;
       const adjacentFaceCenter = facelets[adjacentCenterPos];
       const edgeAdjacentColor = facelets[adjacentFaceletPos];
-      // console.log(`[十字判断] 边缘块 ${edge} 的相邻面颜色: ${edgeAdjacentColor}, 对应中心块颜色: ${adjacentFaceCenter}`);
+      // debugLog(`[十字判断] 边缘块 ${edge} 的相邻面颜色: ${edgeAdjacentColor}, 对应中心块颜色: ${adjacentFaceCenter}`);
       if (edgeAdjacentColor !== adjacentFaceCenter) {
-        // console.log(`[十字判断] 边缘块 ${edge} 相邻面颜色不匹配 (实际: ${edgeAdjacentColor}, 期望: ${adjacentFaceCenter})`);
+        // debugLog(`[十字判断] 边缘块 ${edge} 相邻面颜色不匹配 (实际: ${edgeAdjacentColor}, 期望: ${adjacentFaceCenter})`);
         return false;
       }
     }
-    console.log(`[十字判断] 当前魔方状态: ${facelets}`);
-    console.log(`[十字判断] 底层十字已完成`);
+    debugLog(`[十字判断] 当前魔方状态: ${facelets}`);
+    debugLog(`[十字判断] 底层十字已完成`);
     // 以二维平面方式打印魔方
     cube.printCube(facelets);
     return true;

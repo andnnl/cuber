@@ -16,6 +16,8 @@ const moveDiff = req("move-diff.js");
 const facelets = req("facelets.js");
 const crossDifficulty = req("cross-difficulty.js");
 const nonOptimalRetry = req("non-optimal-retry.js");
+const solveTimeTarget = req("solve-time-target.js");
+const { SolveRequestCache } = req("solve-request-cache.js");
 const gan = req("protocols/gan.js");
 const { CubeLink } = req("cube-link.js");
 const registry = req("protocols/registry.js");
@@ -145,6 +147,17 @@ async function main() {
 
   console.log("== cross-difficulty ==");
 
+  await test("速度目标只接受预设秒数，超时比较使用原始毫秒", () => {
+    assert.strictEqual(solveTimeTarget.parseSolveTimeTarget(null), 0);
+    assert.strictEqual(solveTimeTarget.parseSolveTimeTarget("3"), 3);
+    assert.strictEqual(solveTimeTarget.parseSolveTimeTarget("4"), 0);
+    assert.strictEqual(solveTimeTarget.parseSolveTimeTarget("NaN"), 0);
+    assert.strictEqual(solveTimeTarget.isSolveTimeOverTarget(3001, 3), true);
+    assert.strictEqual(solveTimeTarget.isSolveTimeOverTarget(3000, 3), false);
+    assert.strictEqual(solveTimeTarget.isSolveTimeOverTarget(null, 3), false);
+    assert.strictEqual(solveTimeTarget.isSolveTimeOverTarget(5000, 0), false);
+  });
+
   await test("Cross 仅在有效最优解与实际步数不同时重试", () => {
     assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({
       trainMode: "cross", actualSteps: 6,
@@ -190,6 +203,30 @@ async function main() {
     assert.strictEqual(nonOptimalRetry.bestComparableSteps(input), null);
     assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal(input), false);
     assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({ ...input, xcrossReady: false }), false);
+  });
+
+  await test("求解请求缓存合并在途请求、复用结果并按容量淘汰", async () => {
+    const cache = new SolveRequestCache(2);
+    let calls = 0;
+    const first = cache.get("a", async () => {
+      calls++;
+      await flush();
+      return "A";
+    });
+    const duplicate = cache.get("a", async () => {
+      calls++;
+      return "duplicate";
+    });
+    assert.strictEqual(first, duplicate);
+    assert.strictEqual(await first, "A");
+    assert.strictEqual(await cache.get("a", async () => "new"), "A");
+    await cache.get("b", async () => "B");
+    await cache.get("c", async () => "C");
+    assert.strictEqual(await cache.get("a", async () => {
+      calls++;
+      return "A2";
+    }), "A2");
+    assert.strictEqual(calls, 2);
   });
 
   await test("难度存储值仅接受 random 与 2～7", () => {
@@ -293,6 +330,33 @@ async function main() {
       isCurrent: () => current,
     });
     assert.strictEqual(formula, null);
+  });
+
+  await test("精确难度生成会分批让出事件循环并在让出后取消", async () => {
+    let current = true;
+    let solveCalls = 0;
+    let yieldCalls = 0;
+    const seedState = moveDiff.applyFormulaFrom(facelets.SOLVED_FACELETS, "R");
+    const formula = await crossDifficulty.generateExactCrossScramble({
+      baseState: facelets.SOLVED_FACELETS,
+      difficulty: 7,
+      z2On: false,
+      randomScramble: () => "R",
+      perturbation: () => ["F", "R", "U", "L", "B", "D", "F"],
+      solveCross: async state => {
+        solveCalls++;
+        return state === seedState ? ["R'"] : ["R U"];
+      },
+      isCurrent: () => current,
+      yieldEvery: 2,
+      yieldControl: async () => {
+        yieldCalls++;
+        current = false;
+      },
+    });
+    assert.strictEqual(formula, null);
+    assert.strictEqual(yieldCalls, 1);
+    assert.strictEqual(solveCalls, 3);
   });
 
   await test("求解器错误立即终止且不会返回公式", async () => {

@@ -26,6 +26,36 @@ export const BLE_THEME_CSS = `
   align-items: center;
   min-height: 20px;
 }
+.ble-card .ble-flow-settings {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.ble-card .ble-speed-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #666;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.ble-card .ble-speed-target select {
+  max-width: 68px;
+  height: 24px;
+  border: 1px solid #e3e8f0;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  font-size: 11px;
+}
+.ble-card.ble-card-compact [data-ble-flow-row] > span.ok-text {
+  flex-basis: 100%;
+  white-space: normal !important;
+  overflow: visible !important;
+}
 .ble-card.ble-card-compact .ble-scramble-actions.ble-compact-actions {
   display: grid;
   grid-template-columns: minmax(72px, 1.45fr) minmax(58px, 1.1fr) repeat(3, minmax(34px, 0.7fr));

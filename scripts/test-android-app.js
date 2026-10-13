@@ -13,11 +13,29 @@ const bleBridge = fs.readFileSync(
   "android/app/src/main/java/com/cuber/trainer/BleBridge.java",
   "utf8"
 );
+const webpack = fs.readFileSync("webpack.config.js", "utf8");
+const wasmSolver = fs.readFileSync("src/wasm/WasmSolver.ts", "utf8");
+const solverWorkerClient = fs.readFileSync("src/wasm/SolverWorkerClient.ts", "utf8");
+const bleTrainer = fs.readFileSync("src/vue/BleCrossTrainer/index.ts", "utf8");
+
+assert.ok(fs.existsSync("public/cube_cross_worker.js"));
+const solverWorker = fs.readFileSync("public/cube_cross_worker.js", "utf8");
 
 assert.match(main, /index\.html\?mode=blecross/);
 assert.match(main, /setWebContentsDebuggingEnabled\(BuildConfig\.DEBUG\)/);
-assert.match(gradle, /versionCode\s*=\s*7/);
-assert.match(gradle, /versionName\s*=\s*"1\.0\.6"/);
+assert.match(main, /BuildConfig\.DEBUG\s*\|\|\s*cm\.messageLevel\(\)\s*==\s*ConsoleMessage\.MessageLevel\.WARNING/);
+assert.match(main, /ConsoleMessage\.MessageLevel\.ERROR/);
+assert.match(webpack, /cube_cross_worker\.js/);
+for (const operation of ["init", "loadTable", "generateTable", "solveMulti", "solveXCross", "getTableStats"]) {
+  assert.match(solverWorker, new RegExp(`case ["']${operation}["']`));
+}
+assert.match(wasmSolver, /SolverWorkerClient/);
+assert.match(wasmSolver, /client\?\.terminate\(\)/);
+assert.match(solverWorkerClient, /catch \(error\) \{[\s\S]*this\.pending\.delete\(id\)/);
+assert.match(bleTrainer, /requestAnimationFrame\(this\.loopFrame\)/);
+assert.match(bleTrainer, /cancelAnimationFrame\(this\.animationFrameId\)/);
+assert.match(gradle, /versionCode\s*=\s*8/);
+assert.match(gradle, /versionName\s*=\s*"1\.0\.7"/);
 assert.match(gradle, /buildFeatures\s*\{[\s\S]*buildConfig\s*=\s*true[\s\S]*\}/);
 
 for (const permission of ["BLUETOOTH_SCAN", "BLUETOOTH_CONNECT", "ACCESS_FINE_LOCATION"]) {

@@ -72,7 +72,10 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onConsoleMessage(ConsoleMessage cm) {
-                Log.i("WebConsole", cm.message());
+                if (BuildConfig.DEBUG || cm.messageLevel() == ConsoleMessage.MessageLevel.WARNING
+                        || cm.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                    Log.i("WebConsole", cm.message());
+                }
                 return true;
             }
         });

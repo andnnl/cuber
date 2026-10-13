@@ -26,6 +26,9 @@ import {
   parseCrossDifficulty,
 } from "../../ble/cross-difficulty";
 import { shouldRetryNonOptimal } from "../../ble/non-optimal-retry";
+import { isSolveTimeOverTarget, parseSolveTimeTarget } from "../../ble/solve-time-target";
+import { SolveRequestCache } from "../../ble/solve-request-cache";
+import { debugLog } from "../../util/debug-log";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
@@ -310,6 +313,9 @@ export default class BleCrossTrainer extends Vue {
   // 正确但步数不是最优时自动重置同一局；仅与自动下轮同时开启时生效
   retryNonOptimal = false;
   private retryCurrentRound = false;
+  // 0=关闭；正确还原后以首次转动到完成的原始毫秒比较，不包含观察时间
+  solveTimeTarget = 0;
+  private completedSolveMs: number | null = null;
   // 是否显示推荐的最优解 (localStorage 持久化, 值 "1"/"0"): 关闭时不求解也不展示, 避免剧透
   showBest = true;
   // ---- 无关块可视化: 色块半透明 / 隐藏无关 (独立开关, 都开时无关块取灰色隐藏档) ----
@@ -332,6 +338,8 @@ export default class BleCrossTrainer extends Vue {
   private timerStart = 0;
   private running = false;
   elapsedText = "";
+  private animationFrameId: number | null = null;
+  private readonly loopFrame = () => this.loop();
   private timerTick: any = null;
   private resultTimer: any = null;
   private autoNextCountdownTimer: any = null;
@@ -424,6 +432,7 @@ export default class BleCrossTrainer extends Vue {
     this.compactMode = window.localStorage.getItem("bleCompactMode") === "1";
     this.autoNext = window.localStorage.getItem("bleAutoNext") !== "0";
     this.retryNonOptimal = window.localStorage.getItem("bleRetryNonOptimal") === "1";
+    this.solveTimeTarget = parseSolveTimeTarget(window.localStorage.getItem("bleSolveTimeTarget"));
     this.showBest = window.localStorage.getItem("bleShowBest") !== "0";
     this.visGhost = window.localStorage.getItem("bleVisGhost") === "1";
     this.visHide = window.localStorage.getItem("bleVisHide") === "1";
@@ -446,7 +455,7 @@ export default class BleCrossTrainer extends Vue {
         const b = parseInt(rgb[3], 16);
         if (r > 200 && g > 150 && b < 100) {
           this.palette.applyPreset("默认"); // 白顶黄底 (U=#F0F0F0), 持久化, 用户仍可在配色菜单改
-          console.log("[配色] 检测到 U 面为黄色 (会显示成黄顶), 已自动切换为「默认」白顶预设");
+          debugLog("[配色] 检测到 U 面为黄色 (会显示成黄顶), 已自动切换为「默认」白顶预设");
         }
       }
       // 初始场景也走与新打乱相同的「标准态重建 → 恢复当前视角」路径，避免仅恢复
@@ -502,6 +511,10 @@ export default class BleCrossTrainer extends Vue {
 
   beforeDestroy(): void {
     this.cancelDifficultyGeneration();
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
     if (this.timerTick !== null) {
       window.clearInterval(this.timerTick);
       this.timerTick = null;
@@ -687,7 +700,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private onLinkStatus(s: CubeLinkStatus): void {
-    console.info("[BLECross] link status →", s, "| phase:", this.phase, "| isManual:", this.isManual);
+    debugLog("[BLECross] link status →", s, "| phase:", this.phase, "| isManual:", this.isManual);
     this.status = s;
     if (s === "connected") {
       // 三模式统一 (蓝牙/mock/手动同一套界面与流程): 手动练习中连接成功 = 蓝牙接管
@@ -1134,14 +1147,14 @@ export default class BleCrossTrainer extends Vue {
     this.calibLog = [];
     this.calibStep = 0;
     this.statusText = "校准开始, 请持握 白顶绿前 · " + this.calibSteps[0].tip;
-    console.log("[校准] 开始: 请持握 白顶绿前 (3D 已同视角, 无换算), 按提示逐个转动实体魔方");
+    debugLog("[校准] 开始: 请持握 白顶绿前 (3D 已同视角, 无换算), 按提示逐个转动实体魔方");
   }
 
   /** 校准中收到物理转动: 原样镜像动画 + 记录上报记号, 不参与训练判定 */
   private onCalibMove(move: string, mirror = true): void {
     const expected = this.calibSteps[this.calibStep].key;
     const mark = move === expected ? "✓ 一致" : move === z2Move(expected) ? "(z2 换名)" : "✗ 不匹配";
-    console.log(`[校准] 期望 ${expected}, 实际收到 ${move} ${mark}`);
+    debugLog(`[校准] 期望 ${expected}, 实际收到 ${move} ${mark}`);
     this.calibLog.push({ expected, actual: move });
     if (mirror) {
       this.mirrorPush(move); // 原样镜像, 便于肉眼对比 3D 与实体
@@ -1160,17 +1173,17 @@ export default class BleCrossTrainer extends Vue {
     const pairs = this.calibLog.map((p) => `${p.expected}→${p.actual}`).join(" ");
     const same = this.calibLog.every((p) => p.actual === p.expected);
     const z2 = this.calibLog.every((p) => p.actual === z2Move(p.expected));
-    console.log(`[校准] 完成: ${pairs}`);
+    debugLog(`[校准] 完成: ${pairs}`);
     if (same) {
       this.statusText = `校准完成 ${pairs}: 硬件帧=白顶绿前, 默认视角正确, 无需 z2`;
-      console.log("[校准] 结论: 硬件帧与白顶绿前一致, 默认视角正确");
+      debugLog("[校准] 结论: 硬件帧与白顶绿前一致, 默认视角正确");
     } else if (z2) {
       this.toggleZ2(); // 自动切到黄顶视角, 转动/公式展示同步换名
       this.statusText = `校准完成 ${pairs}: 硬件帧=黄顶绿前, 已自动切到 z2 黄顶视角`;
-      console.log("[校准] 结论: 硬件帧与白顶绿前差一个 z2, 已自动切换黄顶视角");
+      debugLog("[校准] 结论: 硬件帧与白顶绿前差一个 z2, 已自动切换黄顶视角");
     } else {
       this.statusText = `校准完成 ${pairs}: 混合/异常, 请把控制台 [校准] 日志发来分析`;
-      console.log("[校准] 结论: 混合/异常结果, 请把以上完整日志发来分析 (是否有漏转/多转/转错层)");
+      debugLog("[校准] 结论: 混合/异常结果, 请把以上完整日志发来分析 (是否有漏转/多转/转错层)");
     }
   }
 
@@ -1245,7 +1258,7 @@ export default class BleCrossTrainer extends Vue {
       if (!state) {
         return;
       }
-      console.log(`[BT] BASELINE 漂移超时 → 3D 权威对齐 s=${baseline}`);
+      debugLog(`[BT] BASELINE 漂移超时 → 3D 权威对齐 s=${baseline}`);
       this.syncPhysicalScene(state, "round-baseline");
       if (baseline !== null) {
         this.bleMoveSerial = baseline;
@@ -1276,7 +1289,7 @@ export default class BleCrossTrainer extends Vue {
     this.bleRoundSyncPending = true;
     this.bleRoundSyncAt = Date.now();
     this.clearBleBaselineHeal();
-    console.log(`[BT] roundSync 窗口开启 (实时 MOVE 放行，历史恢复丢弃) ph=${this.phase}`);
+    debugLog(`[BT] roundSync 窗口开启 (实时 MOVE 放行，历史恢复丢弃) ph=${this.phase}`);
     this.link.requestFacelets().catch(() => {
       // 写请求失败时不能永久锁死实时转动；连接层仍会靠后续周期状态自愈。
       this.bleRoundSyncPending = false;
@@ -1313,7 +1326,7 @@ export default class BleCrossTrainer extends Vue {
         this.predicted = valid;
         this.world.cube.history.clear();
         this.syncPhysicalScene(valid, "session-baseline");
-        console.log(`[BT] FACELETS s=${e.serial} → 新会话首包强制建立 3D 基线`);
+        debugLog(`[BT] FACELETS s=${e.serial} → 新会话首包强制建立 3D 基线`);
         this.onAuthoritative(valid, e.serial, false);
         return;
       }
@@ -1326,14 +1339,14 @@ export default class BleCrossTrainer extends Vue {
       if (staleRoundBaseline) {
         this.bleRoundSyncPending = false;
         this.clearBleBaselineHeal();
-        console.log(
+        debugLog(
           `[BT] FACELETS s=${e.serial} → 轮次旧基线丢弃 (event=${this.bleEventSerial})，重新请求当前状态`
         );
         this.link.requestFacelets().catch(() => undefined);
         return;
       }
       const baselineDrift = roundBaseline && valid !== this.predicted;
-      console.log(
+      debugLog(
         `[BT] FACELETS s=${e.serial} baseline=${roundBaseline ? 1 : 0}` +
           (roundBaseline ? ` (窗口耗时 ${Date.now() - this.bleRoundSyncAt}ms)` : "") +
           ` ph=${this.phase} raw=${valid} pred=${this.predicted}`
@@ -1362,11 +1375,11 @@ export default class BleCrossTrainer extends Vue {
     }
     if (e.type === "move") {
       if (e.recovered) {
-        console.log(`[BT] MOVE ${e.move} s=${e.serial} → 历史恢复动作丢弃 (不批量回放到当前轮)`);
+        debugLog(`[BT] MOVE ${e.move} s=${e.serial} → 历史恢复动作丢弃 (不批量回放到当前轮)`);
         return;
       }
       if (this.bleRoundSyncPending) {
-        console.log(`[BT] MOVE ${e.move} s=${e.serial} → roundSync 实时首步接受`);
+        debugLog(`[BT] MOVE ${e.move} s=${e.serial} → roundSync 实时首步接受`);
       }
       this.onMoveEvent(e.move, e.serial);
       return;
@@ -1390,7 +1403,7 @@ export default class BleCrossTrainer extends Vue {
       // 带有效 MOVE 序号的旧快照，仅在实体静止一段时间后采信为权威真态用于自愈。
       // Gen3/Gen4 的 s=0 已在上方视为无序号快照，不参与此处的新旧比较。
       if (relation < 0 && !(idle > 2500 && raw !== this.predicted)) {
-        console.log(`[BT] FACELETS s=${normalized} 迟到旧帧丢弃 (event=${this.bleEventSerial}) ph=${this.phase}`);
+        debugLog(`[BT] FACELETS s=${normalized} 迟到旧帧丢弃 (event=${this.bleEventSerial}) ph=${this.phase}`);
         return;
       }
       if (relation > 0) {
@@ -1405,7 +1418,7 @@ export default class BleCrossTrainer extends Vue {
       const connectPending = this.status === "connected" && (this.phase === "ready" || this.phase === "disconnected");
       const virtualRound = this.isVirtualBleRound();
       const heal = !suppressJudge && idle > 2500 && !connectPending && !virtualRound;
-      console.log(
+      debugLog(
         `[BT] AUTH 校正: predicted=raw${heal ? " → 3D 对齐 (静止自愈)" : virtualRound ? " (虚拟轮次仅校正实体账本)" : suppressJudge ? " (轮次基线不重绘)" : " (转动中仅修正推演)"}` +
           ` s=${serial} ph=${this.phase} raw=${raw} pred旧=${this.predicted}`
       );
@@ -1454,7 +1467,7 @@ export default class BleCrossTrainer extends Vue {
     const backlog = this.world.cube.twister.length;
     const byBacklog = backlog > 0 ? Math.pow(0.55, backlog) : 1;
     CubeGroup.durationScale = Math.max(0.067, Math.min(byRate, byBacklog));
-    console.log(`[BT] MIRROR ${move} scale=${CubeGroup.durationScale.toFixed(2)} backlog=${backlog} ph=${this.phase}`);
+    debugLog(`[BT] MIRROR ${move} scale=${CubeGroup.durationScale.toFixed(2)} backlog=${backlog} ph=${this.phase}`);
     this.world.cube.twister.push(move);
   }
 
@@ -1468,11 +1481,11 @@ export default class BleCrossTrainer extends Vue {
       const baseline = this.bleBaselineHealSerial;
       const relation = this.serialRelation(normalized, baseline);
       if (relation === 0) {
-        console.log(`[BT] MOVE ${move} s=${normalized} → 命中待确认基线，取消整幅重绘并走动画`);
+        debugLog(`[BT] MOVE ${move} s=${normalized} → 命中待确认基线，取消整幅重绘并走动画`);
         this.clearBleBaselineHeal();
       } else if (relation > 0 && this.bleBaselineHealState) {
         const state = this.bleBaselineHealState;
-        console.log(`[BT] MOVE ${move} s=${normalized} → 越过待确认基线 s=${baseline}，先对齐再播放`);
+        debugLog(`[BT] MOVE ${move} s=${normalized} → 越过待确认基线 s=${baseline}，先对齐再播放`);
         this.clearBleBaselineHeal();
         this.syncPhysicalScene(state, "round-baseline-before-move");
         this.bleMoveSerial = baseline;
@@ -1489,7 +1502,7 @@ export default class BleCrossTrainer extends Vue {
         this.bleAuthoritativeSerial === normalized &&
         this.bleMoveSerial !== normalized;
       if (relation < 0 || (relation === 0 && !coveredByAuthoritative)) {
-        console.log(
+        debugLog(
           `[BT] MOVE ${move} s=${normalized} → 丢弃 (rel=${relation}${relation < 0 ? " 旧通知" : " 重复"}) ph=${this.phase}`
         );
         return; // 旧 MOVE 或已消费的重复通知
@@ -1499,7 +1512,7 @@ export default class BleCrossTrainer extends Vue {
       }
       this.bleMoveSerial = normalized;
     }
-    console.log(
+    debugLog(
       `[BT] MOVE ${move} s=${serial === undefined ? "-" : serial & 0xff} rel=${rel} cov=${coveredByAuthoritative ? 1 : 0} ` +
         `ph=${this.phase} pred=${this.predicted}`
     );
@@ -1521,7 +1534,7 @@ export default class BleCrossTrainer extends Vue {
       if (coveredByAuthoritative) {
         prev = applyFaceletMove(this.predicted, this.inverseToken(move));
         if (prev) {
-          console.log(`[BT] MOVE cov: 权威帧已含本步, 反推前态走统一路径`);
+          debugLog(`[BT] MOVE cov: 权威帧已含本步, 反推前态走统一路径`);
         }
       } else {
         const next = applyFaceletMove(this.predicted, move);
@@ -1555,7 +1568,7 @@ export default class BleCrossTrainer extends Vue {
       this.mirrorPush(displayMove);
     } else {
       // 尚无实体推演 (未收到权威状态): 仅镜像动画 (画面无从对齐, 判定待 AUTH 到达后自愈)
-      console.log(`[BT] MOVE 无推演态 (未收到权威状态), 仅镜像动画 ${displayMove}`);
+      debugLog(`[BT] MOVE 无推演态 (未收到权威状态), 仅镜像动画 ${displayMove}`);
       this.mirrorPush(displayMove);
     }
   }
@@ -1742,11 +1755,11 @@ export default class BleCrossTrainer extends Vue {
       if (this.isTargetCrossDone(state)) {
         return;
       }
-      console.log("[BT] JUDGE 十字已拆散, needBreak 解除");
+      debugLog("[BT] JUDGE 十字已拆散, needBreak 解除");
       this.needBreak = false;
     }
     if (this.isTrainDone(state)) {
-      console.log(`[BT] JUDGE 训练完成 (画面源) → success state=${state}`);
+      debugLog(`[BT] JUDGE 训练完成 (画面源) → success state=${state}`);
       this.finishSuccess(state);
     }
   }
@@ -1848,6 +1861,8 @@ export default class BleCrossTrainer extends Vue {
 
   /** 对指定状态求十字最优解 (失败/出错时留空, 展示层显示占位) */
   private bestReqId = 0;
+  private crossSolveCache = new SolveRequestCache<string[]>(24);
+  private xCrossSolveCache = new SolveRequestCache<string[]>(48);
   /** y/y' 按钮排入动画队列后等待消费的重算次数；拖动整体转不会增加。 */
   private pendingViewButtonRecomputes = 0;
   /** 上次请求最优解时的整体转签名 (observedOps 序列化): 变化则需按新视角重求 */
@@ -1857,7 +1872,11 @@ export default class BleCrossTrainer extends Vue {
     try {
       // 目标十字按当前持握视角底色: 黄底 (z2On=false) → 黄十字 = 核心帧标准 D 面, 直接求解;
       // 白底 (z2On=true) → 白十字, 经训练帧求解, 解逐记号 z2Move 换回核心帧再存
-      const solutions = await this.solver.solveCross(this.z2On ? toTrainFrame(state) : state, 5, 8);
+      const solverState = this.z2On ? toTrainFrame(state) : state;
+      const solutions = await this.crossSolveCache.get(
+        `cross:${solverState}:5:8`,
+        () => this.solver.solveCross(solverState, 5, 8)
+      );
       // 慢速求解 (BFS fallback) 可能耗时数秒: 若期间已开始新一轮则作废本次结果
       if (reqId !== this.bestReqId) {
         return;
@@ -1899,7 +1918,11 @@ export default class BleCrossTrainer extends Vue {
           try {
             // 黄底 (z2On=false): 核心帧直接求解, 槽位名即物理帧; 白底 (z2On=true):
             // 训练帧求解, 解逐记号 z2Move 换回核心帧, 槽位名换回物理帧 (FL↔FR, BL↔BR)
-            const sols = await this.solver.solveXCross(this.z2On ? toTrainFrame(state) : state, slot, 1);
+            const solverState = this.z2On ? toTrainFrame(state) : state;
+            const sols = await this.xCrossSolveCache.get(
+              `xcross:${solverState}:${slot}:1`,
+              () => this.solver.solveXCross(solverState, slot, 1)
+            );
             const candidate = sols && sols.length > 0 ? sols[0] : null;
             const best = typeof candidate === "string" ? candidate.trim() : "";
             const ok = candidate !== null && best.indexOf("error") !== 0;
@@ -1941,9 +1964,11 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private finishSuccess(state: string): void {
-    console.log(`[BT] SUCCESS 完成 state=${state} 步数=${this.moveCount}`);
+    const finishedAt = Date.now();
+    debugLog(`[BT] SUCCESS 完成 state=${state} 步数=${this.moveCount}`);
     this.running = false;
     this.phase = "success";
+    this.completedSolveMs = this.solveStart > 0 ? Math.max(0, finishedAt - this.solveStart) : null;
     // 解法/步数统一从 history 推导 (手动鼠标步与蓝牙镜像步同池,
     // onManualTwist 已实时刷新; 蓝牙镜像步以屏幕记号录入, 展示原样)
     this.userSolution = manualSolutionOf(this.world.cube.history.exp);
@@ -1974,9 +1999,11 @@ export default class BleCrossTrainer extends Vue {
       })),
     });
     this.successCount++;
-    this.recordTrain(true); // 训练记录: 本轮成功 (观察/还原用时, 最优/实际步数)
-    this.statusText = "✅ " + (this.trainMode === "xcross" ? "XCross 完成!" : "十字完成!");
-    this.elapsedText = this.computeElapsed(); // 固化最终还原用时
+    this.recordTrain(true, finishedAt); // 训练记录: 本轮成功 (观察/还原用时, 最优/实际步数)
+    this.refreshSuccessStatus();
+    this.elapsedText = this.completedSolveMs !== null
+      ? (this.solveTimeTarget > 0 ? this.completedSolveSecondsText() : (this.completedSolveMs / 1000).toFixed(1)) + "s"
+      : this.computeElapsed();
     if (this.isManual) {
       // 手动模式: 固化观察用时 (结果区与还原用时分开展示)
       this.observeText = this.solveStart
@@ -1990,7 +2017,7 @@ export default class BleCrossTrainer extends Vue {
     // 勾选「自动下轮」时 2.5s 展示结果后自动开始下一轮 (免点「跳过, 直接开始」:
     // 不生成打乱匹配等待, 自行打乱魔方后首次转动开始计时); 未勾选则等用户手动点「新打乱」
     if (this.autoNext) {
-      console.info("[BLECross] success: 安排自动下轮 (2.5s)");
+      debugLog("[BLECross] success: 安排自动下轮 (2.5s)");
       this.scheduleAutoNext();
     }
   }
@@ -2154,7 +2181,7 @@ export default class BleCrossTrainer extends Vue {
     const base = this.predicted ?? SOLVED_FACELETS;
     this.scramble = formula;
     this.scrambleTarget = applyFormulaFrom(base, formula);
-    console.log(`[BT] SCRAMBLE base=${base} formula="${formula}" target=${this.scrambleTarget}`);
+    debugLog(`[BT] SCRAMBLE base=${base} formula="${formula}" target=${this.scrambleTarget}`);
     // 层转 history 必须清空，但整体持握与 z2 视角跨轮保留。先排空并把 history 中的
     // y/y′ 固化进 baseOps，再由 syncPhysicalScene 按同一视角重建新打乱画面。
     this.world.cube.twister.finish();
@@ -2185,7 +2212,7 @@ export default class BleCrossTrainer extends Vue {
   /** 重置本轮 (三模式统一): 3D 回本轮打乱基准，计时/步数/history 清零重新观察；
    * 最优解基准不变，不触发重算。 */
   resetRound(): void {
-    console.log(
+    debugLog(
       `[BT] RESET 点击 ph=${this.phase} manual=${this.isManual} pred=${this.predicted} base=${this.solveBaseState} z2On=${this.z2On}`
     );
     if (this.phase !== "observing" && this.phase !== "solving" && this.phase !== "success") {
@@ -2284,7 +2311,7 @@ export default class BleCrossTrainer extends Vue {
     this.solveStart = 0;
     this.phase = "observing";
     this.needBreak = this.isTargetCrossDone(base || SOLVED_FACELETS);
-    console.log(
+    debugLog(
       `[BT] RESET 蓝牙尾: 3D←base ph=observing needBreak=${this.needBreak ? 1 : 0} pred=${this.predicted}`
     );
     this.statusText = "已重置回打乱态: 计时/步数/历史已清零, 鼠标或蓝牙转动都会追加一步";
@@ -2352,6 +2379,38 @@ export default class BleCrossTrainer extends Vue {
     }
   }
 
+  saveSolveTimeTarget(): void {
+    this.solveTimeTarget = parseSolveTimeTarget(String(this.solveTimeTarget));
+    window.localStorage.setItem("bleSolveTimeTarget", String(this.solveTimeTarget));
+    if (this.phase === "success") {
+      this.refreshSuccessStatus();
+      if (this.completedSolveMs !== null) {
+        this.elapsedText = (this.solveTimeTarget > 0
+          ? this.completedSolveSecondsText()
+          : (this.completedSolveMs / 1000).toFixed(1)) + "s";
+      }
+      if (this.autoNext) this.scheduleAutoNext();
+    }
+  }
+
+  private shouldRetryCurrentRound(): boolean {
+    return (this.retryNonOptimal && this.retryCurrentRound) ||
+      isSolveTimeOverTarget(this.completedSolveMs, this.solveTimeTarget);
+  }
+
+  private refreshSuccessStatus(): void {
+    const name = this.trainMode === "xcross" ? "XCross" : "十字";
+    const slow = isSolveTimeOverTarget(this.completedSolveMs, this.solveTimeTarget);
+    this.statusText = `✅ ${name}完成!` + (slow
+      ? ` 还原 ${this.completedSolveSecondsText()} 秒，未达 ≤${this.solveTimeTarget} 秒`
+      : "");
+  }
+
+  /** 超时时向上显示到百分之一秒，避免 3.001 秒被显示成达标的 3.0 秒。 */
+  private completedSolveSecondsText(): string {
+    return (Math.ceil((this.completedSolveMs || 0) / 10) / 100).toFixed(2);
+  }
+
   private cancelDifficultyGeneration(): void {
     this.scrambleGenerationId++;
     this.generatingDifficulty = false;
@@ -2369,7 +2428,7 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     const remaining = Math.max(0, this.autoNextDeadline - Date.now());
-    const actionText = this.retryNonOptimal && this.retryCurrentRound ? "重试本局" : "自动下轮";
+    const actionText = this.shouldRetryCurrentRound() ? "重试本局" : "自动下轮";
     this.autoNextCountdownText = (remaining / 1000).toFixed(1) + " 秒后" + actionText;
   }
 
@@ -2397,7 +2456,7 @@ export default class BleCrossTrainer extends Vue {
     this.refreshAutoNextCountdown();
     this.autoNextCountdownTimer = window.setInterval(() => this.refreshAutoNextCountdown(), 100);
     this.resultTimer = window.setTimeout(() => {
-      const retry = this.retryNonOptimal && this.retryCurrentRound;
+      const retry = this.shouldRetryCurrentRound();
       this.clearAutoNextSchedule();
       const onError = (e: unknown) => {
         const actionText = retry ? "重试本局" : "自动下轮";
@@ -2601,7 +2660,7 @@ export default class BleCrossTrainer extends Vue {
   /** 自动下轮: 生成新打乱公式开新一轮 (等同自动点「新打乱」)——3D 显示打乱目标态,
    * 首次拧动 (实体或鼠标) 开始还原计时; 手动模式/断连兜底同款入口 */
   private async nextRoundDirect(): Promise<void> {
-    console.info("[BLECross] nextRoundDirect | isManual:", this.isManual, "| status:", this.status, "| phase:", this.phase);
+    debugLog("[BLECross] nextRoundDirect | isManual:", this.isManual, "| status:", this.status, "| phase:", this.phase);
     await this.newScramble();
   }
 
@@ -2630,7 +2689,7 @@ export default class BleCrossTrainer extends Vue {
     }
     cube.dirty = true;
     this.applyVisibility(); // stick 已把全部贴纸复位为标准材质: 按当前偏好重刷可视化
-    console.log(`[BT] syncScene${tag ? "<" + tag + ">" : "<anonymous>"} → 3D 重绘为 ${facelets} (z2On=${this.z2On} ph=${this.phase})`);
+    debugLog(`[BT] syncScene${tag ? "<" + tag + ">" : "<anonymous>"} → 3D 重绘为 ${facelets} (z2On=${this.z2On} ph=${this.phase})`);
   }
 
   // ================= 计时 =================
@@ -2747,9 +2806,12 @@ export default class BleCrossTrainer extends Vue {
   }
 
   loop(): void {
-    requestAnimationFrame(this.loop.bind(this));
+    this.animationFrameId = requestAnimationFrame(this.loopFrame);
     if (this.running) {
-      this.elapsedText = this.computeElapsed();
+      const elapsed = this.computeElapsed();
+      if (elapsed !== this.elapsedText) {
+        this.elapsedText = elapsed;
+      }
     }
     this.viewport?.draw();
     if (this.gifRecording) {
@@ -2792,15 +2854,15 @@ export default class BleCrossTrainer extends Vue {
   /** 结算一轮: 判定成功或 solving 放弃时记录 (最新在前, 上限截断)。
    * obs=观察用时 (无观察阶段记 null); solve=还原用时 (放弃=当时已用时);
    * best=最优解步数 (未就绪 -1); steps=用户实际步数 (HTM 化简口径) */
-  private recordTrain(ok: boolean): void {
+  private recordTrain(ok: boolean, finishedAt = Date.now()): void {
     const observed = this.observeStart > 0 && this.solveStart >= this.observeStart;
     const rec: TrainRecord = {
-      t: Date.now(),
+      t: finishedAt,
       mode: this.trainMode,
       difficulty: this.roundDifficulty === null ? undefined : this.roundDifficulty,
       ok,
       obs: observed ? (this.solveStart - this.observeStart) / 1000 : null,
-      solve: this.solveStart ? (Date.now() - this.solveStart) / 1000 : null,
+      solve: this.solveStart ? (finishedAt - this.solveStart) / 1000 : null,
       best: this.bestReady && this.bestSolution ? this.bestMovesOf(this.bestSolution).length : -1,
       steps: this.moveCount,
     };

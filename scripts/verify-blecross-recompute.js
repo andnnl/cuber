@@ -1,6 +1,22 @@
 async page => {
-  await page.goto("http://127.0.0.1:8080/?mode=blecross");
-  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  const candidateUrls = [
+    "http://127.0.0.1:8080/?mode=blecross",
+    "http://127.0.0.1:18080/?mode=blecross",
+  ];
+  let lastNavigationError = null;
+  for (const candidateUrl of candidateUrls) {
+    try {
+      await page.goto(candidateUrl);
+      await page.waitForFunction(() => window.__bleCross && window.__bleCross.world, null, { timeout: 3000 });
+      lastNavigationError = null;
+      break;
+    } catch (error) {
+      lastNavigationError = error;
+    }
+  }
+  if (lastNavigationError) {
+    throw new Error(`未找到 BLE Cross 开发服务: ${lastNavigationError.message}`);
+  }
 
   const verifyInitialZ2Scramble = async (enabled, expectedSignatures) => {
     await page.evaluate(value => {
@@ -314,6 +330,7 @@ async page => {
     vm.visSlot = "BR"; vm.saveVisSlot();
     vm.autoNext = false; vm.saveAutoNext();
     vm.retryNonOptimal = true; vm.saveRetryNonOptimal();
+    vm.solveTimeTarget = 3; vm.saveSolveTimeTarget();
     vm.showBest = false; vm.saveShowBest();
     vm.recLimit = 50; vm.saveRecLimit();
     if (!vm.z2On) vm.toggleZ2();
@@ -326,22 +343,23 @@ async page => {
     return {
       trainMode: vm.trainMode, difficulty: vm.difficulty,
       visGhost: vm.visGhost, visHide: vm.visHide, visSlot: vm.visSlot,
-      autoNext: vm.autoNext, retryNonOptimal: vm.retryNonOptimal,
+      autoNext: vm.autoNext, retryNonOptimal: vm.retryNonOptimal, solveTimeTarget: vm.solveTimeTarget,
       showBest: vm.showBest, recLimit: vm.recLimit,
       z2On: vm.z2On, z2Marks: vm.z2Marks.slice(),
       target: vm.crossTargetText(), mappedU: vm.displayMove("U"),
       difficultySaved: localStorage.getItem("bleDifficulty"),
       retrySaved: localStorage.getItem("bleRetryNonOptimal"),
+      timeSaved: localStorage.getItem("bleSolveTimeTarget"),
       z2Saved: localStorage.getItem("bleZ2On"),
     };
   });
   if (JSON.stringify(settings) !== JSON.stringify({
     trainMode: "xcross", difficulty: 5,
     visGhost: true, visHide: true, visSlot: "BR",
-    autoNext: false, retryNonOptimal: true, showBest: false, recLimit: 50,
+    autoNext: false, retryNonOptimal: true, solveTimeTarget: 3, showBest: false, recLimit: 50,
     z2On: true, z2Marks: [0],
     target: "白色十字 (4 条白棱围住白色中心)", mappedU: "D",
-    difficultySaved: "5", retrySaved: "1", z2Saved: "1",
+    difficultySaved: "5", retrySaved: "1", timeSaved: "3", z2Saved: "1",
   })) throw new Error(`设置恢复异常: ${JSON.stringify(settings)}`);
 
   await page.setViewportSize({ width: 360, height: 740 });
@@ -350,6 +368,7 @@ async page => {
     vm.helpDialog = true;
     await vm.$nextTick();
     const control = document.querySelector("[data-ble-retry-non-optimal]");
+    const speed = document.querySelector("[data-ble-solve-time-target]");
     const row = document.querySelector("[data-ble-flow-row]");
     const pageText = document.body.textContent || "";
     return {
@@ -357,16 +376,21 @@ async page => {
       text: control ? control.textContent.trim() : "",
       checked: control ? control.querySelector("input").checked : null,
       model: vm.retryNonOptimal,
+      speedOptions: speed ? Array.from(speed.options).map(option => option.value) : [],
+      speedValue: speed ? speed.value : null,
       overflow: row ? row.scrollWidth > row.clientWidth + 1 : true,
       help: pageText.includes("非最优重试") && pageText.includes("同一局"),
+      speedHelp: pageText.includes("速度目标") && pageText.includes("还原用时"),
     };
   });
   if (
     !retryUi.exists ||
     retryUi.text !== "非最优重试" ||
     retryUi.checked !== retryUi.model ||
+    JSON.stringify(retryUi.speedOptions) !== JSON.stringify(["0", "1", "2", "3", "5", "8", "10"]) ||
+    retryUi.speedValue !== "3" ||
     retryUi.overflow ||
-    !retryUi.help
+    !retryUi.help || !retryUi.speedHelp
   ) {
     throw new Error(`非最优重试移动端界面异常: ${JSON.stringify(retryUi)}`);
   }
@@ -1023,6 +1047,126 @@ async page => {
     throw new Error(`自动下轮倒计时异常: ${JSON.stringify(autoNextCountdown)}`);
   }
 
+  await page.reload();
+  await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
+  const speedRetry = await page.evaluate(async () => {
+    const vm = window.__bleCross;
+    const realNow = Date.now;
+    const realSetTimeout = window.setTimeout;
+    const realClearTimeout = window.clearTimeout;
+    const realSetInterval = window.setInterval;
+    const realClearInterval = window.clearInterval;
+    const originalReset = vm.resetRound;
+    const originalNext = vm.nextRoundDirect;
+    const previousRecords = vm.records.slice();
+    let now = 13001;
+    let action = null;
+    let resets = 0;
+    let nexts = 0;
+    Date.now = () => now;
+    window.setTimeout = callback => { action = callback; return 501; };
+    window.setInterval = () => 502;
+    window.clearTimeout = () => {};
+    window.clearInterval = () => {};
+    vm.resetRound = () => resets++;
+    vm.nextRoundDirect = () => nexts++;
+    try {
+      vm.isManual = true;
+      vm.trainMode = "cross";
+      vm.autoNext = true;
+      vm.retryNonOptimal = false;
+      vm.showBest = false;
+      vm.solveTimeTarget = 3;
+      vm.observeStart = 8000;
+      vm.solveStart = 10000;
+      vm.phase = "solving";
+      vm.finishSuccess(vm.world.cube.serialize());
+      const over = {
+        status: vm.statusText,
+        countdown: vm.autoNextCountdownText,
+        record: vm.records[0],
+        displayed: vm.elapsedText,
+      };
+      vm.compactMode = true;
+      await vm.$nextTick();
+      const compactStatus = document.querySelector("[data-ble-flow-row] > span.ok-text");
+      const compact = {
+        settingsHidden: document.querySelector(".ble-flow-settings").style.display === "none",
+        wrapsResult: compactStatus && getComputedStyle(compactStatus).whiteSpace === "normal",
+      };
+      vm.compactMode = false;
+      action();
+      const afterOver = { resets, nexts };
+
+      vm.phase = "success";
+      vm.solveTimeTarget = 5;
+      vm.saveSolveTimeTarget();
+      const raisedTarget = vm.autoNextCountdownText;
+      vm.solveTimeTarget = 3;
+      vm.saveSolveTimeTarget();
+      const loweredTarget = vm.autoNextCountdownText;
+
+      vm.completedSolveMs = 3000;
+      vm.retryCurrentRound = false;
+      vm.scheduleAutoNext();
+      const exactTarget = vm.autoNextCountdownText;
+      action();
+      const afterExact = { resets, nexts };
+
+      vm.retryNonOptimal = true;
+      vm.retryCurrentRound = true;
+      vm.scheduleAutoNext();
+      const nonOptimal = vm.autoNextCountdownText;
+      action();
+      const afterNonOptimal = { resets, nexts };
+
+      vm.autoNext = false;
+      vm.solveTimeTarget = 1;
+      vm.phase = "success";
+      vm.saveAutoNext();
+      vm.scheduleAutoNext();
+      const disabled = vm.autoNextCountdownText;
+      return { over, compact, afterOver, raisedTarget, loweredTarget, exactTarget, afterExact,
+        nonOptimal, afterNonOptimal, disabled };
+    } finally {
+      vm.clearAutoNextSchedule();
+      vm.resetRound = originalReset;
+      vm.nextRoundDirect = originalNext;
+      vm.records = previousRecords;
+      vm.saveRecords();
+      vm.autoNext = false;
+      vm.retryNonOptimal = false;
+      vm.solveTimeTarget = 0;
+      vm.saveAutoNext();
+      vm.saveRetryNonOptimal();
+      vm.saveSolveTimeTarget();
+      Date.now = realNow;
+      window.setTimeout = realSetTimeout;
+      window.clearTimeout = realClearTimeout;
+      window.setInterval = realSetInterval;
+      window.clearInterval = realClearInterval;
+    }
+  });
+  if (
+    !speedRetry.over.status.includes("还原 3.01 秒，未达 ≤3 秒") ||
+    speedRetry.over.countdown !== "2.5 秒后重试本局" ||
+    speedRetry.over.record.ok !== true ||
+    speedRetry.over.record.obs !== 2 ||
+    speedRetry.over.record.solve !== 3.001 ||
+    speedRetry.over.displayed !== "3.01s" ||
+    !speedRetry.compact.settingsHidden || !speedRetry.compact.wrapsResult ||
+    JSON.stringify(speedRetry.afterOver) !== JSON.stringify({ resets: 1, nexts: 0 }) ||
+    speedRetry.raisedTarget !== "2.5 秒后自动下轮" ||
+    speedRetry.loweredTarget !== "2.5 秒后重试本局" ||
+    speedRetry.exactTarget !== "2.5 秒后自动下轮" ||
+    JSON.stringify(speedRetry.afterExact) !== JSON.stringify({ resets: 1, nexts: 1 }) ||
+    speedRetry.nonOptimal !== "2.5 秒后重试本局" ||
+    JSON.stringify(speedRetry.afterNonOptimal) !== JSON.stringify({ resets: 2, nexts: 1 }) ||
+    speedRetry.disabled !== ""
+  ) {
+    throw new Error(`速度目标自动重试异常: ${JSON.stringify(speedRetry)}`);
+  }
+
   const centerGhost = await page.evaluate(() => {
     const vm = window.__bleCross;
     const centers = [4, 10, 12, 14, 16, 22];
@@ -1238,6 +1382,8 @@ async page => {
     vm.solveBaseState = vm.world.cube.serialize();
     vm.solveBaseScreenFrame = true;
     vm.__solveCalls = [];
+    vm.crossSolveCache.clear();
+    vm.xCrossSolveCache.clear();
     vm.solver = {
       solveCross: async state => {
         vm.__solveCalls.push({ mode: "cross", state });
@@ -1262,28 +1408,30 @@ async page => {
     throw new Error(`标准视角的求解快照应为空，实际为 ${initialView}`);
   }
 
-  const beforeMode = await callCount();
+  const beforeMode = await requestId();
   await page.evaluate(() => {
     const vm = window.__bleCross;
     vm.trainMode = "xcross";
     vm.saveTrainMode();
   });
-  await waitForCallsAfter(beforeMode);
+  await page.waitForFunction(id => window.__bleCross.bestReqId > id, beforeMode);
   await page.waitForFunction(() => window.__bleCross.bestXReady);
 
-  const beforeModeBack = await callCount();
+  const beforeModeBack = await requestId();
   await page.evaluate(() => {
     const vm = window.__bleCross;
     vm.trainMode = "cross";
     vm.saveTrainMode();
   });
-  await waitForCallsAfter(beforeModeBack);
+  await page.waitForFunction(id => window.__bleCross.bestReqId > id, beforeModeBack);
   await page.waitForFunction(() => window.__bleCross.bestReady);
+  const beforeModeAgain = await requestId();
   await page.evaluate(() => {
     const vm = window.__bleCross;
     vm.trainMode = "xcross";
     vm.saveTrainMode();
   });
+  await page.waitForFunction(id => window.__bleCross.bestReqId > id, beforeModeAgain);
   await page.waitForFunction(() => window.__bleCross.bestXReady);
 
   for (const turns of [1, -1]) {

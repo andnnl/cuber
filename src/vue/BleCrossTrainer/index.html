@@ -235,12 +235,19 @@
               style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
             >{{ statusText }}{{ autoNextCountdownText ? ' ' + autoNextCountdownText : '' }}</span>
             <div style="flex: 1;"></div>
-            <div v-show="!compactMode" data-ble-full-only style="display: flex; align-items: center; gap: 8px;">
+            <div v-show="!compactMode" data-ble-full-only class="ble-flow-settings">
               <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="十字正确后自动生成下一次打乱">
                 <input type="checkbox" v-model="autoNext" @change="saveAutoNext" style="width: 13px; height: 13px;" />自动下轮
               </label>
               <label data-ble-retry-non-optimal style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="正确但未达到最优步数时，倒计时后重置同一局继续练习">
                 <input type="checkbox" v-model="retryNonOptimal" @change="saveRetryNonOptimal" style="width: 13px; height: 13px;" />非最优重试
+              </label>
+              <label class="ble-speed-target" title="正确还原但还原用时超过目标时，自动下轮倒计时后重置同一局；观察时间不计入">
+                速度目标
+                <select data-ble-solve-time-target v-model.number="solveTimeTarget" @change="saveSolveTimeTarget" aria-label="速度目标">
+                  <option :value="0">关闭</option>
+                  <option v-for="seconds in [1, 2, 3, 5, 8, 10]" :key="seconds" :value="seconds">≤{{ seconds }}秒</option>
+                </select>
               </label>
               <label style="display: flex; align-items: center; gap: 3px; font-size: 11px; color: #666; white-space: nowrap; cursor: pointer;" title="全程显示 WASM 推荐的最优解 (观察/还原/完成阶段都显示, 用于学习); 关闭后不求解也不展示">
                 <input type="checkbox" v-model="showBest" @change="saveShowBest" style="width: 13px; height: 13px;" />最优解
@@ -462,6 +469,8 @@
           <div>· 「随机」使用普通完整打乱；2步～7步表示当前底色十字的精确最优步数</div>
           <div>· XCross 只按十字部分计算难度，F2L 部分不计入</div>
           <div>· 自定义打乱公式不受难度选择限制，始终按输入公式执行</div>
+          <div>· 速度目标只比较还原用时，不含观察时间；超过所选秒数时正确完成仍记入训练记录</div>
+          <div>· 自动下轮开启时，速度未达标或开启“非最优重试”且步数未达标，2.5 秒后重置同一局；否则进入下一轮</div>
           <div>· 复选框、下拉框、背景颜色和 z2 姿态会自动记住</div>
           <div style="margin-top: 8px;"><b>持握与公式</b></div>
           <div>· 打乱时按标准姿态持握: 白色朝上、绿色朝前</div>

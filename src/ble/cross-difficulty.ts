@@ -41,6 +41,8 @@ type GenerateOptions = {
   solveCross: (state: string) => Promise<string[]>;
   perturbation?: (steps: number) => string[];
   isCurrent?: () => boolean;
+  yieldEvery?: number;
+  yieldControl?: () => Promise<void>;
 };
 
 function joinFormula(...parts: string[]): string {
@@ -60,6 +62,8 @@ function checkedSolution(solutions: string[]): string {
 export async function generateExactCrossScramble(options: GenerateOptions): Promise<string | null> {
   const current = options.isCurrent || (() => true);
   const makePerturbation = options.perturbation || randomCrossPerturbation;
+  const yieldEvery = Math.max(1, options.yieldEvery || 8);
+  const yieldControl = options.yieldControl || (() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
   const targetFrame = (state: string) => (options.z2On ? toTrainFrame(state) : state);
   const physicalFormula = (formula: string) =>
     options.z2On && formula
@@ -84,6 +88,10 @@ export async function generateExactCrossScramble(options: GenerateOptions): Prom
       const solution = checkedSolution(await options.solveCross(targetFrame(state)));
       if (!current()) return null;
       if (countFormulaMoves(solution) === options.difficulty) return formula;
+      if ((suffixTry + 1) % yieldEvery === 0) {
+        await yieldControl();
+        if (!current()) return null;
+      }
     }
   }
   throw new Error(`无法生成 ${options.difficulty} 步难度，请重试`);

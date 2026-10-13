@@ -4,6 +4,7 @@ const { CleanWebpackPlugin } = require("clean-webpack-plugin");
 const TerserPlugin = require("terser-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
+const webpack = require("webpack");
 
 module.exports = (env, argv) => ({
   entry: {
@@ -68,6 +69,9 @@ module.exports = (env, argv) => ({
     },
   },
   plugins: [
+    new webpack.DefinePlugin({
+      __DEV__: JSON.stringify(argv.mode !== "production"),
+    }),
     new HtmlWebpackPlugin({
       favicon: "./resource/icon.png",
       filename: "index.html",
@@ -80,6 +84,7 @@ module.exports = (env, argv) => ({
       patterns: [
         { from: "public/cube_cross_solve.js", to: "cube_cross_solve.js" },
         { from: "public/cube_cross_solve_bg.wasm", to: "cube_cross_solve_bg.wasm" },
+        { from: "public/cube_cross_worker.js", to: "cube_cross_worker.js" },
       ],
     }),
   ],
