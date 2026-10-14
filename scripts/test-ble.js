@@ -640,6 +640,25 @@ async function main() {
     session.dispose();
   });
 
+  await test("共享会话协调原生扫描，关闭窗口撤销回调且不影响连接", () => {
+    const { CubeSession } = req("cube-session.js");
+    const transport = {
+      scans: 0, stops: 0, callbacks: [],
+      onScan(cb) { this.callbacks.push(cb); cb([]); return () => { this.callbacks = this.callbacks.filter(c => c !== cb); }; },
+      onError() { return () => {}; },
+      startScan() { this.scans++; }, stopScan() { this.stops++; },
+    };
+    const session = new CubeSession(new CubeLink(() => new MockGanCubeTransport()), () => transport);
+    let seen = 0;
+    const stop = session.scanNative(() => seen++, () => {});
+    assert.strictEqual(transport.scans, 1);
+    stop();
+    transport.callbacks.forEach(cb => cb([{ address: "AA", name: "GAN" }]));
+    assert.strictEqual(seen, 1);
+    assert.strictEqual(transport.stops, 1);
+    session.dispose();
+  });
+
   console.log("== GAN Gen2 全链路 (Mock) ==");
 
   await test("连接后 REQUEST_FACELETS 返回复原态", async () => {
@@ -779,6 +798,63 @@ async function main() {
     } finally {
       delete global.window;
     }
+  });
+
+  await test("原生扫描监听取消后不再接收设备，避免切换界面重复注册", () => {
+    global.window = {
+      __bleNative: { scan() {}, stopScan() {}, connect() {}, disconnect() {}, write() {} },
+      setTimeout, clearTimeout,
+    };
+    try {
+      const transport = new NativeBridgeTransport();
+      let updates = 0;
+      const stop = transport.onScan(() => updates++);
+      assert.strictEqual(updates, 1);
+      stop();
+      global.window.__ble.dispatch("scan", JSON.stringify({ address: "AA:BB", name: "GAN" }));
+      assert.strictEqual(updates, 1);
+    } finally {
+      delete global.window;
+    }
+  });
+
+  await test("原生连接 A 的迟到服务和通知不能污染连接 B", async () => {
+    const calls = [];
+    global.window = {
+      __bleNative: { scan() {}, stopScan() {}, connect(address, generation) { calls.push({ address, generation }); }, disconnect() {}, write() {} },
+      setTimeout, clearTimeout,
+    };
+    try {
+      const transport = new NativeBridgeTransport();
+      const a = transport.connect({ address: "AA:AA" });
+      await transport.disconnect();
+      await assert.rejects(a, /取消/);
+      const b = transport.connect({ address: "BB:BB" });
+      const meta = registry.PROTOCOLS[0];
+      const services = [{ uuid: meta.serviceUuid, notify: meta.notifyUuids, write: [meta.writeUuid] }];
+      const send = (type, payload) => global.window.__ble.dispatch(type, JSON.stringify(payload));
+      let settled = false;
+      b.then(() => { settled = true; });
+      send("services", { generation: calls[0].generation, services });
+      send("notify", { generation: calls[0].generation, data: "AA==" });
+      send("disconnected", { generation: calls[0].generation });
+      await flush();
+      assert.strictEqual(settled, false);
+      send("services", { generation: calls[1].generation, services });
+      assert.strictEqual((await b).mac, "BB:BB");
+    } finally {
+      delete global.window;
+    }
+  });
+
+  await test("应用内导航保留播放器数据、忽略未知模式并返回规范 URL", () => {
+    const { parseAppRoute, routeUrl, routeKey } = req("app-route.js");
+    assert.deepStrictEqual(parseAppRoute("?mode=player&data=abc%2Bdef"), { mode: "player", data: "abc+def" });
+    assert.deepStrictEqual(parseAppRoute("?mode=player&data=abc+def"), { mode: "player", data: "abc+def" });
+    assert.deepStrictEqual(parseAppRoute("?mode=unknown"), { mode: "playground" });
+    assert.strictEqual(routeUrl({ mode: "playground" }, "/cube/"), "/cube/");
+    assert.strictEqual(routeUrl({ mode: "player", data: "x+y" }, "/cube/"), "/cube/?mode=player&data=x%2By");
+    assert.notStrictEqual(routeKey({ mode: "player", data: "A" }), routeKey({ mode: "player", data: "B" }));
   });
 
   console.log(`\n结果: ${passed} 通过, ${failed} 失败`);

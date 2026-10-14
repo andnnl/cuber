@@ -79,9 +79,12 @@ module.exports = (env, argv) => ({
     }),
     new CleanWebpackPlugin({
       dry: argv.mode !== "production",
+      // 预计算搜索表是仓库随附的二进制资产，不由 webpack 生成；生产清理不能删掉它。
+      cleanOnceBeforeBuildPatterns: ["**/*", "!cube_cross_table.bin"],
     }),
     new CopyWebpackPlugin({
       patterns: [
+        { from: "dist/cube_cross_table.bin", to: "cube_cross_table.bin" },
         { from: "public/cube_cross_solve.js", to: "cube_cross_solve.js" },
         { from: "public/cube_cross_solve_bg.wasm", to: "cube_cross_solve_bg.wasm" },
         { from: "public/cube_cross_worker.js", to: "cube_cross_worker.js" },

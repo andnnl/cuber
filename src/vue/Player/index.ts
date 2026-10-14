@@ -1,5 +1,6 @@
 import Vue from "vue";
-import { Component, Provide, Ref } from "vue-property-decorator";
+import { Component, Inject, Provide, Ref } from "vue-property-decorator";
+import { AppRoute, parseAppRoute } from "../../ble/app-route";
 import Viewport from "../Viewport";
 import Playbar from "../Playbar";
 import World from "../../cuber/world";
@@ -16,6 +17,12 @@ import { PreferanceData, PaletteData } from "../../data";
   },
 })
 export default class Player extends Vue {
+  @Inject("navigate") navigate: (route: AppRoute) => void;
+  private appActive = true;
+  private viewFrame: number | null = null;
+  onAppDeactivate(): void { this.appActive = false; if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame); this.viewFrame = null; }
+  onAppActivate(): void { if (this.appActive) return; this.appActive = true; this.resize(); this.loop(); }
+  beforeDestroy(): void { this.onAppDeactivate(); }
   @Provide("world")
   world: World = new World();
 
@@ -47,11 +54,8 @@ export default class Player extends Vue {
 
   mounted(): void {
     this.setting.items["order"].disable = true;
-    const search = location.search || "";
-    const list = search.match(/(\?|\&)data=([^&]*)(&|$)/);
-    let string = list ? list[2] : "";
-    string = window.atob(string);
     try {
+      const string = window.atob(parseAppRoute(location.search).data || "");
       const data = JSON.parse(string);
       if (data.order) {
         this.world.order = data.order;
@@ -88,7 +92,8 @@ export default class Player extends Vue {
   }
 
   loop(): void {
-    requestAnimationFrame(this.loop.bind(this));
+    if (!this.appActive) return;
+    this.viewFrame = requestAnimationFrame(() => this.loop());
     this.viewport?.draw();
   }
 
@@ -101,7 +106,7 @@ export default class Player extends Vue {
   }
 
   home(): void {
-    window.location.search = "";
+    this.navigate({ mode: "playground" });
   }
 
   scriptd = false;

@@ -99,10 +99,10 @@ class CubeSession {
 
 ## 任务 3：应用内导航与常驻连接入口
 
-- [ ] 新建 `scripts/verify-global-ble.js` 的浏览器红灯检查：Mock 连接后菜单切换 `blecross → playground → blecross` 不产生文档导航；会话实例身份不变，BLECross 的 `World` 实例身份不变；URL 与后退／前进对应界面。直达 `?mode=player&data=...` 正确载入内容。
-- [ ] 创建 `src/vue/AppShell/index.ts` 和 `index.html`：根组件实例持有 `CubeSession`、`FollowGate`、活动模式，缓存已访问组件；向后代 provide 会话与活动状态。使用 History API 维护 URL，监听 `popstate`，只在模式变化时激活界面。浏览器完整刷新从 URL 重新建立根实例，不假称保持现有连接。
-- [ ] 改 `src/index.ts` 渲染外壳，保留 `mode=reset` 逻辑；改 `Setting.tap` 为调用注入的导航函数，教程返回、播放器 home 和站内 `?mode=` 链接也改应用内导航；分享链接仍是标准 URL。根顶栏连接入口调用会话连接／扫描／断开与错误提示，不建立第二份 link。
-- [ ] 运行浏览器回归和 `npm run build`，确认深链与前进／后退。提交 `feat(界面导航): 常驻蓝牙会话并切换缓存界面`。
+- [x] 新建 `scripts/verify-global-ble.js` 的浏览器检查：Mock 连接后菜单切换不产生文档导航；会话和画面实例不变；URL、后退／前进及播放器深链正确。
+- [x] 创建 `AppShell`：根层唯一会话、跟随门控、缓存界面与 History API 导航；刷新时按 URL 重建。
+- [x] 改入口、菜单及站内链接为应用内导航；全局连接面板协调扫描／连接／断开，不建立第二份 link。
+- [x] 浏览器回归与生产构建通过，完成提交。
 
 导航约定：
 
@@ -122,10 +122,10 @@ this.navigate({ mode: key as string });
 
 ## 任务 4：逐界面转动、资源与还原状态
 
-- [ ] 浏览器测试先覆盖：跟随默认开；关闭 `playground` 后实体转动不变画面；重新开启不补动作；其他模式不继承关闭状态。切换回来保持原画面；重置只影响当前模式。播放期间忽略 MOVE 且不补放。
-- [ ] 在外壳跟随控件调用门控，并为每个交互 3D 页面提供明确 `applyPhysicalMove(move, serial?)`、`resetVisualCube()`、`onAppActivate()`、`onAppDeactivate()` 方法。普通页面只用 `twister.push(move)` 追加实时动作，播放组件有动画时直接忽略；BLECross 仍调用自身 `handleEvent`／`onMoveEvent`，不绕开其串号、z2 和虚拟打乱规则。重置直接作用当前 `World.cube`，不调用 BLECross 的「重置本轮」代替还原态。
-- [ ] 缓存界面停止隐藏页的 rAF、键盘监听和需要停顿的计时器，激活时 resize 并只恢复一次循环。`Viewport` 销毁时移除 wheel 监听并释放 renderer；无需销毁的缓存实例只暂停渲染。检验不会有后台重复键盘动作或重复帧循环。
-- [ ] 运行 `npm run test:ble`、浏览器回归与 `npm run build`。提交 `feat(魔方界面): 支持逐界面跟随与独立还原`。
+- [x] 浏览器覆盖跟随开关、逐界面偏好、画面保留／还原以及播放期间忽略 MOVE。
+- [x] 外壳门控向当前普通 3D `World` 追加实时动作，播放时忽略；BLECross 继续走其专用实体事件处理。还原仅作用当前画面。
+- [x] 隐藏页停止 rAF 与键盘操作，CrossF2L 计时暂停；Viewport 销毁时释放监听与 renderer。
+- [x] 蓝牙单测、浏览器回归和生产构建通过。
 
 外壳收到事件时，先判活动模式再调用当前页面的适配器；状态帧绝不走画面适配器：
 
@@ -138,10 +138,10 @@ if (event.type === "move" && gate.accept(activeMode, event)) {
 
 ## 任务 5：BLECross 暂停、恢复和实体账本
 
-- [ ] 在 `scripts/verify-global-ble.js` 增加红灯：观察期、还原期、success 自动下轮等待期分别切走；虚拟时间流逝不计入耗时且不触发下轮；回来从剩余时间继续。期间 Mock MOVE 不计步，不改 3D；首步新 MOVE 只处理一次。连接变更／权威 facelets 不能仅因界面进入而覆盖原场景。
-- [ ] BLECross 移除 `new CubeLink()` 和自身设备级重连；订阅共享会话，只在活动且跟随时把实时 MOVE 交给训练处理。后台实体 facelets 只更新会话账本；重入时以最新 serial 建立事件边界，保留虚拟训练画面和已累计状态。
-- [ ] 增加暂停时间账本：退出时保存暂停起点和自动下轮剩余毫秒、清除定时器；重入时把 `observeStart/solveStart/timerStart` 顺延暂停时长并以剩余毫秒重建倒计时。正在求解的异步回调要检查活动代际，不能在后台写结果。离开期间发生实体 MOVE 时显示可能失同步提示。
-- [ ] 跑 `npm run verify:blecross`、`npm run verify:global-ble` 和 `npm run test:ble`。提交 `feat(蓝牙训练): 切换菜单时暂停并恢复训练局`。
+- [x] 浏览器覆盖观察期、还原期、success 自动下轮等待期、后台转动和断线／重连；预览及基线自愈切页后取消。
+- [x] BLECross 使用共享会话，重入按最新状态／代际重建实体账本，不用权威帧覆盖保留的画面。
+- [x] 暂停时间账本顺延观察／还原计时并恢复自动下轮剩余时间；最优解异步回调用请求 ID 防止后台写回。
+- [x] 旧版 BLECross 回归、全局浏览器回归和蓝牙单测通过。
 
 暂停时间账本使用活动时间，避免 `Date.now()` 跨菜单继续累计：
 
@@ -168,7 +168,7 @@ onAppActivate(): void {
 
 ## 任务 6：完整验证与交付
 
-- [ ] `npm run test:ble`、`npm run test:android`、`npm run build`、`npm run verify:blecross`、`npm run verify:bleconnect`、`npm run verify:global-ble`，阅读完整退出码和失败数。
-- [ ] 真机／Android APK 中验证连接、跨菜单、扫描、断开与重连；若无真机环境，明确报告未验证真机，不以 Mock 冒充。
-- [ ] `git diff --check`，检查仅任务范围的变动。构建产物若按仓库惯例受版本控制，同步 `dist/` 与 Android assets。保留用户现有 README、`.trae/`、`.superpowers/` 改动，不混入提交。
-- [ ] 给用户交付行为摘要、验证结果和剩余风险；只有用户另行要求时才推送或发布新 APK。
+- [x] 蓝牙／Android 单测、生产构建、BLECross／连接教程／全局浏览器回归通过。
+- [x] 构建 Debug／Release APK；无真机环境，真机连接与切页仍待用户验证。
+- [x] 检查差异与受跟踪产物，同步 `dist/` 和 Android assets；用户无关文件不纳入提交。
+- [ ] 向用户交付摘要、验证结果和真机风险；不推送或发布 APK。

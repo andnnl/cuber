@@ -2,7 +2,7 @@
 //
 // 桥协议:
 //   JS → Java: window.__bleNative 的 5 个 @JavascriptInterface 方法
-//     scan() / stopScan() / connect(address) / disconnect() / write(charUuid, base64)
+//     scan() / stopScan() / connect(address, generation) / disconnect() / write(charUuid, base64)
 //   Java → JS: evaluateJavascript 调 window.__ble.dispatch(type, payloadJson)
 //     scan {address,name} / services {services:[{uuid,notify[],write[]}]} /
 //     notify {data:base64} / disconnected {} / error {message} / bluetoothOn {}
@@ -35,7 +35,8 @@ function bytesToBase64(bytes: Uint8Array): string {
 export class NativeBridgeTransport implements BleTransport {
   readonly kind = "native" as const;
 
-  private bridge: { scan(): void; stopScan(): void; connect(address: string): void; disconnect(): void; write(charUuid: string, base64: string): void };
+  private bridge: { scan(): void; stopScan(): void; connect(address: string, generation: number): void; disconnect(): void; write(charUuid: string, base64: string): void };
+  private generation = 0;
 
   private bytesCb: ((data: Uint8Array) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
@@ -81,13 +82,21 @@ export class NativeBridgeTransport implements BleTransport {
     this.bridge.stopScan();
   }
 
-  onScan(cb: (devices: { address: string; name: string }[]) => void): void {
+  onScan(cb: (devices: { address: string; name: string }[]) => void): () => void {
     this.scanCbs.push(cb);
     cb(this.currentDevices()); // 立即回放当前已发现的列表
+    return () => {
+      const index = this.scanCbs.indexOf(cb);
+      if (index >= 0) this.scanCbs.splice(index, 1);
+    };
   }
 
-  onError(cb: (message: string) => void): void {
+  onError(cb: (message: string) => void): () => void {
     this.errorCbs.push(cb);
+    return () => {
+      const index = this.errorCbs.indexOf(cb);
+      if (index >= 0) this.errorCbs.splice(index, 1);
+    };
   }
 
   currentDevices(): { address: string; name: string }[] {
@@ -119,11 +128,12 @@ export class NativeBridgeTransport implements BleTransport {
     }
     this.pendingAddress = address;
     this.pendingName = this.devices.get(address)?.name || address;
+    const generation = ++this.generation;
     this.stopScan();
     return new Promise<DeviceInfo>((resolve, reject) => {
       this.connectResolve = resolve;
       this.connectReject = reject;
-      this.bridge.connect(address);
+      this.bridge.connect(address, generation);
       // 服务发现超时保护 (系统蓝牙无法回调时兜底)
       this.connectTimer = window.setTimeout(() => {
         this.failConnect(new Error("连接超时"));
@@ -132,6 +142,7 @@ export class NativeBridgeTransport implements BleTransport {
   }
 
   async disconnect(): Promise<void> {
+    this.generation++;
     this.connected = false;
     this.commandChar = "";
     const reject = this.connectReject;
@@ -166,6 +177,10 @@ export class NativeBridgeTransport implements BleTransport {
     } catch {
       return;
     }
+    if (["services", "notify", "disconnected", "error"].indexOf(type) >= 0 &&
+      payload.generation !== undefined && payload.generation !== this.generation) return;
+    // 连接相关事件必须带代际；无代际的扫描错误仍允许显示。
+    if (["services", "notify", "disconnected"].indexOf(type) >= 0 && payload.generation === undefined) return;
     switch (type) {
       case "scan": {
         const dev = { address: String(payload.address || ""), name: String(payload.name || "") };
@@ -259,6 +274,7 @@ export class NativeBridgeTransport implements BleTransport {
     this.connected = false;
     this.commandChar = "";
     this.cleanupConnect();
+    this.generation++;
     this.bridge.disconnect();
     if (reject) {
       reject(err);

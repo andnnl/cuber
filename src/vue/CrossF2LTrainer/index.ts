@@ -33,6 +33,24 @@ function invertMove(token: string): string {
   },
 })
 export default class CrossF2LTrainer extends Vue {
+  private appActive = true;
+  private viewFrame: number | null = null;
+  private pausedAt: number | null = null;
+  onAppDeactivate(): void {
+    this.appActive = false;
+    this.pausedAt = performance.now();
+    if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame);
+    this.viewFrame = null;
+    if (this.restoreTimer !== null) { clearTimeout(this.restoreTimer); this.restoreTimer = null; }
+  }
+  onAppActivate(): void {
+    if (this.appActive) return;
+    if (this.pausedAt !== null && this.running) this.timerStart += performance.now() - this.pausedAt;
+    this.pausedAt = null;
+    this.appActive = true;
+    this.resize();
+    this.loop();
+  }
   @Provide("world")
   world: World = new World();
 
@@ -54,6 +72,7 @@ export default class CrossF2LTrainer extends Vue {
   private solutions: string[] = [];
   private selectedSolution = -1;
   private solving = false;
+  private solveRequestId = 0;
 
   // 求解模式: cross = 仅十字; xcross = 十字 + 求解槽位一组 F2L (仅 WASM 支持)。
   // xcross 解法依赖求解槽位 solveSlot, 切换需重算 (cross 与槽位无关)
@@ -290,6 +309,7 @@ export default class CrossF2LTrainer extends Vue {
     this.world.dirty = true;
     // 旧解法基于旋转前坐标系, 立即从列表移除防止误选; 动画结束后重新求解
     this.solutions = [];
+    this.solveRequestId++;
     this.stepIndex = 0;
     this.selectedSolution = -1;
     this.pendingSolve = true;
@@ -431,7 +451,7 @@ export default class CrossF2LTrainer extends Vue {
     this.loop();
     // 计时显示兜底刷新 (切后台时 rAF 暂停, interval 仍触发)
     this.timerTick = window.setInterval(() => {
-      if (this.running) {
+      if (this.appActive && this.running) {
         this.elapsedText = this.computeElapsed();
       }
     }, 250);
@@ -454,6 +474,7 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   beforeDestroy(): void {
+    this.onAppDeactivate();
     if (this.timerTick !== null) {
       window.clearInterval(this.timerTick);
       this.timerTick = null;
@@ -535,6 +556,7 @@ export default class CrossF2LTrainer extends Vue {
   // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 重放 baseOps 恢复基准视角并求解。
   // 打乱固定在标准姿态 (黄底绿前) 进行; baseOps 仅由 z2/y/y' 按钮产生且跨轮保留
   private startRound(exp: string): void {
+    this.solveRequestId++;
     this.pendingSolve = false;
     tweener.finish();
     this.restoreView(true);
@@ -607,6 +629,8 @@ export default class CrossF2LTrainer extends Vue {
   // 恢复打乱态后旧解法依然有效, 故保留解法列表与选中项复用, 不重算
   // (仅在解法为空时重试求解, 覆盖「上次求解失败后重置」场景)
   reset(): void {
+    this.solveRequestId++;
+    this.solving = false;
     this.pendingSolve = false;
     tweener.finish();
     this.restoreView(true);
@@ -703,6 +727,7 @@ export default class CrossF2LTrainer extends Vue {
   //     世界层转与手动执行语义一致, 见 play 注释)。
   //     (底面十字颜色跟随配色: D 材质在默认配色显黄、白底配色显白)
   private async solve(): Promise<void> {
+    const requestId = ++this.solveRequestId;
     this.solving = true;
     try {
       let state = this.world.cube.serialize();
@@ -715,6 +740,7 @@ export default class CrossF2LTrainer extends Vue {
         this.solveMode === "xcross"
           ? await this.solver.solveXCross(state, this.solveSlot, 5)
           : await this.solver.solveCross(state, 5, 8);
+      if (requestId !== this.solveRequestId) return;
       // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化; 最多取 4 条
       this.solutions = (raw || [])
         .map((s: any) => (Array.isArray(s) ? s.join(" ") : String(s)).trim())
@@ -729,11 +755,12 @@ export default class CrossF2LTrainer extends Vue {
             : "十字已完成或求解失败, 请点击「重新打乱」";
       }
     } catch (e) {
+      if (requestId !== this.solveRequestId) return;
       console.error("[CrossF2LTrainer] 求解失败", e);
       this.solutions = [];
       this.result = "求解失败, 请点击「重新打乱」";
     } finally {
-      this.solving = false;
+      if (requestId === this.solveRequestId) this.solving = false;
     }
   }
 
@@ -1023,7 +1050,8 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   loop(): void {
-    requestAnimationFrame(this.loop.bind(this));
+    if (!this.appActive) return;
+    this.viewFrame = requestAnimationFrame(() => this.loop());
     tickHighlights();
     // 计时运行中每帧刷新显示文本
     if (this.running) {

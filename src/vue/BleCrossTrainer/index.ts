@@ -1,4 +1,4 @@
-import { Component, Provide, Ref, Vue } from "vue-property-decorator";
+import { Component, Inject, Provide, Ref, Vue } from "vue-property-decorator";
 import World from "../../cuber/world";
 import { TwistAction } from "../../cuber/twister";
 import { COLORS, FACE } from "../../cuber/define";
@@ -10,7 +10,8 @@ import * as THREE from "three";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
-import { CubeLink, CubeLinkKind, CubeLinkStatus, webBluetoothAvailable, nativeBridgeAvailable, getNativeTransport } from "../../ble/cube-link";
+import { CubeLinkKind, CubeLinkStatus, webBluetoothAvailable, nativeBridgeAvailable } from "../../ble/cube-link";
+import { CubeSession, SessionSnapshot } from "../../ble/cube-session";
 import { LinkEvent } from "../../ble/types";
 import { SOLVED_FACELETS, brandFaceletsToState, isCrossDone, f2lSlotsDone } from "../../ble/facelets";
 import { applyFaceletMove, applyFormulaFrom, z2Move, toTrainFrame, rotateFaceletsByOps } from "../../ble/move-diff";
@@ -238,7 +239,16 @@ export default class BleCrossTrainer extends Vue {
   viewport: Viewport;
 
   // ---- 蓝牙连接 ----
-  private link: CubeLink = new CubeLink();
+  @Inject("cubeSession") private link: CubeSession;
+  @Inject("openConnection") private openGlobalConnection: () => void;
+  private appActive = true;
+  private pausedAt: number | null = null;
+  private autoNextRemaining: number | null = null;
+  private backgroundMoveSerial: number | null = null;
+  private backgroundFacelets: string | null = null;
+  private suspendAuthorityScene = false;
+  private inheritedConnection = false;
+  private sessionGeneration = 0;
   webBt: boolean = webBluetoothAvailable();
   nativeBt: boolean = nativeBridgeAvailable(); // APK 内 (BleBridge 注入 window.__bleNative)
   status: CubeLinkStatus = "disconnected";
@@ -254,7 +264,7 @@ export default class BleCrossTrainer extends Vue {
   scanDialog = false;
   scanDevices: { address: string; name: string }[] = [];
   scanStatus = "";
-  private scanCbRegistered = false;
+  private stopNativeScan: (() => void) | null = null;
   private scanStartTimer: any = null;
   private scanEmptyTimer: any = null;
 
@@ -489,8 +499,17 @@ export default class BleCrossTrainer extends Vue {
     // 持久化的手动 MAC (用户上次填写过, 下次复用避免再次输入)
     this.manualMac = window.localStorage.getItem("bleManualMac") || "";
     (window as any).__bleCross = this; // 临时调试
-    this.link.onStatus((s) => this.onLinkStatus(s));
-    this.link.onEvent((e) => this.handleEvent(e));
+    const snapshot = this.link.snapshot;
+    this.sessionGeneration = snapshot.generation;
+    this.status = snapshot.status;
+    this.deviceName = snapshot.deviceName;
+    this.battery = snapshot.battery;
+    if (snapshot.status === "connected") {
+      this.inheritedConnection = true;
+      this.phase = "ready";
+      this.statusText = "连接已保持，当前画面未同步实体；点「新打乱」开始训练";
+      this.rebasePhysicalLedger(snapshot);
+    }
     // 手动练习: 每次转层动画结束 (含鼠标拧动/回弹) 后判定
     this.world.callbacks.push(() => this.onManualTwist());
     // 无关块可视化: 每次转层落定 (所有模式: 手动拧动/蓝牙镜像/setup 快转/z2 翻转/预览播放)
@@ -501,12 +520,12 @@ export default class BleCrossTrainer extends Vue {
     this.loop();
     // 计时显示兜底刷新 (切后台时 rAF 暂停, interval 仍触发)
     this.timerTick = window.setInterval(() => {
-      if (this.running) {
+      if (this.appActive && this.running) {
         this.elapsedText = this.computeElapsed();
       }
     }, 250);
     this.initSolver();
-    this.tryAutoReconnect();
+    // 设备级自动重连由 AppShell 的唯一会话发起。
   }
 
   beforeDestroy(): void {
@@ -527,16 +546,126 @@ export default class BleCrossTrainer extends Vue {
     this.clearBleBaselineHeal();
   }
 
+  onSessionSnapshot(snapshot: SessionSnapshot): void {
+    const previous = this.status;
+    const changedGeneration = snapshot.generation !== this.sessionGeneration;
+    this.sessionGeneration = snapshot.generation;
+    this.deviceName = snapshot.deviceName || this.deviceName;
+    this.battery = snapshot.battery;
+    if (!this.appActive) return;
+    if (previous !== snapshot.status) this.onLinkStatus(snapshot.status);
+    if (changedGeneration && snapshot.status === "connected") this.rebasePhysicalLedger(snapshot);
+  }
+
+  handlePhysicalEvent(event: LinkEvent): void {
+    if (this.appActive) this.handleEvent(event);
+  }
+
+  onAppDeactivate(): void {
+    this.appActive = false;
+    this.pausedAt = Date.now();
+    this.backgroundMoveSerial = this.link.snapshot.lastMoveSerial;
+    this.backgroundFacelets = this.link.snapshot.facelets;
+    if (this.generatingDifficulty) this.cancelDifficultyGeneration();
+    this.bestReqId++; // 后台求解结果不允许覆盖保存的训练局。
+    this.autoNextRemaining = this.resultTimer === null ? null : Math.max(0, this.autoNextDeadline - this.pausedAt);
+    this.clearAutoNextSchedule();
+    // 预览与基线自愈不能在缓存页面继续驱动画面；保留离开时已完成的状态。
+    this.cancelBestPlay();
+    this.clearBleBaselineHeal();
+    if (this.stateTimer !== null) {
+      window.clearTimeout(this.stateTimer);
+      this.stateTimer = null;
+    }
+    if (this.animationFrameId !== null) cancelAnimationFrame(this.animationFrameId);
+    this.animationFrameId = null;
+  }
+
+  onAppActivate(): void {
+    if (this.appActive) return;
+    const pausedMs = Date.now() - (this.pausedAt || Date.now());
+    if (this.observeStart) this.observeStart += pausedMs;
+    if (this.solveStart) this.solveStart += pausedMs;
+    if (this.timerStart) this.timerStart += pausedMs;
+    this.pausedAt = null;
+    this.appActive = true;
+    const snapshot = this.link.snapshot;
+    const generationChanged = snapshot.generation !== this.sessionGeneration;
+    this.sessionGeneration = snapshot.generation;
+    if (this.status !== snapshot.status) {
+      if (snapshot.status === "disconnected") {
+        // 后台断线不把缓存中的训练画面重置为实体/轮次起点。
+        this.status = "disconnected";
+        this.resetBleReconciliation();
+        this.isManual = true;
+        this.running = false;
+        this.phase = "ready";
+        this.statusText = "离开期间蓝牙已断开；画面保留，可重新连接或新打乱";
+      } else this.onLinkStatus(snapshot.status);
+    }
+    // 切回来不补发状态帧或历史 MOVE，也不把实体当前态覆盖训练画面。
+    if (generationChanged && snapshot.status === "connected") {
+      this.inheritedConnection = true;
+      if (this.phase === "disconnected") this.phase = "ready";
+      this.rebasePhysicalLedger(snapshot);
+    }
+    this.deviceName = snapshot.deviceName || this.deviceName;
+    this.battery = snapshot.battery;
+    if (snapshot.status === "connected" &&
+      (generationChanged || this.backgroundMoveSerial !== snapshot.lastMoveSerial || this.backgroundFacelets !== snapshot.facelets)) {
+      this.rebasePhysicalLedger(snapshot);
+      this.statusText = "离开期间魔方可能变化；可继续、重置或新打乱";
+    }
+    this.backgroundMoveSerial = null;
+    this.backgroundFacelets = null;
+    if (this.autoNextRemaining !== null && this.autoNext && this.phase === "success") {
+      this.scheduleAutoNext(this.autoNextRemaining);
+    }
+    this.autoNextRemaining = null;
+    this.loop();
+    if (this.showBest && !this.bestReady && !this.bestXReady && this.solveBaseState) {
+      this.requestBest(this.solveBaseState);
+    }
+  }
+
+  onPhysicalFollowChanged(enabled: boolean): void {
+    if (!enabled) {
+      this.suspendAuthorityScene = true;
+      return;
+    }
+    this.rebasePhysicalLedger(this.link.snapshot);
+  }
+
+  /** 只更新实体序号和预测账本，不用状态帧替换用户留在屏幕上的训练画面。 */
+  private rebasePhysicalLedger(snapshot: SessionSnapshot): void {
+    const normalized = snapshot.facelets && brandFaceletsToState(snapshot.facelets);
+    if (normalized) this.predicted = normalized;
+    if (snapshot.lastMoveSerial !== null) {
+      this.bleEventSerial = snapshot.lastMoveSerial;
+      this.bleMoveSerial = snapshot.lastMoveSerial;
+      this.bleAuthoritativeSerial = null;
+    }
+    this.bleRoundSyncPending = false;
+    this.bleSessionBaselinePending = false;
+    this.clearBleBaselineHeal();
+    this.suspendAuthorityScene = true;
+  }
+
+  resetVisualCube(): void {
+    this.rebasing = true;
+    this.world.cube.twister.setup("");
+    this.rebasing = false;
+    this.suspendAuthorityScene = true;
+    this.invalidateVisibilityTargets();
+    this.applyVisibility();
+  }
+
   // ================= 连接 =================
 
   /** 连接入口: APK 内走原生扫描弹窗, 浏览器走 Web Bluetooth 系统弹窗。
    * 三模式统一: 手动练习中也可直接点连接 (连上后蓝牙接管, 以魔方当前状态继续练习) */
   onConnectTap(): void {
-    if (this.nativeBt) {
-      this.openScanDialog();
-    } else if (this.webBt) {
-      this.connect("web");
-    }
+    this.openGlobalConnection();
   }
 
   async connect(kind: CubeLinkKind, opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<void> {
@@ -633,42 +762,18 @@ export default class BleCrossTrainer extends Vue {
   /** 打开扫描弹窗并开始 BLE 扫描 (APK) */
   openScanDialog(): void {
     this.scanDialog = true;
-    const transport = getNativeTransport();
-    if (!this.scanCbRegistered) {
-      this.scanCbRegistered = true;
-      transport.onScan((devices) => {
-        this.scanDevices = devices;
-        if (this.scanDialog && devices.length > 0) {
-          this.scanStatus = "点击要连接的魔方";
-        }
-      });
-      transport.onError((message) => {
-        if (this.scanDialog) {
-          this.scanStatus = message;
-        }
-      });
-    }
     this.restartScan();
   }
 
   restartScan(): void {
-    const transport = getNativeTransport();
-    transport.stopScan();
+    this.stopNativeScan?.();
     this.scanDevices = [];
     this.scanStatus = "扫描中, 请确保魔方已开机...";
-    if (this.scanEmptyTimer) {
-      window.clearTimeout(this.scanEmptyTimer);
-    }
-    // stopScan/startScan 都经原生 UI 线程排队；稍作间隔确保重复扫描真正重启。
-    if (this.scanStartTimer) {
-      window.clearTimeout(this.scanStartTimer);
-    }
-    this.scanStartTimer = window.setTimeout(() => {
-      this.scanStartTimer = null;
-      if (this.scanDialog) {
-        transport.startScan(15000);
-      }
-    }, 100);
+    this.stopNativeScan = this.link.scanNative((devices) => {
+      this.scanDevices = devices;
+      if (devices.length) this.scanStatus = "点击要连接的魔方";
+    }, (message) => { this.scanStatus = message; });
+    if (this.scanEmptyTimer) window.clearTimeout(this.scanEmptyTimer);
     this.scanEmptyTimer = window.setTimeout(() => {
       if (this.scanDialog && this.scanDevices.length === 0) {
         this.scanStatus = "未发现魔方, 请确认已开机且靠近手机后重试";
@@ -685,7 +790,8 @@ export default class BleCrossTrainer extends Vue {
       window.clearTimeout(this.scanEmptyTimer);
       this.scanEmptyTimer = null;
     }
-    getNativeTransport().stopScan();
+    this.stopNativeScan?.();
+    this.stopNativeScan = null;
     this.scanDialog = false;
   }
 
@@ -703,6 +809,8 @@ export default class BleCrossTrainer extends Vue {
     debugLog("[BLECross] link status →", s, "| phase:", this.phase, "| isManual:", this.isManual);
     this.status = s;
     if (s === "connected") {
+      this.inheritedConnection = false;
+      this.suspendAuthorityScene = false;
       // 三模式统一 (蓝牙/mock/手动同一套界面与流程): 手动练习中连接成功 = 蓝牙接管
       // (输入源 touch→ble, 会话不丢, 首包到达后以魔方当前状态直接开轮);
       // 常规连接 = 等待首包后自动生成首轮打乱
@@ -1074,6 +1182,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private playNextBestMove(): void {
+    if (!this.appActive) return;
     const token = this.bestPlayQueue.shift();
     if (token === undefined) {
       this.finishBestPlay();
@@ -1252,6 +1361,7 @@ export default class BleCrossTrainer extends Vue {
     this.bleBaselineHealState = raw;
     this.bleBaselineHealSerial = this.faceletsMoveSerial(serial);
     this.bleBaselineHealTimer = window.setTimeout(() => {
+      if (!this.appActive) { this.clearBleBaselineHeal(); return; }
       const state = this.bleBaselineHealState;
       const baseline = this.bleBaselineHealSerial;
       this.clearBleBaselineHeal();
@@ -1417,7 +1527,7 @@ export default class BleCrossTrainer extends Vue {
     if (raw !== this.predicted) {
       const connectPending = this.status === "connected" && (this.phase === "ready" || this.phase === "disconnected");
       const virtualRound = this.isVirtualBleRound();
-      const heal = !suppressJudge && idle > 2500 && !connectPending && !virtualRound;
+      const heal = !this.suspendAuthorityScene && !suppressJudge && idle > 2500 && !connectPending && !virtualRound;
       debugLog(
         `[BT] AUTH 校正: predicted=raw${heal ? " → 3D 对齐 (静止自愈)" : virtualRound ? " (虚拟轮次仅校正实体账本)" : suppressJudge ? " (轮次基线不重绘)" : " (转动中仅修正推演)"}` +
           ` s=${serial} ph=${this.phase} raw=${raw} pred旧=${this.predicted}`
@@ -1434,7 +1544,7 @@ export default class BleCrossTrainer extends Vue {
     if (this.calibStep >= 0) {
       return; // 校准中: 状态推演已同步, 跳过训练判定/自动开轮 (校准转层会改状态)
     }
-    if (this.status === "connected" && (this.phase === "ready" || this.phase === "disconnected")) {
+    if (!this.inheritedConnection && this.status === "connected" && (this.phase === "ready" || this.phase === "disconnected")) {
       if (this.takeoverPending) {
         // 手动→蓝牙接管: 以魔方当前状态直接进入观察态 (首次转动开始计时), 不强制打乱匹配;
         // 想要打乱轮随时点「新打乱」
@@ -2076,6 +2186,8 @@ export default class BleCrossTrainer extends Vue {
   /** 新一轮: 蓝牙模式以魔方当前物理状态为基准等待拧到目标态; 手动模式直接打乱 3D。
    * 未连接蓝牙时点「新打乱」: 自动进入手动练习模式 (无蓝牙也能完整练习打乱/还原/重置) */
   async newScramble(): Promise<void> {
+    this.inheritedConnection = false;
+    this.suspendAuthorityScene = false;
     const requestId = ++this.scrambleGenerationId;
     if (this.difficulty === "random") {
       this.startScramble(this.world.cube.twister.scrambler());
@@ -2212,6 +2324,7 @@ export default class BleCrossTrainer extends Vue {
   /** 重置本轮 (三模式统一): 3D 回本轮打乱基准，计时/步数/history 清零重新观察；
    * 最优解基准不变，不触发重算。 */
   resetRound(): void {
+    this.suspendAuthorityScene = false;
     debugLog(
       `[BT] RESET 点击 ph=${this.phase} manual=${this.isManual} pred=${this.predicted} base=${this.solveBaseState} z2On=${this.z2On}`
     );
@@ -2447,12 +2560,16 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 从完整的 2.5 秒开始安排自动下轮，并同步启动 0.1 秒倒计时展示。 */
-  private scheduleAutoNext(): void {
+  private scheduleAutoNext(delayMs = 2500): void {
     this.clearAutoNextSchedule();
     if (!this.autoNext || this.phase !== "success") {
       return;
     }
-    this.autoNextDeadline = Date.now() + 2500;
+    if (!this.appActive) {
+      this.autoNextRemaining = delayMs;
+      return;
+    }
+    this.autoNextDeadline = Date.now() + delayMs;
     this.refreshAutoNextCountdown();
     this.autoNextCountdownTimer = window.setInterval(() => this.refreshAutoNextCountdown(), 100);
     this.resultTimer = window.setTimeout(() => {
@@ -2473,7 +2590,7 @@ export default class BleCrossTrainer extends Vue {
       } catch (e) {
         onError(e);
       }
-    }, 2500);
+    }, delayMs);
   }
 
   /** 「显示最优解」勾选变更: 持久化; 中途开启时补求本轮最优解 (打乱等待/观察/还原/完成阶段都补) */
@@ -2806,6 +2923,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   loop(): void {
+    if (!this.appActive) return;
     this.animationFrameId = requestAnimationFrame(this.loopFrame);
     if (this.running) {
       const elapsed = this.computeElapsed();

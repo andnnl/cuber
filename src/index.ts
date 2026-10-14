@@ -3,16 +3,7 @@ import Vuetify from "vuetify";
 import "vuetify/dist/vuetify.min.css";
 import "material-design-icons/iconfont/material-icons.css";
 import "./index.css";
-import Playground from "./vue/Playground";
-import Director from "./vue/Director";
-import Player from "./vue/Player";
-import Helper from "./vue/Helper";
-import Algs from "./vue/Algs";
-import F2LTrainer from "./vue/F2LTrainer";
-import CrossF2LTrainer from "./vue/CrossF2LTrainer";
-import BleCrossTrainer from "./vue/BleCrossTrainer";
-import BleConnectTutorial from "./vue/BleConnectTutorial";
-import { VueConstructor } from "vue/types/umd";
+import AppShell from "./vue/AppShell";
 
 /* eslint-disable */
 var _hmt: any = _hmt || [];
@@ -34,44 +25,13 @@ const list = search.match(/(\?|\&)mode=([^&]*)(&|$)/);
 const mode = list ? list[2] : "playground";
 Vue.prototype.mode = mode;
 
-let app: VueConstructor;
-switch (mode) {
-  case "director":
-    app = Director;
-    break;
-  case "algs":
-    app = Algs;
-    break;
-  case "player":
-    app = Player;
-    break;
-  case "helper":
-    app = Helper;
-    break;
-  case "f2l":
-    app = F2LTrainer;
-    break;
-  case "crossf2l":
-    app = CrossF2LTrainer;
-    break;
-  case "blecross":
-    app = BleCrossTrainer;
-    break;
-  case "bleconnect":
-    app = BleConnectTutorial;
-    break;
-  case "reset":
-    window.localStorage.clear();
-    const link = window.location.origin + window.location.pathname;
-    window.location.replace(link);
-    break;
-  default:
-    app = Playground;
-    break;
+if (mode === "reset") {
+  window.localStorage.clear();
+  window.location.replace(window.location.origin + window.location.pathname);
 }
 const vm = new Vue({
   vuetify,
   el: "#app",
-  render: (h): VNode => h(app),
+  render: (h): VNode => h(AppShell),
 });
 export default vm;

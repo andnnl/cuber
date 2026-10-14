@@ -94,6 +94,11 @@ export class DirectorData {
   },
 })
 export default class Director extends Vue {
+  private appActive = true;
+  private viewFrame: number | null = null;
+  onAppDeactivate(): void { this.appActive = false; if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame); this.viewFrame = null; }
+  onAppActivate(): void { if (this.appActive) return; this.appActive = true; this.resize(); this.loop(); }
+  beforeDestroy(): void { this.onAppDeactivate(); }
   @Provide("world")
   world: World = new World();
 
@@ -195,7 +200,8 @@ export default class Director extends Vue {
   }
 
   loop(): void {
-    requestAnimationFrame(this.loop.bind(this));
+    if (!this.appActive) return;
+    this.viewFrame = requestAnimationFrame(() => this.loop());
     this.viewport.draw();
     if (this.recording) {
       this.record();

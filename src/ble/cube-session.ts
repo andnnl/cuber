@@ -1,5 +1,6 @@
 import { CubeLink, CubeLinkKind, CubeLinkStatus } from "./cube-link";
 import { DeviceInfo, LinkEvent } from "./types";
+import { getNativeTransport, NativeBridgeTransport } from "./transport/native";
 
 export type SessionSnapshot = {
   status: CubeLinkStatus;
@@ -31,7 +32,8 @@ export class CubeSession {
   private stopStatus: () => void;
   private reconnectStarted = false;
 
-  constructor(private readonly link: CubeLink = new CubeLink()) {
+  constructor(private readonly link: CubeLink = new CubeLink(),
+    private readonly nativeTransport: () => Pick<NativeBridgeTransport, "onScan" | "onError" | "startScan" | "stopScan"> = getNativeTransport) {
     this.stopEvent = link.onEvent((event) => {
       if (event.type === "facelets") this.state.facelets = event.facelets;
       if (event.type === "battery") this.state.battery = event.level;
@@ -133,6 +135,20 @@ export class CubeSession {
   requestFacelets(): Promise<void> { return this.link.requestFacelets(); }
   requestBattery(): Promise<void> { return this.link.requestBattery(); }
   mockApplyFormula(moves: string): void { this.link.mockApplyFormula(moves); }
+
+  /** 扫描窗口只借用共享传输层；关闭时撤销监听，连接会话不受影响。 */
+  scanNative(onScan: (devices: { address: string; name: string }[]) => void,
+    onError: (message: string) => void): () => void {
+    const transport = this.nativeTransport();
+    const stopScan = transport.onScan(onScan);
+    const stopError = transport.onError(onError);
+    transport.startScan(15000);
+    return () => {
+      transport.stopScan();
+      stopScan();
+      stopError();
+    };
+  }
 
   dispose(): void {
     this.stopEvent();

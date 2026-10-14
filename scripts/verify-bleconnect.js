@@ -1,6 +1,16 @@
 async page => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto("http://127.0.0.1:8080/?mode=bleconnect");
+  let base = "";
+  for (const candidate of ["http://127.0.0.1:18081/", "http://127.0.0.1:18080/", "http://127.0.0.1:8080/"]) {
+    try {
+      await page.goto(candidate + "?mode=bleconnect");
+      await page.waitForSelector("[data-ble-connect-tutorial]", { timeout: 1500 });
+      base = candidate;
+      break;
+    } catch { /* 下一个本地开发端口 */ }
+  }
+  if (!base) throw new Error("未找到 Cuber 本地开发服务");
+  await page.goto(base + "?mode=bleconnect");
   await page.waitForLoadState("domcontentloaded");
 
   const desktop = await page.evaluate(() => {
@@ -49,7 +59,7 @@ async page => {
     throw new Error(`蓝牙教程移动端横向溢出: ${JSON.stringify(mobile)}`);
   }
 
-  await page.goto("http://127.0.0.1:8080/?mode=blecross");
+  await page.goto(base + "?mode=blecross");
   await page.waitForFunction(() => window.__bleCross);
   const helpLink = await page.evaluate(async () => {
     const vm = window.__bleCross;

@@ -69,6 +69,11 @@ export default class Viewport extends Vue {
     this.canvas.appendChild(this.renderer.domElement);
   }
 
+  beforeDestroy(): void {
+    document.removeEventListener("wheel", this.wheel, false);
+    this.renderer.dispose();
+  }
+
   draw(): boolean {
     if (this.world.dirty || this.world.cube.dirty) {
       this.renderer.clear();

@@ -13,6 +13,7 @@ import * as WasmSolver from "../../wasm/WasmSolver";
 import { indexedDBStorage } from "../../util/IndexedDBStorage";
 
 class KeyHandle {
+  enabled = true;
   width = 2;
   display = false;
   callback: (key: string) => void;
@@ -62,6 +63,7 @@ class KeyHandle {
   }
 
   keydown = (event: KeyboardEvent): boolean => {
+    if (!this.enabled || (event.target instanceof HTMLElement && /INPUT|TEXTAREA/.test(event.target.tagName))) return false;
     const id = event.keyCode | event.which;
 
     if (id == 51 || id == 55) {
@@ -88,6 +90,7 @@ class KeyHandle {
     }
     return false;
   };
+  dispose(): void { document.removeEventListener("keydown", this.keydown, false); }
 }
 
 export class PlaygroundData {
@@ -187,6 +190,22 @@ export class PlaygroundData {
   },
 })
 export default class Playground extends Vue {
+  private appActive = true;
+  private viewFrame: number | null = null;
+  onAppDeactivate(): void {
+    this.appActive = false;
+    this.keyboard.enabled = false;
+    if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame);
+    this.viewFrame = null;
+  }
+  onAppActivate(): void {
+    if (this.appActive) return;
+    this.appActive = true;
+    this.keyboard.enabled = true;
+    this.resize();
+    this.loop();
+  }
+  beforeDestroy(): void { this.onAppDeactivate(); this.keyboard.dispose(); }
   @Provide("world")
   world: World = new World();
 
@@ -349,7 +368,8 @@ export default class Playground extends Vue {
   }
 
   loop(): void {
-    requestAnimationFrame(this.loop.bind(this));
+    if (!this.appActive) return;
+    this.viewFrame = requestAnimationFrame(() => this.loop());
     this.breath();
     this.viewport.draw();
     if (this.data.complete) {

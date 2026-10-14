@@ -1,5 +1,6 @@
 import Vue from "vue";
-import { Component } from "vue-property-decorator";
+import { Component, Inject } from "vue-property-decorator";
+import { AppRoute } from "../../ble/app-route";
 import Order from "../Menu/Order";
 import Control from "../Menu/Control";
 import Appear from "../Menu/Appear";
@@ -35,6 +36,9 @@ export class SettingItem {
   },
 })
 export default class Setting extends Vue {
+  @Inject("navigate") navigate: (route: AppRoute) => void;
+  @Inject("getActiveMode") getActiveMode: () => string;
+  get mode(): string { return this.getActiveMode(); }
   menu = false;
 
   items: { [key: string]: SettingItem } = {};
@@ -71,14 +75,7 @@ export default class Setting extends Vue {
       case "f2l":
       case "crossf2l":
       case "blecross":
-        let search = location.search || "";
-        const list = search.match(/(\?|\&)mode=([^&]*)(&|$)/);
-        const mode = list ? list[2] : "playground";
-        if (mode != key) {
-          search = key === "playground" ? "" : "?mode=" + key;
-          const link = window.location.origin + window.location.pathname + search;
-          window.location.replace(link);
-        }
+        this.navigate({ mode: key });
         break;
       default:
         if (key instanceof SettingItem) {

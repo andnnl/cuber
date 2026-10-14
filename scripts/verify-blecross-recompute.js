@@ -1,5 +1,6 @@
 async page => {
   const candidateUrls = [
+    "http://127.0.0.1:18081/?mode=blecross",
     "http://127.0.0.1:8080/?mode=blecross",
     "http://127.0.0.1:18080/?mode=blecross",
   ];

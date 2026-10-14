@@ -40,7 +40,7 @@ import java.util.UUID;
  * JS → Java:
  *   scan()                       开始 BLE 扫描 (结果经 "scan" 事件逐个上报)
  *   stopScan()                   停止扫描
- *   connect(address)             GATT 连接 + 服务发现 + 订阅全部通知特征 ("services" 事件)
+ *   connect(address, generation) GATT 连接 + 服务发现 + 订阅全部通知特征 ("services" 事件)
  *   disconnect()                 断开 GATT ("disconnected" 事件)
  *   write(charUuid, base64)      写特征 (Android 内部排队, 避免 BLE 单写窗口冲突)
  *
@@ -76,6 +76,8 @@ public class BleBridge {
     private final List<byte[]> writeDatas = new ArrayList<>();
     /** 权限申请前的意图: "scan" 或目标设备地址 */
     private String pendingAction = "";
+    /** JS 发起的连接代际；回调入队时固定，防止旧 evaluateJavascript 落到新连接。 */
+    private volatile int connectionGeneration = 0;
 
     public BleBridge(Activity activity, WebView webView) {
         this.activity = activity;
@@ -98,9 +100,10 @@ public class BleBridge {
     }
 
     @JavascriptInterface
-    public void connect(final String address) {
+    public void connect(final String address, final int generation) {
         Log.i(TAG, "connect requested: " + address);
         activity.runOnUiThread(() -> {
+            connectionGeneration = generation;
             if (adapter == null) {
                 dispatchError("设备不支持蓝牙");
                 return;
@@ -120,6 +123,7 @@ public class BleBridge {
     @JavascriptInterface
     public void disconnect() {
         activity.runOnUiThread(() -> {
+            connectionGeneration++;
             stopScanInternal();
             if (gatt != null) {
                 gatt.disconnect(); // STATE_DISCONNECTED 回调里 close + 上报
@@ -571,6 +575,12 @@ public class BleBridge {
 
     /** 回调 JS: window.__ble.dispatch(type, payloadJson) (必须 UI 线程) */
     private void dispatch(final String type, final JSONObject payload) {
+        if (type.equals("services") || type.equals("notify") || type.equals("disconnected") || type.equals("error")) {
+            try {
+                payload.put("generation", connectionGeneration);
+            } catch (Exception ignored) {
+            }
+        }
         final String js = "window.__ble&&window.__ble.dispatch("
                 + JSONObject.quote(type) + "," + JSONObject.quote(payload.toString()) + ");";
         activity.runOnUiThread(() -> webView.evaluateJavascript(js, null));

@@ -1,0 +1,38 @@
+<div data-app-shell @click.capture="onInternalLink">
+  <keep-alive>
+    <component :is="currentComponent" :key="currentKey" ref="activeView"></component>
+  </keep-alive>
+  <div class="global-ble-bar" data-global-ble>
+    <button type="button" @click="openConnection" data-global-connect>
+      {{snapshot.status === 'connected' ? '🔵 ' + (snapshot.deviceName || '已连接') : snapshot.status === 'connecting' ? '蓝牙连接中…' : 'ᛒ 连接魔方'}}
+    </button>
+    <template v-if="isCubeView">
+      <label><input type="checkbox" :checked="following" @change="setFollowing($event.target.checked)" data-global-follow>跟随实体魔方</label>
+      <button type="button" @click="resetVisualCube" data-global-reset>还原画面</button>
+    </template>
+  </div>
+  <div v-if="connectionOpen" class="global-ble-backdrop" @click.self="closeConnection">
+    <section class="global-ble-dialog" role="dialog" aria-label="蓝牙魔方连接">
+      <button type="button" class="global-ble-close" @click="closeConnection">×</button>
+      <h3>蓝牙魔方</h3>
+      <p>{{snapshot.status === 'connected' ? (snapshot.deviceName || '已连接') : snapshot.status === 'connecting' ? '正在连接…' : '未连接'}}
+        <span v-if="snapshot.battery !== null"> · 电量 {{snapshot.battery}}%</span></p>
+      <p v-if="snapshot.error" role="alert">{{snapshot.error}}</p>
+      <template v-if="snapshot.status === 'disconnected'">
+        <template v-if="supportsBluetooth && !nativeBt">
+          <input v-model="manualMac" placeholder="MAC 地址（可选）" aria-label="MAC 地址">
+          <button type="button" @click="connect('web')">选择并连接</button>
+        </template>
+        <template v-if="nativeBt">
+          <p>{{scanMessage}}</p>
+          <button type="button" @click="startScan">重新扫描</button>
+          <button v-for="device in scanDevices" :key="device.address" type="button" @click="connect('native', device.address)">
+            {{device.name || 'GAN 魔方'}} · {{device.address}}
+          </button>
+        </template>
+        <button type="button" @click="connect('mock')">连接模拟魔方（演示）</button>
+      </template>
+      <button v-if="snapshot.status === 'connected'" type="button" @click="disconnect">断开连接</button>
+    </section>
+  </div>
+</div>
