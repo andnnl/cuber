@@ -606,6 +606,40 @@ async function main() {
     assert.strictEqual(gate.accept("director", { type: "move", move: "B" }), true);
   });
 
+  await test("共享会话跨界面只连接一次，保存设备状态且取消订阅", async () => {
+    const { CubeSession } = req("cube-session.js");
+    let created = 0;
+    const link = new CubeLink(() => {
+      created++;
+      return new MockGanCubeTransport();
+    });
+    const session = new CubeSession(link);
+    const snapshots = [];
+    const events = [];
+    const stop = session.subscribe((snapshot) => snapshots.push(snapshot), (event) => events.push(event));
+    await session.connect("mock");
+    await flush();
+    assert.strictEqual(created, 1);
+    assert.strictEqual(session.snapshot.status, "connected");
+    assert.ok(session.snapshot.facelets);
+    assert.strictEqual(session.snapshot.battery, 87);
+    session.mockApplyFormula("R");
+    await flush();
+    assert.ok(events.some((event) => event.type === "move" && event.move === "R"));
+    assert.ok(session.snapshot.lastMoveSerial !== null);
+    const eventCount = events.length;
+    stop();
+    session.mockApplyFormula("U");
+    await flush();
+    assert.strictEqual(events.length, eventCount);
+    assert.strictEqual(created, 1);
+    await session.disconnect();
+    assert.strictEqual(session.snapshot.status, "disconnected");
+    assert.strictEqual(session.snapshot.facelets, null);
+    assert.ok(snapshots.some((snapshot) => snapshot.status === "connected"));
+    session.dispose();
+  });
+
   console.log("== GAN Gen2 全链路 (Mock) ==");
 
   await test("连接后 REQUEST_FACELETS 返回复原态", async () => {

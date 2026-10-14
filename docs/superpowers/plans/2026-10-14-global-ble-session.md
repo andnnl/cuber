@@ -63,10 +63,10 @@ onEvent(cb: (event: LinkEvent) => void): () => void {
 
 ## 任务 2：抽取唯一连接会话
 
-- [ ] 在 `scripts/test-ble.js` 增加失败测试：跨两次 `activate` 只创建一次 `CubeLink`；连接、状态、电量、facelets 和最近 MOVE 序号持续更新；取消订阅与断连后无旧回调。使用现有 `MockGanCubeTransport` 和注入式 link factory，不依赖浏览器全局。
-- [ ] 运行 `npm run test:ble` 观察红灯。
-- [ ] 实现 `CubeSession`：持有一个 `CubeLink`，提供 `connect(kind, opts)`、`disconnect()`、`requestFacelets()`、`requestBattery()`、`mockApplyFormula()`、`subscribe(onSnapshot, onEvent)` 及 `dispose()`；事件回调接收完整 `LinkEvent`，仅 UI 门控决定是否驱动画面。保存现有 `bleLastKind/bleLastMac/bleLastName/bleManualMac` 键。将 BLECross 中 `tryAutoReconnect` 的设备级流程移入会话；只调用一次，连接失败保留错误供用户重试。扫描仍复用 `getNativeTransport()`，关闭对话框停止扫描但不影响连接。
-- [ ] `npm run test:ble` 全绿。提交 `feat(蓝牙连接): 将设备生命周期提升为共享会话`。
+- [x] 在 `scripts/test-ble.js` 增加失败测试：跨两次 `activate` 只创建一次 `CubeLink`；连接、状态、电量、facelets 和最近 MOVE 序号持续更新；取消订阅与断连后无旧回调。使用现有 `MockGanCubeTransport` 和注入式 link factory，不依赖浏览器全局。
+- [x] 运行 `npm run test:ble` 观察红灯。
+- [x] 实现 `CubeSession`：持有一个 `CubeLink`，提供 `connect(kind, opts)`、`disconnect()`、`requestFacelets()`、`requestBattery()`、`mockApplyFormula()`、`subscribe(onSnapshot, onEvent)` 及 `dispose()`；事件回调接收完整 `LinkEvent`，仅 UI 门控决定是否驱动画面。保存现有 `bleLastKind/bleLastMac/bleLastName/bleManualMac` 键。将 BLECross 中 `tryAutoReconnect` 的设备级流程移入会话；只调用一次，连接失败保留错误供用户重试。扫描仍复用 `getNativeTransport()`，关闭对话框停止扫描但不影响连接。
+- [x] `npm run test:ble` 全绿。提交 `feat(蓝牙连接): 将设备生命周期提升为共享会话`。
 
 接口约定：
 
