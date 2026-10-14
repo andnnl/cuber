@@ -562,6 +562,50 @@ async function main() {
     assert.strictEqual(link.status, "disconnected");
   });
 
+  await test("CubeLink 事件与状态订阅可独立取消", async () => {
+    const link = new CubeLink(() => new MockGanCubeTransport());
+    const statuses = [];
+    const events = [];
+    const stopStatus = link.onStatus((status) => statuses.push(status));
+    const stopEvent = link.onEvent((event) => events.push(event));
+    await link.connect("mock");
+    await flush();
+    assert.ok(statuses.includes("connected"));
+    assert.ok(events.length > 0);
+    stopStatus();
+    stopEvent();
+    stopStatus();
+    stopEvent();
+    const statusCount = statuses.length;
+    const eventCount = events.length;
+    link.mockApplyFormula("R");
+    await flush();
+    await link.disconnect();
+    assert.strictEqual(statuses.length, statusCount);
+    assert.strictEqual(events.length, eventCount);
+  });
+
+  await test("跟随按界面默认开启，只接受活动界面的实时新动作", () => {
+    const { FollowGate } = req("follow-gate.js");
+    const values = new Map();
+    const gate = new FollowGate({
+      getItem: (key) => values.get(key) || null,
+      setItem: (key, value) => values.set(key, value),
+    });
+    gate.activate("playground");
+    assert.strictEqual(gate.isEnabled("playground"), true);
+    assert.strictEqual(gate.accept("playground", { type: "move", move: "R" }), true);
+    gate.activate("director");
+    assert.strictEqual(gate.accept("playground", { type: "move", move: "U" }), false);
+    gate.setEnabled("director", false);
+    assert.strictEqual(gate.accept("director", { type: "move", move: "F" }), false);
+    assert.strictEqual(values.get("bleFollow:director"), "0");
+    gate.setEnabled("director", true);
+    assert.strictEqual(gate.accept("director", { type: "move", move: "B", recovered: true }), false);
+    assert.strictEqual(gate.accept("director", { type: "facelets", facelets: "" }), false);
+    assert.strictEqual(gate.accept("director", { type: "move", move: "B" }), true);
+  });
+
   console.log("== GAN Gen2 全链路 (Mock) ==");
 
   await test("连接后 REQUEST_FACELETS 返回复原态", async () => {

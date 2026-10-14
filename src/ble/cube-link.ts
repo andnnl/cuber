@@ -43,17 +43,25 @@ export class CubeLink {
 
   constructor(private transportFactory: TransportFactory = createTransport) {}
 
-  onEvent(cb: (e: LinkEvent) => void): void {
+  onEvent(cb: (e: LinkEvent) => void): () => void {
     this.eventCbs.push(cb);
+    return () => {
+      const index = this.eventCbs.indexOf(cb);
+      if (index >= 0) this.eventCbs.splice(index, 1);
+    };
   }
 
-  onStatus(cb: (s: CubeLinkStatus) => void): void {
+  onStatus(cb: (s: CubeLinkStatus) => void): () => void {
     this.statusCbs.push(cb);
+    return () => {
+      const index = this.statusCbs.indexOf(cb);
+      if (index >= 0) this.statusCbs.splice(index, 1);
+    };
   }
 
   private setStatus(s: CubeLinkStatus): void {
     this.status = s;
-    for (const cb of this.statusCbs) {
+    for (const cb of [...this.statusCbs]) {
       cb(s);
     }
   }
@@ -169,7 +177,7 @@ export class CubeLink {
       default:
         break;
     }
-    for (const cb of this.eventCbs) {
+    for (const cb of [...this.eventCbs]) {
       cb(e);
     }
   }

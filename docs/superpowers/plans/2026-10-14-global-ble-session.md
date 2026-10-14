@@ -26,11 +26,11 @@
 
 ## 任务 1：建立可取消订阅及门控纯逻辑
 
-- [ ] 在 `scripts/test-ble.js` 加失败测试：`CubeLink.onEvent/onStatus` 返回的清理函数调用后不再通知；同一回调不会重复积累。再测跟随默认开启、按模式关闭、退出／再入不回放、`recovered` MOVE 丢弃、连接代际变更重置起点。
-- [ ] 运行 `npm run test:ble`，确认新增断言先失败。
-- [ ] 修改 `src/ble/cube-link.ts`：`onEvent(cb): () => void` 与 `onStatus(cb): () => void` 在注册后返回取消函数；遍历快照 `for (const cb of [...this.eventCbs])`，保证回调中取消安全。已有忽略返回值的调用保持兼容。
-- [ ] 新建 `src/ble/follow-gate.ts`：`FollowGate` 以 `activeMode`、`enabledByMode`（默认 true）和会话代际决定 `accept(mode, event)`；仅活动、启用、非 recovered 的实时 MOVE 为 true。`activate(mode)` 不重放队列；`setEnabled(mode, enabled)` 写 `bleFollow:<mode>`，存储读取异常时按默认开启。门控不持有 `World`。
-- [ ] `npm run test:ble` 应全绿。将测试和实现一起提交为 `feat(蓝牙连接): 增加可取消订阅与跟随门控`，不要单独提交失败测试。
+- [x] 在 `scripts/test-ble.js` 加失败测试：`CubeLink.onEvent/onStatus` 返回的清理函数调用后不再通知；同一回调不会重复积累。再测跟随默认开启、按模式关闭、退出／再入不回放、`recovered` MOVE 丢弃、连接代际变更重置起点。
+- [x] 运行 `npm run test:ble`，确认新增断言先失败。
+- [x] 修改 `src/ble/cube-link.ts`：`onEvent(cb): () => void` 与 `onStatus(cb): () => void` 在注册后返回取消函数；遍历快照 `for (const cb of [...this.eventCbs])`，保证回调中取消安全。已有忽略返回值的调用保持兼容。
+- [x] 新建 `src/ble/follow-gate.ts`：`FollowGate` 以 `activeMode`、`enabledByMode`（默认 true）和会话代际决定 `accept(mode, event)`；仅活动、启用、非 recovered 的实时 MOVE 为 true。`activate(mode)` 不重放队列；`setEnabled(mode, enabled)` 写 `bleFollow:<mode>`，存储读取异常时按默认开启。门控不持有 `World`。
+- [x] `npm run test:ble` 应全绿。将测试和实现一起提交为 `feat(蓝牙连接): 增加可取消订阅与跟随门控`，不要单独提交失败测试。
 
 关键测试示例（扩展已有 `test` 辅助函数）：
 
