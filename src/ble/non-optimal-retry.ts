@@ -1,4 +1,4 @@
-export type RetryTrainMode = "cross" | "xcross";
+export type RetryTrainMode = "cross" | "xcross" | "xxcross" | "xxxcross";
 
 export interface RetryBestSlot {
   slot: string;
@@ -27,7 +27,7 @@ export function bestComparableSteps(input: NonOptimalRetryInput): number | null 
   }
   const completed = new Set(input.completedSlots);
   const steps = input.bestX
-    .filter((item) => completed.has(item.slot) && item.available)
+    .filter((item) => item.available && item.slot.split("+").every(slot => completed.has(slot)))
     .map((item) => item.steps);
   return steps.length > 0 ? Math.min(...steps) : null;
 }

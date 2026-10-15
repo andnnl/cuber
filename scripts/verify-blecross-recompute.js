@@ -1,5 +1,6 @@
 async page => {
   const candidateUrls = [
+    "http://127.0.0.1:18645/?mode=blecross",
     "http://127.0.0.1:18081/?mode=blecross",
     "http://127.0.0.1:8080/?mode=blecross",
     "http://127.0.0.1:18080/?mode=blecross",
@@ -25,6 +26,7 @@ async page => {
       localStorage.setItem("bleVisHide", "1");
       localStorage.setItem("bleDifficulty", "random");
       localStorage.removeItem("bleTrainMode");
+      localStorage.setItem("bleSolveSlotMode", "ALL");
       localStorage.removeItem("bleVisSlot");
     }, enabled);
     await page.reload();
@@ -64,6 +66,7 @@ async page => {
     localStorage.setItem("bleVisHide", "1");
     localStorage.setItem("bleDifficulty", "random");
     localStorage.setItem("bleTrainMode", "xcross");
+    localStorage.setItem("bleSolveSlotMode", "ALL");
     localStorage.setItem("bleVisSlot", "FL");
   });
   await page.reload();
@@ -1668,17 +1671,18 @@ async page => {
     vm.world.cube.twister.push("R");
     vm.world.cube.twister.finish();
     const current = vm.mapStateForJudge(vm.world.cube.serialize());
+    const frozen = vm.analysisCoreBase;
     vm.trainMode = "xcross";
     vm.saveTrainMode();
-    return { current };
+    return { current, frozen };
   });
   await page.waitForFunction(() => window.__bleCross.bestXReady);
   const switchedState = await page.evaluate(() => {
     const calls = window.__bleCross.__solveCalls;
     return calls[calls.length - 1].state;
   });
-  if (switchedState !== staleBase.current) {
-    throw new Error("蓝牙模式切换没有基于当前 3D 状态重算");
+  if (switchedState !== staleBase.frozen) {
+    throw new Error(`蓝牙模式切换没有保留本轮起点: ${JSON.stringify({ switchedState, ...staleBase })}`);
   }
 
   for (const turns of [1, -1]) {

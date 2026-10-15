@@ -3,6 +3,26 @@
 // 本样式由组件 mounted 钩子注入 document.head
 
 export const BLE_THEME_CSS = `
+.ble-recommendation-panel { position: absolute; bottom: 0; left: 0; right: 0; height: 42vh; z-index: 12; background: #fff; box-shadow: 0 -3px 16px #28345a30; display: flex; flex-direction: column; padding: 8px 10px; box-sizing: border-box; font-size: 13px; }
+.ble-recommendation-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; padding: 4px 0; }
+.ble-recommendation-toolbar button, .ble-recommendation-toolbar select { border: 1px solid #cbd2e6; border-radius: 5px; padding: 4px 6px; background: #f5f7fc; }
+.ble-recommendation-list { overflow-y: auto; flex: 1; overscroll-behavior: contain; }
+.ble-recommendation-item { display: flex; flex-direction: column; gap: 3px; text-align: left; width: 100%; margin: 4px 0; padding: 8px; border: 1px solid #dbe1ed; border-radius: 7px; background: #fff; color: #273349; overflow-wrap: anywhere; }
+.ble-recommendation-item span { font: 600 14px/1.4 'Roboto Mono', monospace; }
+.ble-recommendation-formula-row { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.ble-recommendation-formula-row .ble-recommendation-formula { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ble-recommendation-item small { color: #66728b; }
+.ble-recommendation-item .ble-grip-start { display: block; font-weight: 600; color: #455a72; }
+.ble-recommendation-item .ble-grip-step { display: block; line-height: 1.55; }
+.ble-recommendation-item.selected { border-color: #5b6bf0; background: #eef0ff; }
+.ble-recommendation-controls { display: flex; flex: none; gap: 3px; }
+.ble-recommendation-controls button { min-width: 32px; min-height: 32px; padding: 4px; border: 1px solid #b8c3e1; border-radius: 6px; background: #fff; color: #344577; cursor: pointer; touch-action: manipulation; }
+.ble-recommendation-controls button:disabled { opacity: .45; cursor: default; }
+.ble-recommendation-dialog .v-card__text { overflow-y: auto; }
+.ble-recommendation-dialog .ble-recommendation-list { max-height: calc(100vh - 120px); }
+.ble-selected-recommendation { display: flex; align-items: center; gap: 5px; min-width: 0; margin-top: 4px; padding: 3px 7px; background: #eef0ff; border-radius: 5px; font-size: 11px; }
+.ble-selected-recommendation span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ble-multi-slots { display: inline-flex; gap: 3px; font-size: 11px; white-space: nowrap; }
 /* ===== 面板卡片: 白卡 + 柔和分层阴影 ===== */
 .ble-card {
   background: #ffffff !important;

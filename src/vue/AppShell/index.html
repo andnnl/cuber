@@ -19,9 +19,13 @@
         <span v-if="snapshot.battery !== null"> · 电量 {{snapshot.battery}}%</span></p>
       <p v-if="snapshot.error" role="alert">{{snapshot.error}}</p>
       <template v-if="snapshot.status === 'disconnected'">
-        <template v-if="supportsBluetooth && !nativeBt">
-          <input v-model="manualMac" placeholder="MAC 地址（可选）" aria-label="MAC 地址">
-          <button type="button" @click="connect('web')">选择并连接</button>
+        <template v-if="!nativeBt">
+          <input v-model="manualMac" placeholder="AA:BB:CC:DD:EE:FF" aria-label="MAC 地址" autocomplete="off" @input="macError = ''">
+          <button type="button" @click="connect('web')" :disabled="!supportsBluetooth">选择魔方连接</button>
+          <button type="button" @click="connect('web', undefined, true)" :disabled="!supportsBluetooth || !manualMac.trim()">用 MAC 连接</button>
+          <p v-if="macError" role="alert">{{macError}}</p>
+          <p v-if="!supportsBluetooth">当前浏览器不支持 Web Bluetooth；请使用支持该功能的浏览器，并通过 HTTPS 或 localhost 打开页面。</p>
+          <small v-else>输入 MAC 后仍需在浏览器设备选择框中授权魔方；MAC 用于连接后的协议解密。</small>
         </template>
         <template v-if="nativeBt">
           <p>{{scanMessage}}</p>

@@ -42,6 +42,7 @@ export default class AppShell extends Vue {
   scanDevices: { address: string; name: string }[] = [];
   scanMessage = "";
   manualMac = window.localStorage.getItem("bleManualMac") || "";
+  macError = "";
   private stopSession: (() => void) | null = null;
   private stopScan: (() => void) | null = null;
 
@@ -170,12 +171,21 @@ export default class AppShell extends Vue {
     this.connectionOpen = false;
   }
 
-  async connect(kind: "web" | "mock" | "native", address?: string): Promise<void> {
+  async connect(kind: "web" | "mock" | "native", address?: string, useMac = false): Promise<void> {
+    this.macError = "";
+    let mac = "";
+    if (kind === "web" && useMac) {
+      const compact = this.manualMac.replace(/[:-]/g, "").trim();
+      if (!/^[0-9a-fA-F]{12}$/.test(compact)) {
+        this.macError = "请输入有效的 12 位十六进制 MAC 地址";
+        return;
+      }
+      mac = compact.match(/.{2}/g)!.join(":").toUpperCase();
+    }
     this.closeScan();
     try {
-      const opts = kind === "native" ? { address } : kind === "web" && this.manualMac.trim()
-        ? { mac: this.manualMac.trim() } : undefined;
-      if (kind === "web") window.localStorage.setItem("bleManualMac", this.manualMac.trim());
+      const opts = kind === "native" ? { address } : kind === "web" && useMac ? { mac } : undefined;
+      if (kind === "web" && useMac) window.localStorage.setItem("bleManualMac", mac);
       await this.session.connect(kind, opts);
       this.connectionOpen = false;
     } catch {

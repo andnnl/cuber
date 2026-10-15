@@ -13,7 +13,7 @@ import { PreferanceData, PaletteData } from "../../data";
 import { CubeLinkKind, CubeLinkStatus, webBluetoothAvailable, nativeBridgeAvailable } from "../../ble/cube-link";
 import { CubeSession, SessionSnapshot } from "../../ble/cube-session";
 import { LinkEvent } from "../../ble/types";
-import { SOLVED_FACELETS, brandFaceletsToState, isCrossDone, f2lSlotsDone } from "../../ble/facelets";
+import { SOLVED_FACELETS, brandFaceletsToState, f2lSlotsDone } from "../../ble/facelets";
 import { applyFaceletMove, applyFormulaFrom, z2Move, toTrainFrame, rotateFaceletsByOps } from "../../ble/move-diff";
 import { baseOpsFaceCharMap, BaseOp } from "../CrossF2LTrainer/pieces";
 import Solver from "../../solver/Solver";
@@ -26,10 +26,14 @@ import {
   generateExactCrossScramble,
   parseCrossDifficulty,
 } from "../../ble/cross-difficulty";
-import { shouldRetryNonOptimal } from "../../ble/non-optimal-retry";
+import { bestComparableSteps, shouldRetryNonOptimal, NonOptimalRetryInput } from "../../ble/non-optimal-retry";
 import { isSolveTimeOverTarget, parseSolveTimeTarget } from "../../ble/solve-time-target";
 import { SolveRequestCache } from "../../ble/solve-request-cache";
 import { debugLog } from "../../util/debug-log";
+import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
+import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "../CrossF2LTrainer/recommendations";
+import { verifySolvedTargets } from "../CrossF2LTrainer/training-targets";
+import { CrossTrainMode, SlotSelectionMode, pairCountForMode, normalizeTrainSlots, evaluateCrossTarget, CROSS_SLOTS } from "../../ble/cross-training-target";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
@@ -59,7 +63,7 @@ function slotToPhysical(slot: string): string {
  * best=最优解步数 (-1 无), steps=用户实际步数 (HTM 口径) */
 type TrainRecord = {
   t: number;
-  mode: "cross" | "xcross";
+  mode: CrossTrainMode;
   difficulty?: CrossDifficulty;
   ok: boolean;
   obs: number | null;
@@ -272,7 +276,27 @@ export default class BleCrossTrainer extends Vue {
   // 打乱后统一进入 observing: 首次层转 (实体拧动或鼠标) 才进入 solving 计时
   phase: "disconnected" | "ready" | "observing" | "solving" | "success" = "disconnected";
   // 练习模式: cross = 只还原十字; xcross = 十字 + 任一 F2L 槽位 (localStorage "bleTrainMode")
-  trainMode: "cross" | "xcross" = "cross";
+  trainMode: CrossTrainMode = "cross";
+  solveSlotMode: SlotSelectionMode = "ALL";
+  solveSlot = "FR";
+  selectedSolveSlots: string[] = ["FR", "BL", "FL"];
+  private analysisClient = new CrossAnalysisClient();
+  private multiBestClient = new CrossAnalysisClient();
+  recommendations: Recommendation[] = [];
+  recommendationOpen = false;
+  recommendationFull = false;
+  recommendationBusy = false;
+  recommendationError = "";
+  recommendationAll = false;
+  recommendationFront = "ALL";
+  recommendationDepth = "ALL";
+  private recommendationScroll = 0;
+  gripVersion: "simple" | "full" = "simple";
+  selectedRecommendationId: string | null = null;
+  private recommendationRequestId = 0;
+  private analysisCoreBase = "";
+  private recommendationViewOps: BaseOp[] = [];
+  readonly fronts = FRONTS;
   difficulty: CrossDifficulty = "random";
   private roundDifficulty: CrossDifficulty | null = null;
   private scrambleGenerationId = 0;
@@ -323,6 +347,7 @@ export default class BleCrossTrainer extends Vue {
   // 正确但步数不是最优时自动重置同一局；仅与自动下轮同时开启时生效
   retryNonOptimal = false;
   private retryCurrentRound = false;
+  private completedBestSteps: number | null = null;
   // 0=关闭；正确还原后以首次转动到完成的原始毫秒比较，不包含观察时间
   solveTimeTarget = 0;
   private completedSolveMs: number | null = null;
@@ -493,9 +518,13 @@ export default class BleCrossTrainer extends Vue {
       this.visSlot = savedVisSlot;
     }
     const savedMode = window.localStorage.getItem("bleTrainMode");
-    if (savedMode === "xcross") {
-      this.trainMode = "xcross";
-    }
+    if (["cross", "xcross", "xxcross", "xxxcross"].indexOf(savedMode || "") >= 0) this.trainMode = savedMode as CrossTrainMode;
+    this.solveSlotMode = window.localStorage.getItem("bleSolveSlotMode") === "FIXED" ? "FIXED" : "ALL";
+    const savedSlot = window.localStorage.getItem("bleSolveSlot");
+    if (savedSlot && CROSS_SLOTS.indexOf(savedSlot) >= 0) this.solveSlot = savedSlot;
+    this.selectedSolveSlots = normalizeTrainSlots(
+      (window.localStorage.getItem("bleMultiSolveSlots") || "FR,BL,FL").split(","),
+      this.trainMode === "xxcross" ? 2 : 3);
     // 持久化的手动 MAC (用户上次填写过, 下次复用避免再次输入)
     this.manualMac = window.localStorage.getItem("bleManualMac") || "";
     (window as any).__bleCross = this; // 临时调试
@@ -529,6 +558,8 @@ export default class BleCrossTrainer extends Vue {
   }
 
   beforeDestroy(): void {
+    this.analysisClient.dispose();
+    this.multiBestClient.dispose();
     this.cancelDifficultyGeneration();
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
@@ -562,6 +593,8 @@ export default class BleCrossTrainer extends Vue {
   }
 
   onAppDeactivate(): void {
+    this.invalidateRecommendations();
+    this.multiBestClient.cancel();
     this.appActive = false;
     this.pausedAt = Date.now();
     this.backgroundMoveSerial = this.link.snapshot.lastMoveSerial;
@@ -940,8 +973,8 @@ export default class BleCrossTrainer extends Vue {
     return this.displayFormulaWithOps(this.bestSolution, this.bestViewOps);
   }
 
-  /** 基准态十字已完成且尚未拆散 (自动下轮直入观察态): 最优解暂无意义, 展示占位提示。
-   * needBreak 语义即「本轮基准态十字已完成且尚未观察到拆散」(startSolving/newScramble/
+  /** 基准态训练目标已完成且尚未拆散 (自动下轮直入观察态): 最优解暂无意义, 展示占位提示。
+   * needBreak 语义即「本轮基准态目标已完成且尚未观察到拆散」(startSolving/newScramble/
    * resetRound/fallbackToTouch 按基准态核心帧统一设定, 观察到拆散后复位) */
   get bestWaitingScramble(): boolean {
     return this.needBreak;
@@ -953,7 +986,7 @@ export default class BleCrossTrainer extends Vue {
     // formula=屏幕帧 (同 bestSolutionText, 文本与播放一致); raw=求解器原串,
     // 预览按钮/游标 (bestStepPos) 的 key 与播放输入恒用 raw
     return this.bestX.map((b) => ({
-      slot: this.slotDisplayNameWithOps(b.slot, this.bestViewOps),
+      slot: b.slot.split("+").map(slot => this.slotDisplayNameWithOps(slot, this.bestViewOps)).join("+"),
       steps: b.steps,
       formula: this.displayFormulaWithOps(b.formula, this.bestViewOps),
       raw: b.formula,
@@ -1028,12 +1061,9 @@ export default class BleCrossTrainer extends Vue {
     }
     this.applyZ2Flip(false); // 平滑动画
     // 目标十字随视角底色变化 (黄底⇄白底): 刷新提示语; 按新底色目标重求最优解
-    // (判定只认当前底色, 见 isTargetCrossDone; 打乱等待期按打乱目标态重求)
+    // (判定只认当前底色, 见 isTrainDone; 打乱等待期按打乱目标态重求)
     if (this.phase === "observing" || this.phase === "solving") {
-      this.statusText =
-        this.trainMode === "xcross"
-          ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
-          : "十字进行中: 还原" + this.crossTargetText();
+      this.statusText = this.targetModeText;
     }
     if (physical && this.currentBestBase()) {
       this.requestBest(physical, this.effectiveViewOps());
@@ -1110,13 +1140,16 @@ export default class BleCrossTrainer extends Vue {
 
   /** 恢复当前最优解绑定的 3D 起点，不改变训练阶段、计时、步数或蓝牙权威状态。 */
   private resetBestPreview(formula: string, clearAll: boolean): boolean {
-    if (!formula || !formula.trim() || !/^[URFDLB]{54}$/.test(this.bestBaseState)) {
+    const recommended = this.selectedRecommendation?.physicalMoves.join(" ") === formula;
+    const base = recommended ? this.analysisCoreBase : this.bestBaseState;
+    const viewOps = recommended ? this.recommendationViewOps : this.bestViewOps;
+    if (!formula || !formula.trim() || !/^[URFDLB]{54}$/.test(base)) {
       return false;
     }
     this.rebasing = true;
     try {
-      this.syncScene(this.bestBaseState);
-      for (const op of this.bestViewOps) {
+      this.syncScene(base);
+      for (const op of viewOps) {
         for (const group of this.world.cube.table.groups[op.axis]) {
           group.twist(op.times * (Math.PI / 2), true);
         }
@@ -1146,7 +1179,8 @@ export default class BleCrossTrainer extends Vue {
 
   /** 解法展示记号序列 (物理帧→当前屏幕面换名, 与展示文本同一记号) */
   private bestMovesOf(formula: string): string[] {
-    return this.displayFormulaWithOps(formula, this.bestViewOps)
+    const recommended = this.selectedRecommendation?.physicalMoves.join(" ") === formula;
+    return this.displayFormulaWithOps(formula, recommended ? this.recommendationViewOps : this.bestViewOps)
       .trim()
       .split(/\s+/)
       .filter(Boolean);
@@ -1479,7 +1513,7 @@ export default class BleCrossTrainer extends Vue {
         // FACELETS 只负责实体序号对账；训练守卫必须按当前 3D 画面计算。
         // 蓝牙与鼠标都是向虚拟打乱基准追加一步，不能用实体真态覆盖画面语义。
         const screen = this.mapStateForJudge(this.world.cube.serialize());
-        this.needBreak = this.isTargetCrossDone(screen || this.solveBaseState || valid);
+        this.needBreak = this.isTrainDone(screen || this.solveBaseState || valid);
       }
       return;
     }
@@ -1667,11 +1701,8 @@ export default class BleCrossTrainer extends Vue {
       // 与鼠标路径一致：守卫按转动前的当前 3D 画面，而不是实体 predicted 计算。
       // 否则实体恰为复原态时，一步解会被错误要求“先拆散”。
       const screenBeforeMove = this.mapStateForJudge(this.world.cube.serialize());
-      this.needBreak = this.isTargetCrossDone(screenBeforeMove || this.solveBaseState || SOLVED_FACELETS);
-      this.statusText =
-        this.trainMode === "xcross"
-          ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
-          : "十字进行中: 还原" + this.crossTargetText();
+      this.needBreak = this.isTrainDone(screenBeforeMove || this.solveBaseState || SOLVED_FACELETS);
+      this.statusText = this.targetModeText;
     }
     // 不做首步实体前态交接；蓝牙与鼠标一样在当前 3D 画面追加本步。
     if (prev) {
@@ -1685,7 +1716,7 @@ export default class BleCrossTrainer extends Vue {
 
   // ================= 训练判定 =================
 
-  /** 状态提示里的十字目标描述 (按当前持握视角的底面中心色; 判定只认该底色, 见 isTargetCrossDone) */
+  /** 状态提示里的十字目标描述 (按当前持握视角的底面中心色; 判定只认该底色, 见 isTrainDone) */
   private crossTargetText(): string {
     return this.z2On ? "白色十字 (4 条白棱围住白色中心)" : "黄色十字 (4 条黄棱围住黄色中心)";
   }
@@ -1697,11 +1728,18 @@ export default class BleCrossTrainer extends Vue {
    * 否则按黄底练习时白十字恰好完成会误判成功 (忽略当前是什么底)。
    * xcross = 十字 + 围绕同一中心的任一 F2L 槽位 (角+棱), 槽位与十字同帧判定 */
   private isTrainDone(state: string): boolean {
-    const sel = this.z2On ? toTrainFrame(state) : state;
-    if (this.trainMode === "xcross") {
-      return isCrossDone(sel) && f2lSlotsDone(sel).length > 0;
-    }
-    return isCrossDone(sel);
+    return evaluateCrossTarget(state, this.trainMode, this.solveSlotMode, this.fixedTrainSlots(), this.z2On).ok;
+  }
+
+  private fixedTrainSlots(): string[] {
+    return this.trainMode === "xcross" ? [this.solveSlot] :
+      this.selectedSolveSlots.slice(0, pairCountForMode(this.trainMode));
+  }
+
+  get targetModeText(): string {
+    const pairs = pairCountForMode(this.trainMode);
+    return pairs ? `${this.trainMode.toUpperCase()}: 还原${this.crossTargetText()}并完成${this.solveSlotMode === "FIXED" ? this.fixedTrainSlots().join("+") : "任意" + pairs + "组"} F2L` :
+      "十字进行中: 还原" + this.crossTargetText();
   }
 
   /** 整体转序列 = 轮次基准持握 (baseOps) ⊕ 本轮 history 整体转 (时间序, 已合并同向)。
@@ -1772,13 +1810,6 @@ export default class BleCrossTrainer extends Vue {
     return rotateFaceletsByOps(state, this.effectiveViewOps());
   }
 
-  /** 当前目标十字 (按视角底色 z2On 选黄/白) 是否完成。输入 state: 核心帧 (物理帧,
-   * 中心恒 URFDLB, 与持握/翻转视角无关) —— 蓝牙=predicted/基准态裸串, 手动=
-   * mapStateForJudge 沿完整视图链换算串。白底 (z2On) 经 toTrainFrame 转训练帧判定 */
-  private isTargetCrossDone(state: string): boolean {
-    return isCrossDone(this.z2On ? toTrainFrame(state) : state);
-  }
-
   /** 每次转层动画结束 (鼠标拧动 / 蓝牙镜像落定) 后统一刷新步数并判定。
    * 手动操作应等于蓝牙操作: 两输入源在此汇合, 唯一账本 = 3D cube + history
    * (蓝牙拧动经 mirrorPush 以屏幕记号入 history, 与鼠标步同池), 步数/解法统一从
@@ -1815,10 +1846,7 @@ export default class BleCrossTrainer extends Vue {
       this.phase = "solving";
       this.solveStart = Date.now();
       this.timerStart = this.solveStart;
-      this.statusText =
-        this.trainMode === "xcross"
-          ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
-          : "十字进行中: 还原" + this.crossTargetText();
+      this.statusText = this.targetModeText;
     }
     if (this.phase !== "solving") {
       return;
@@ -1830,11 +1858,11 @@ export default class BleCrossTrainer extends Vue {
     // 沿完整视图链位置置换换算成核心帧 (物理帧) 后判定 (中心恢复标准 URFDLB)
     const state = this.mapStateForJudge(cube.serialize());
     if (this.needBreak) {
-      // 起始态十字已完成时, 须先观察到十字被拆散才允许判定成功
+      // 起始态完整目标已完成时, 须先观察到目标被拆散才允许判定成功
       // (防开轮瞬间 0 步误判成功 → 自动下轮无限循环)
       // 只解除守卫, 不重算最优解: 最优解恒相对本轮打乱目标态固定 (统一模型中
-      // 打乱目标态本身即破损十字, 基准不会是完成态)
-      if (this.isTargetCrossDone(state)) {
+      // 打乱目标态通常未完成目标)
+      if (this.isTrainDone(state)) {
         return;
       }
       this.needBreak = false;
@@ -1861,11 +1889,11 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     if (this.needBreak) {
-      // 起始态十字已完成: 须先观察到十字被拆散才允许判定成功
-      if (this.isTargetCrossDone(state)) {
+      // 起始态完整目标已完成: 须先观察到目标被拆散才允许判定成功
+      if (this.isTrainDone(state)) {
         return;
       }
-      debugLog("[BT] JUDGE 十字已拆散, needBreak 解除");
+      debugLog("[BT] JUDGE 训练目标已拆散, needBreak 解除");
       this.needBreak = false;
     }
     if (this.isTrainDone(state)) {
@@ -1887,10 +1915,7 @@ export default class BleCrossTrainer extends Vue {
     this.observeText = "";
     this.timerStart = Date.now();
     this.running = true;
-    this.statusText =
-      this.trainMode === "xcross"
-        ? "XCross 进行中: 还原" + this.crossTargetText() + "并顺带完成任一组 F2L"
-        : "十字进行中: 还原" + this.crossTargetText();
+    this.statusText = this.targetModeText;
     // 记录求解基准态 (打乱目标态; 手动模式为当时屏幕帧状态), 模式切换时据此重求。
     // screenFrame: 基准态是否为屏幕帧 (手动 newScramble 在 z2 翻转+基准持握重放后捕获,
     // 已含两者姿态) —— resetRound 重绘时据此决定是否重放 z2 翻转 (屏幕帧已含, 重放会双重翻转)
@@ -1902,8 +1927,8 @@ export default class BleCrossTrainer extends Vue {
     const coreBase = this.solveBaseScreenFrame
       ? this.mapStateForJudge(this.solveBaseState)
       : this.solveBaseState;
-    // 起始态十字若已完成 (自动下轮直接开始等): 须先拆散十字, 成功判定才生效
-    this.needBreak = this.isTargetCrossDone(coreBase);
+    // 起始态完整目标若已完成 (自动下轮直接开始等): 须先拆散目标, 成功判定才生效
+    this.needBreak = this.isTrainDone(coreBase);
     // 记录请求最优解时的整体转签名: 手动练习后续整体转会改变当前视角坐标系, 需据此重求
     this.bestRotationSig = JSON.stringify(this.observedOps);
     // 对打乱态预求最优解 (异步, 完成前结果区显示「求解中…」)。整体转后的重求在 onManualTwist
@@ -1933,10 +1958,24 @@ export default class BleCrossTrainer extends Vue {
     this.requestBest(core, viewOps);
   }
 
+  /** 切换训练目标只改变求解语义，不把本轮已拧到一半的画面当成新打乱基准。 */
+  private recomputeBestForTargetChange(): void {
+    if (this.phase !== "observing" && this.phase !== "solving" && this.phase !== "success") return;
+    this.world.cube.twister.finish();
+    this.syncObservedOps();
+    // 旧模式的“先拆散”守卫不能挡住新模式尚未完成的 F2L 目标。
+    if (this.needBreak) this.needBreak = this.isTrainDone(this.mapStateForJudge(this.world.cube.serialize()));
+    if (this.analysisCoreBase) this.requestBest(this.analysisCoreBase, this.effectiveViewOps());
+    else this.recomputeBestFromCurrent();
+  }
+
   /** 按当前模式求解最优解 (cross 单组 / xcross 4 组槽位并行); 关闭「显示最优解」时不求。
    * 重算时机仅三处: 新打乱/跳过/自动下轮 (startSolving), 按 z2 (toggleZ2), 整体转 y/y'
    * (onManualTwist 视角签名变化) —— 其余转动不重算, 最优解相对本轮打乱态固定 */
   private requestBest(state: string, viewOps: BaseOp[] = this.effectiveViewOps()): void {
+    this.invalidateRecommendations();
+    this.analysisCoreBase = state;
+    this.multiBestClient.cancel();
     const requestViewOps = viewOps.map((op) => ({ ...op }));
     // 新请求周期先清残留: 避免异步求解期间短暂显示上一轮旧解; 关闭勾选时同样清,
     // 保证之后重新勾选 (saveShowBest) 能凭 bestReady=false 触发补求
@@ -1962,7 +2001,9 @@ export default class BleCrossTrainer extends Vue {
       this.bestXReady = true;
       return;
     }
-    if (this.trainMode === "xcross") {
+    if (this.trainMode === "xxcross" || this.trainMode === "xxxcross") {
+      this.requestBestMultiCross(state, requestViewOps);
+    } else if (this.trainMode === "xcross") {
       this.requestBestXCross(state, requestViewOps);
     } else {
       this.requestBestSolution(state, requestViewOps);
@@ -2022,7 +2063,7 @@ export default class BleCrossTrainer extends Vue {
   private async requestBestXCross(state: string, viewOps: BaseOp[]): Promise<void> {
     const reqId = ++this.bestReqId;
     try {
-      const slots = ["FL", "FR", "BL", "BR"];
+      const slots = this.solveSlotMode === "FIXED" ? [this.solveSlot] : CROSS_SLOTS;
       const results = await Promise.all(
         slots.map(async (slot) => {
           try {
@@ -2068,6 +2109,205 @@ export default class BleCrossTrainer extends Vue {
     }
   }
 
+  private async requestBestMultiCross(state: string, viewOps: BaseOp[]): Promise<void> {
+    const reqId = ++this.bestReqId;
+    const mode = this.trainMode;
+    const slots = this.solveSlotMode === "FIXED" ? this.fixedTrainSlots().join(",") : "ALL";
+    const solverState = this.z2On ? toTrainFrame(state) : state;
+    try {
+      const raw: { moves: string[]; slots: string[] }[] = await this.multiBestClient.request("solveMultiCross", {
+        facelets: solverState, pairCount: pairCountForMode(mode), slots, maxSolutions: 5, maxDepth: 14,
+      });
+      if (reqId !== this.bestReqId) return;
+      this.bestBaseState = state;
+      this.bestViewOps = viewOps.map(op => ({ ...op }));
+      this.bestX = raw.filter(item => item.slots.length === pairCountForMode(mode) &&
+        item.moves.every(move => /^[URFDLB](2|'|)$/.test(move)) &&
+        verifySolvedTargets(applyFormulaFrom(solverState, item.moves.join(" ")), item.slots).ok)
+        .map(item => ({
+          slot: item.slots.map(slot => this.z2On ? slotToPhysical(slot) : slot).join("+"),
+          formula: item.moves.map(move => this.z2On ? z2Move(move) : move).join(" "),
+          steps: item.moves.length, available: true,
+        }));
+    } catch (error) {
+      if (reqId === this.bestReqId) console.error("[BleCrossTrainer] 多组求解失败", error);
+    } finally {
+      if (reqId === this.bestReqId) this.bestXReady = true;
+    }
+  }
+
+  private invalidateRecommendations(): void {
+    if (this.recommendationGifId) this.cancelRecommendationGif();
+    this.recommendationRequestId++;
+    this.analysisClient.cancel();
+    this.recommendations = [];
+    this.recommendationBusy = false;
+    this.recommendationError = "";
+    this.recommendationOpen = false;
+    this.recommendationFull = false;
+    this.selectedRecommendationId = null;
+  }
+
+  closeRecommendations(): void {
+    this.recommendationOpen = false;
+    this.recommendationFull = false;
+    if (this.recommendationBusy) {
+      this.recommendationRequestId++;
+      this.analysisClient.cancel();
+      this.recommendationBusy = false;
+      this.recommendationError = "搜索已取消，重新打开可重试";
+    }
+  }
+
+  get visibleRecommendations(): Recommendation[] {
+    const filtered = this.recommendations.filter(item =>
+      (this.recommendationFront === "ALL" || item.front === this.recommendationFront) &&
+      (this.recommendationDepth === "ALL" || item.offset === Number(this.recommendationDepth)));
+    return this.recommendationAll ? filtered : filtered.slice(0, 4);
+  }
+
+  get selectedRecommendation(): Recommendation | undefined {
+    return this.recommendations.find(item => item.id === this.selectedRecommendationId);
+  }
+
+  gripInstruction(step: { movement: string; instruction: string; thumb_instruction?: string }): string {
+    return this.gripVersion === "simple" ? simpleGripInstruction(step) :
+      `${step.movement}：${step.instruction}${step.thumb_instruction ? `；${step.thumb_instruction}` : ""}`;
+  }
+
+  selectRecommendation(item: Recommendation): void {
+    if (this.recommendationGifId && this.recommendationGifId !== item.id) this.cancelRecommendationGif();
+    // 只记录展示／预览选择；bestX/bestSolution、重试基准、蓝牙画面和 history 均不改。
+    this.selectedRecommendationId = item.id;
+    this.invalidateVisibilityTargets();
+    this.applyVisibility();
+  }
+
+  toggleRecommendationFull(): void {
+    const from = document.querySelector(this.recommendationFull
+      ? ".ble-recommendation-dialog .ble-recommendation-list" : ".ble-recommendation-panel .ble-recommendation-list") as HTMLElement | null;
+    if (from) this.recommendationScroll = from.scrollTop;
+    this.recommendationFull = !this.recommendationFull;
+    const targetFull = this.recommendationFull;
+    const restore = () => {
+      if (this.recommendationFull !== targetFull) return;
+      const to = document.querySelector(targetFull
+        ? ".ble-recommendation-dialog .ble-recommendation-list" : ".ble-recommendation-panel .ble-recommendation-list") as HTMLElement | null;
+      if (to) to.scrollTop = this.recommendationScroll;
+    };
+    this.$nextTick(restore);
+    window.setTimeout(restore, 350); // Vuetify 弹窗过渡结束会重设内部滚动层。
+  }
+
+  retryRecommendations(): void {
+    this.recommendations = [];
+    this.recommendationError = "";
+    this.recommendationOpen = false;
+    void this.openRecommendations();
+  }
+
+  async openRecommendations(): Promise<void> {
+    if (this.recommendationOpen) { this.closeRecommendations(); return; }
+    this.recommendationOpen = true;
+    if (this.recommendations.length || this.recommendationBusy) return;
+    const coreBase = this.analysisCoreBase;
+    if (!/^[URFDLB]{54}$/.test(coreBase)) {
+      this.recommendationError = "请先新打乱，建立本轮起点";
+      return;
+    }
+    const generation = ++this.recommendationRequestId;
+    const mode = this.trainMode;
+    const white = this.z2On;
+    const selection = this.solveSlotMode;
+    const fixed = this.fixedTrainSlots();
+    const solverState = white ? toTrainFrame(coreBase) : coreBase;
+    this.recommendationViewOps = this.effectiveViewOps().map(op => ({ ...op }));
+    this.recommendationBusy = true;
+    this.recommendationError = "";
+    try {
+      let candidates: Recommendation[] = [];
+      if (mode === "cross") {
+        const result: any = await this.analysisClient.request("recommendCross", { facelets: solverState });
+        const screenCandidates: { moves: string[]; slots: string[] }[] = [];
+        for (const bucket of result.buckets || []) for (const item of bucket.solutions || []) {
+          const trainMoves: string[] = item.moves.map((move: string) => relativeMove(move, bucket.front));
+          if (!verifySolvedTargets(applyFormulaFrom(solverState, trainMoves.join(" ")), []).ok) continue;
+          const screenFront = this.displayMoveWithOps(white ? z2Move(bucket.front) : bucket.front, this.recommendationViewOps);
+          const front = FRONTS.indexOf(screenFront) >= 0 ? screenFront : bucket.front;
+          const physicalMoves = trainMoves.map(move => white ? z2Move(move) : move);
+          const screenMoves = physicalMoves.map(move => this.displayMoveWithOps(move, this.recommendationViewOps));
+          const source = screenCandidates.length;
+          screenCandidates.push({ moves: screenMoves, slots: [] });
+          candidates.push({
+            id: `${bucket.front}:${bucket.depth}:${item.moves.join(" ")}`, front,
+            displayMoves: screenMoves.map(move => physicalMove(move, front)), physicalMoves,
+            slots: [], physicalSlots: [], sourceIndices: [source], route: item.route,
+            depth: bucket.depth, offset: bucket.depth - result.min_depth,
+          });
+        }
+        if (generation !== this.recommendationRequestId) return;
+        // recommendCross 的评分基于训练帧；白底 z2／y 视角换名后，须按屏幕
+        // 实际显示的指法重新评分，避免路线说明与公式不在同一坐标系。
+        const views: any[] = await this.analysisClient.request("scoreExisting", { solutions: screenCandidates });
+        const routes = new Map<string, any>();
+        for (const view of views) for (const item of view.solutions || []) {
+          for (const source of item.sourceIndices || []) routes.set(`${view.front}:${source}`, item.route);
+        }
+        candidates = candidates.filter(item => {
+          const route = routes.get(`${item.front}:${item.sourceIndices[0]}`);
+          if (!route) return false;
+          item.route = route;
+          return true;
+        });
+      } else {
+        let raw: { moves: string[]; slots: string[] }[];
+        if (mode === "xcross") {
+          const solved = await WasmSolver.solveXCross(solverState, selection === "FIXED" ? fixed[0] : "ALL", 5);
+          raw = solved.map(item => ({ moves: item.moves, slots: [item.slot] }));
+        } else {
+          raw = await this.analysisClient.request("solveMultiCross", {
+            facelets: solverState, pairCount: pairCountForMode(mode),
+            slots: selection === "FIXED" ? fixed.join(",") : "ALL", maxSolutions: 5, maxDepth: 14,
+          });
+        }
+        if (generation !== this.recommendationRequestId) return;
+        raw = raw.filter(item => item.slots.length === pairCountForMode(mode) &&
+          (selection === "ALL" || fixed.every(slot => item.slots.indexOf(slot) >= 0)) &&
+          item.moves.every(move => /^[URFDLB](2|'|)$/.test(move)) &&
+          verifySolvedTargets(applyFormulaFrom(solverState, item.moves.join(" ")), item.slots).ok);
+        const coreCandidates = raw.map(item => ({
+          moves: item.moves.map(move => white ? z2Move(move) : move),
+          slots: item.slots.map(slot => white ? slotToPhysical(slot) : slot),
+        }));
+        const screenCandidates = coreCandidates.map(item => ({
+          moves: item.moves.map(move => this.displayMoveWithOps(move, this.effectiveViewOps())),
+          slots: item.slots.map(slot => this.slotDisplayName(slot)),
+        }));
+        const views: any[] = await this.analysisClient.request("scoreExisting", { solutions: screenCandidates });
+        for (const view of views) for (const item of view.solutions || []) {
+          const source = item.sourceIndices[0];
+          const original = coreCandidates[source];
+          if (!original) continue;
+          candidates.push({
+            id: `${view.front}:${source}:${item.moves.join(" ")}`, front: view.front,
+            displayMoves: item.moves, physicalMoves: original.moves,
+            slots: item.slots, physicalSlots: original.slots, sourceIndices: item.sourceIndices,
+            route: item.route, depth: item.moves.length, offset: 0,
+          });
+        }
+      }
+      if (generation !== this.recommendationRequestId || coreBase !== this.analysisCoreBase ||
+        mode !== this.trainMode || white !== this.z2On) return;
+      candidates.sort((a, b) => a.route.score - b.route.score || a.depth - b.depth || a.front.localeCompare(b.front));
+      this.recommendations = candidates;
+      if (!candidates.length) this.recommendationError = "没有找到可验证的解法，请切换槽位或新打乱";
+    } catch (error) {
+      if (generation === this.recommendationRequestId) this.recommendationError = String(error);
+    } finally {
+      if (generation === this.recommendationRequestId) this.recommendationBusy = false;
+    }
+  }
+
   /** Cross 模式最优解步数 */
   get bestSteps(): number {
     return this.bestSolution ? this.bestSolution.trim().split(/\s+/).length : 0;
@@ -2086,15 +2326,15 @@ export default class BleCrossTrainer extends Vue {
     // 已还原的 F2L 槽位跟随完成的十字: 白十字经训练帧判定后换回物理帧名 (FL↔FR, BL↔BR),
     // 黄十字直接用核心帧槽位名; 再经 slotDisplayName 换到屏幕帧 (与 bestXDisplay 标签
     // 同帧, 完成高亮 indexOf 对比才对得上, 状态栏 "(FL/BR)" 也按屏幕所见)
-    if (this.trainMode === "xcross") {
-      const train = toTrainFrame(state);
-      this.completedSlots = (
-        isCrossDone(train) ? f2lSlotsDone(train).map(slotToPhysical) : f2lSlotsDone(state)
-      ).map((slot) => this.slotDisplayName(slot));
+    if (this.trainMode !== "cross") {
+      const result = evaluateCrossTarget(state, this.trainMode, this.solveSlotMode, this.fixedTrainSlots(), this.z2On);
+      this.completedSlots = result.completedSlots
+        .map(slot => this.z2On ? slotToPhysical(slot) : slot)
+        .map(slot => this.slotDisplayName(slot));
     } else {
       this.completedSlots = [];
     }
-    this.retryCurrentRound = shouldRetryNonOptimal({
+    const comparison: NonOptimalRetryInput = {
       trainMode: this.trainMode,
       actualSteps: this.moveCount,
       crossReady: this.bestReady,
@@ -2107,7 +2347,9 @@ export default class BleCrossTrainer extends Vue {
         steps: item.steps,
         available: item.available,
       })),
-    });
+    };
+    this.completedBestSteps = bestComparableSteps(comparison);
+    this.retryCurrentRound = shouldRetryNonOptimal(comparison);
     this.successCount++;
     this.recordTrain(true, finishedAt); // 训练记录: 本轮成功 (观察/还原用时, 最优/实际步数)
     this.refreshSuccessStatus();
@@ -2186,6 +2428,7 @@ export default class BleCrossTrainer extends Vue {
   /** 新一轮: 蓝牙模式以魔方当前物理状态为基准等待拧到目标态; 手动模式直接打乱 3D。
    * 未连接蓝牙时点「新打乱」: 自动进入手动练习模式 (无蓝牙也能完整练习打乱/还原/重置) */
   async newScramble(): Promise<void> {
+    this.invalidateRecommendations();
     this.inheritedConnection = false;
     this.suspendAuthorityScene = false;
     const requestId = ++this.scrambleGenerationId;
@@ -2235,6 +2478,8 @@ export default class BleCrossTrainer extends Vue {
 
   /** 随机和自定义公式共用的开轮流程；公式来源之外的训练语义完全一致。 */
   private startScramble(formula: string): void {
+    this.invalidateRecommendations();
+    this.completedBestSteps = null;
     if (!this.isManual && this.status !== "connected") {
       this.enterManual(); // 未连接/连接中 (自动重连挂起): 断开在飞连接, 免蓝牙直接练习
     }
@@ -2315,7 +2560,7 @@ export default class BleCrossTrainer extends Vue {
     // 只在当前 3D 上追加一次。实体 predicted/FACELETS 仅做序号对账，不做首步画面交接。
     this.syncPhysicalScene(this.scrambleTarget, "scramble");
     this.bestRotationSig = JSON.stringify(this.observedOps);
-    this.needBreak = this.isTargetCrossDone(this.scrambleTarget);
+    this.needBreak = this.isTrainDone(this.scrambleTarget);
     this.requestBest(this.scrambleTarget); // 对打乱目标态预求最优解 (相对本轮打乱态固定)
     this.statusText = "已开轮: 3D 已进入打乱态, 鼠标或蓝牙转动都会追加一步, 首次转动开始计时";
     this.beginBleRoundSync();
@@ -2324,6 +2569,7 @@ export default class BleCrossTrainer extends Vue {
   /** 重置本轮 (三模式统一): 3D 回本轮打乱基准，计时/步数/history 清零重新观察；
    * 最优解基准不变，不触发重算。 */
   resetRound(): void {
+    this.invalidateRecommendations();
     this.suspendAuthorityScene = false;
     debugLog(
       `[BT] RESET 点击 ph=${this.phase} manual=${this.isManual} pred=${this.predicted} base=${this.solveBaseState} z2On=${this.z2On}`
@@ -2405,7 +2651,7 @@ export default class BleCrossTrainer extends Vue {
       if (coreLive) {
         this.requestBest(coreLive);
       }
-      this.needBreak = this.isTargetCrossDone(coreLive || SOLVED_FACELETS);
+      this.needBreak = this.isTrainDone(coreLive || SOLVED_FACELETS);
       this.phase = "observing";
       this.observeStart = Date.now();
       this.solveStart = 0;
@@ -2423,7 +2669,7 @@ export default class BleCrossTrainer extends Vue {
     this.observeStart = Date.now();
     this.solveStart = 0;
     this.phase = "observing";
-    this.needBreak = this.isTargetCrossDone(base || SOLVED_FACELETS);
+    this.needBreak = this.isTrainDone(base || SOLVED_FACELETS);
     debugLog(
       `[BT] RESET 蓝牙尾: 3D←base ph=observing needBreak=${this.needBreak ? 1 : 0} pred=${this.predicted}`
     );
@@ -2459,8 +2705,8 @@ export default class BleCrossTrainer extends Vue {
     this.solveStart = 0;
     this.running = true; // 驱动观察计时显示
     this.bestRotationSig = "[]";
-    // base 为蓝牙轮物理帧: isTargetCrossDone 现已模式无关 (统一核心帧语义, 白底经训练帧)
-    this.needBreak = this.isTargetCrossDone(base);
+    // base 为蓝牙轮物理帧；仅在完整训练目标已完成时要求先拆散。
+    this.needBreak = this.isTrainDone(base);
     if (base !== this.solveBaseState) {
       // 基准变化 (打乱匹配中断开/无基准): 最优解按新基准重求 (requestBest 内清残留)
       this.solveBaseState = base;
@@ -2512,7 +2758,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private refreshSuccessStatus(): void {
-    const name = this.trainMode === "xcross" ? "XCross" : "十字";
+    const name = this.trainMode === "cross" ? "十字" : this.trainMode.toUpperCase();
     const slow = isSolveTimeOverTarget(this.completedSolveMs, this.solveTimeTarget);
     this.statusText = `✅ ${name}完成!` + (slow
       ? ` 还原 ${this.completedSolveSecondsText()} 秒，未达 ≤${this.solveTimeTarget} 秒`
@@ -2689,7 +2935,7 @@ export default class BleCrossTrainer extends Vue {
       for (const side of [s[13], s[22], s[40], s[49]]) {
         needed.add(this.pieceColorSignature([bottom, side]));
       }
-      if (this.trainMode === "xcross") {
+      if (this.trainMode !== "cross") {
         const front = s[22];
         const pairs: { [slot: string]: string[] } = {
           FL: [front, s[40]],
@@ -2697,9 +2943,14 @@ export default class BleCrossTrainer extends Vue {
           BL: [s[49], s[40]],
           BR: [s[49], s[13]],
         };
-        const pair = pairs[this.visSlot] || pairs.FL;
-        needed.add(this.pieceColorSignature(pair));
-        needed.add(this.pieceColorSignature([bottom, pair[0], pair[1]]));
+        const targets = this.solveSlotMode === "FIXED"
+          ? this.fixedTrainSlots().map(slot => this.slotDisplayName(this.z2On ? slotToPhysical(slot) : slot))
+          : this.selectedRecommendation?.physicalSlots.map(slot => this.slotDisplayName(slot)) || [this.visSlot];
+        for (const slot of targets) {
+          const pair = pairs[slot] || pairs.FL;
+          needed.add(this.pieceColorSignature(pair));
+          needed.add(this.pieceColorSignature([bottom, pair[0], pair[1]]));
+        }
       }
       this.visibilityNeededSignatures = needed;
     }
@@ -2768,10 +3019,39 @@ export default class BleCrossTrainer extends Vue {
    * 故打乱等待/观察/还原/完成阶段切换都须按当前基准重算一次 */
   saveTrainMode(): void {
     window.localStorage.setItem("bleTrainMode", this.trainMode);
+    this.selectedSolveSlots = normalizeTrainSlots(this.selectedSolveSlots, this.trainMode === "xxcross" ? 2 : 3);
+    window.localStorage.setItem("bleMultiSolveSlots", this.selectedSolveSlots.join(","));
     this.world.cube.twister.finish(); // 模式切换可发生在动画中，先落定再读取当前 3D 状态
     this.invalidateVisibilityTargets();
-    this.recomputeBestFromCurrent();
+    this.recomputeBestForTargetChange();
     this.applyVisibility(); // cross↔xcross 所需块集不同 (xcross 另加槽位棱+角), 重刷可视化
+    if (this.phase === "observing" || this.phase === "solving") this.statusText = this.targetModeText;
+  }
+
+  saveSolveSlotMode(): void {
+    window.localStorage.setItem("bleSolveSlotMode", this.solveSlotMode);
+    this.recomputeBestForTargetChange();
+    this.invalidateVisibilityTargets();
+    this.applyVisibility();
+  }
+
+  saveSolveSlot(): void {
+    window.localStorage.setItem("bleSolveSlot", this.solveSlot);
+    this.recomputeBestForTargetChange();
+    this.invalidateVisibilityTargets();
+    this.applyVisibility();
+  }
+
+  toggleMultiSlot(slot: string): void {
+    const next = this.selectedSolveSlots.slice();
+    const index = next.indexOf(slot);
+    if (index >= 0) next.splice(index, 1);
+    else if (next.length < pairCountForMode(this.trainMode)) next.push(slot);
+    this.selectedSolveSlots = next;
+    window.localStorage.setItem("bleMultiSolveSlots", next.join(","));
+    this.recomputeBestForTargetChange();
+    this.invalidateVisibilityTargets();
+    this.applyVisibility();
   }
 
   /** 自动下轮: 生成新打乱公式开新一轮 (等同自动点「新打乱」)——3D 显示打乱目标态,
@@ -2981,7 +3261,8 @@ export default class BleCrossTrainer extends Vue {
       ok,
       obs: observed ? (this.solveStart - this.observeStart) / 1000 : null,
       solve: this.solveStart ? (finishedAt - this.solveStart) / 1000 : null,
-      best: this.bestReady && this.bestSolution ? this.bestMovesOf(this.bestSolution).length : -1,
+      best: this.completedBestSteps !== null ? this.completedBestSteps :
+        this.trainMode === "cross" && this.bestReady && this.bestSolutionAvailable ? this.bestSteps : -1,
       steps: this.moveCount,
     };
     this.records.unshift(rec);
@@ -3056,6 +3337,8 @@ export default class BleCrossTrainer extends Vue {
   private gifAuto = false;
   private gifPlayStarted = false;
   private gifPlayEndAt = 0;
+  private recommendationGifId: string | null = null;
+  private recommendationGifRun = 0;
   private static GIF_PIXEL = 384;
   private static GIF_DELAY = 8; // 每帧显示时长, 单位 1/100 秒 (8 = 80ms ≈ 12.5fps)
   private filmer: THREE.WebGLRenderer | null = null;
@@ -3087,9 +3370,45 @@ export default class BleCrossTrainer extends Vue {
     }
   }
 
+  /** 仅录制当前推荐的视觉预览；不重置训练轮次或修改实体魔方账本。 */
+  toggleRecommendationGif(item: Recommendation): void {
+    if (this.gifRecording) {
+      this.finishGif();
+      return;
+    }
+    const formula = item.physicalMoves.join(" ");
+    if (this.playingBest || this.selectedRecommendationId !== item.id ||
+        !formula || !this.resetBestPreview(formula, true)) return;
+    const generation = this.recommendationRequestId;
+    const run = ++this.recommendationGifRun;
+    this.startGif();
+    this.recommendationGifId = item.id;
+    this.gifAuto = true;
+    window.setTimeout(() => {
+      if (!this.gifRecording || this.recommendationGifRun !== run || this.recommendationGifId !== item.id) return;
+      if (generation !== this.recommendationRequestId || this.selectedRecommendationId !== item.id) {
+        this.cancelRecommendationGif();
+        return;
+      }
+      this.playBest(formula);
+      if (this.playingBest) this.gifPlayStarted = true;
+      else this.cancelRecommendationGif();
+    }, 700);
+  }
+
+  private cancelRecommendationGif(): void {
+    this.recommendationGifRun++;
+    this.gifRecording = false;
+    this.gifAuto = false;
+    this.gifPlayStarted = false;
+    this.gifPlayEndAt = 0;
+    this.recommendationGifId = null;
+    this.gif = null; // 换轮/换选中项时丢弃未完成录制，不下载错误公式。
+  }
+
   /** 一键演示的播放目标: Cross 用最优解; XCross 取第一个有解槽位 (原始记号, playBest 内部换名) */
   private gifPlayTarget(): string {
-    if (this.trainMode === "xcross") {
+    if (this.trainMode !== "cross") {
       const hit = this.bestX.find((b) => b.steps > 0 && b.formula);
       return hit ? hit.formula : "";
     }
@@ -3155,7 +3474,9 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private finishGif(): void {
+    this.recommendationGifRun++;
     this.gifRecording = false;
+    this.recommendationGifId = null;
     this.gifAuto = false;
     this.gifPlayStarted = false;
     this.gifPlayEndAt = 0;

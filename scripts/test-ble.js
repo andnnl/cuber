@@ -16,6 +16,7 @@ const moveDiff = req("move-diff.js");
 const facelets = req("facelets.js");
 const crossDifficulty = req("cross-difficulty.js");
 const nonOptimalRetry = req("non-optimal-retry.js");
+const crossTraining = req("cross-training-target.js");
 const solveTimeTarget = req("solve-time-target.js");
 const { SolveRequestCache } = req("solve-request-cache.js");
 const gan = req("protocols/gan.js");
@@ -203,6 +204,35 @@ async function main() {
     assert.strictEqual(nonOptimalRetry.bestComparableSteps(input), null);
     assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal(input), false);
     assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({ ...input, xcrossReady: false }), false);
+  });
+
+  await test("BLE XX/XXXCross 任意与固定目标按完整槽位数判定", () => {
+    const solved = facelets.SOLVED_FACELETS;
+    assert.strictEqual(crossTraining.evaluateCrossTarget(solved, "xxcross", "ALL", []).ok, true);
+    assert.strictEqual(crossTraining.evaluateCrossTarget(solved, "xxxcross", "FIXED", ["FR", "BL", "FL"]).ok, true);
+    const onePairBroken = moveDiff.applyFormulaFrom(solved, "R U R'");
+    assert.strictEqual(crossTraining.evaluateCrossTarget(onePairBroken, "xxxcross", "ALL", []).ok, true);
+    assert.strictEqual(crossTraining.evaluateCrossTarget(onePairBroken, "xxcross", "ALL", []).ok, true);
+    assert.strictEqual(crossTraining.evaluateCrossTarget(onePairBroken, "xxcross", "FIXED", ["FR", "BL"]).ok, false);
+    assert.strictEqual(crossTraining.evaluateCrossTarget(onePairBroken, "xxcross", "FIXED", ["FL", "BL"]).ok, true);
+    assert.strictEqual(crossTraining.evaluateCrossTarget(onePairBroken, "xxxcross", "FIXED", ["FR", "BL", "FL"]).ok, false);
+    const twoPairs = moveDiff.applyFormulaFrom(solved, "R U R' F U F'");
+    assert.strictEqual(crossTraining.evaluateCrossTarget(twoPairs, "xxcross", "ALL", []).ok, true);
+    assert.strictEqual(crossTraining.evaluateCrossTarget(twoPairs, "xxxcross", "ALL", []).ok, false);
+    assert.deepStrictEqual(crossTraining.evaluateCrossTarget(twoPairs, "xxcross", "ALL", []).completedSlots, ["BL", "BR"]);
+    const whiteFrame = moveDiff.toTrainFrame(twoPairs);
+    assert.strictEqual(crossTraining.evaluateCrossTarget(whiteFrame, "xxcross", "ALL", [], true).ok, true);
+  });
+
+  await test("BLE 多组非最优重试仅比较本轮匹配目标的有效基准解", () => {
+    const base = {
+      trainMode: "xxcross", actualSteps: 9, crossReady: false, crossBestSteps: 0, crossBestValid: false,
+      xcrossReady: true, completedSlots: ["FL", "BL", "BR"],
+      bestX: [{ slot: "FL+BL", steps: 8, available: true }, { slot: "FR+BL", steps: 5, available: true }],
+    };
+    assert.strictEqual(nonOptimalRetry.bestComparableSteps(base), 8);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({ ...base, xcrossReady: false }), false);
+    assert.strictEqual(nonOptimalRetry.shouldRetryNonOptimal({ ...base, actualSteps: 8 }), false);
   });
 
   await test("求解请求缓存合并在途请求、复用结果并按容量淘汰", async () => {

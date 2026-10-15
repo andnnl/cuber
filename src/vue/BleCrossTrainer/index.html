@@ -20,6 +20,7 @@
         <v-card-text style="text-align: left; padding: 8px 12px 6px 12px;">
           <div class="ble-compact-header">
             <div style="flex: 1;"></div>
+            <v-btn data-ble-recommend-open x-small @click="openRecommendations" :disabled="phase !== 'observing' && phase !== 'solving' && phase !== 'success'" title="按本轮起点搜索四朝向指法；实体转动不会自动重算">指法推荐</v-btn>
             <v-btn data-ble-compact-toggle x-small @click="toggleCompactMode">{{ compactMode ? '展开' : '收纳' }}</v-btn>
           </div>
 
@@ -94,12 +95,23 @@
               data-ble-full-only
               v-model="trainMode"
               @change="saveTrainMode"
-              title="cross: 只还原十字; xcross: 十字 + 任一组 F2L"
+              title="Cross 十字；X/XX/XXXCross 分别完成 1/2/3 组 F2L"
               style="border: 1px solid #e3e8f0; border-radius: 4px; font-size: 12px; height: 24px; background: #fff; color: #333; padding: 0 2px; flex: none;"
             >
               <option value="cross">Cross</option>
               <option value="xcross">XCross</option>
+              <option value="xxcross">XXCross</option>
+              <option value="xxxcross">XXXCross</option>
             </select>
+            <select v-if="trainMode !== 'cross'" v-show="!compactMode" data-ble-solve-slot-mode v-model="solveSlotMode" @change="saveSolveSlotMode" title="任意槽位或指定槽位" class="ble-difficulty-select">
+              <option value="ALL">任意槽位</option><option value="FIXED">指定槽位</option>
+            </select>
+            <select v-if="trainMode === 'xcross' && solveSlotMode === 'FIXED'" v-show="!compactMode" data-ble-solve-slot v-model="solveSlot" @change="saveSolveSlot" title="指定 XCross 槽位" class="ble-difficulty-select">
+              <option v-for="slot in ['FL','FR','BL','BR']" :key="slot" :value="slot">{{ slot }}</option>
+            </select>
+            <span v-if="(trainMode === 'xxcross' || trainMode === 'xxxcross') && solveSlotMode === 'FIXED'" v-show="!compactMode" class="ble-multi-slots" title="须恰好选 2 或 3 个槽位">
+              <label v-for="slot in ['FL','FR','BL','BR']" :key="slot"><input type="checkbox" :checked="selectedSolveSlots.indexOf(slot) >= 0" @change="toggleMultiSlot(slot)" />{{ slot }}</label>
+            </span>
             <v-btn
               x-small
               @click="newScramble"
@@ -215,7 +227,7 @@
             </select>
             <div style="flex: 1;"></div>
             <select
-              v-if="trainMode === 'xcross' && (visGhost || visHide)"
+              v-if="trainMode !== 'cross' && (visGhost || visHide)"
               v-model="visSlot"
               @change="saveVisSlot"
               title="XCross: 选择要还原的 F2L 槽位 (一组棱块+角块), 半透明/隐藏时该槽位的块保持显示"
@@ -301,9 +313,9 @@
             </div>
             <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
             <template v-else>
-              <div v-for="b in bestXDisplay" :key="b.slot" style="display: flex; gap: 6px; min-width: 0;">
+              <div v-for="(b, index) in bestXDisplay" :key="index + ':' + b.slot" style="display: flex; gap: 6px; min-width: 0;">
                 <span
-                  :style="{color: completedSlots.indexOf(b.slot) >= 0 ? '#2e7d32' : '#1565c0', whiteSpace: 'nowrap', fontWeight: 'bold'}"
+                  :style="{color: b.slot.split('+').every(slot => completedSlots.indexOf(slot) >= 0) ? '#2e7d32' : '#1565c0', whiteSpace: 'nowrap', fontWeight: 'bold'}"
                 >{{ b.slot }} {{ b.formula ? b.steps + '步' : '' }}</span>
                 <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ b.formula || (bestXReady ? '—' : '求解中…') }}</span>
                 <div v-show="!compactMode" data-ble-preview-controls style="display: flex; gap: 6px;">
@@ -330,7 +342,8 @@
                   >▶</v-btn>
                 </div>
               </div>
-              <div v-if="!bestXReady" style="color: #999;">4 组槽位最优解求解中…</div>
+              <div v-if="!bestXReady" style="color: #999;">{{ trainMode === 'xcross' ? '槽位' : '多组' }}最优解求解中…</div>
+              <div v-if="bestXReady && !bestXDisplay.length" style="color: #999;">当前槽位组合暂无解法，请切换槽位或新打乱</div>
               <div v-show="!compactMode" data-ble-preview-controls style="display: flex; justify-content: flex-end; margin-top: 3px;">
                 <v-btn
                   x-small
@@ -352,12 +365,17 @@
               <span style="flex: 1; min-width: 0; word-break: break-all; color: #333;">{{ liveStepsText }}</span>
             </div>
           </div>
+          <div v-if="selectedRecommendation" data-ble-selected-recommendation class="ble-selected-recommendation">
+            <span>指法 {{ selectedRecommendation.front }} 前 · {{ selectedRecommendation.depth }}步：</span>
+            <span>{{ selectedRecommendation.displayMoves.join(' ') || '0 步' }}</span>
+            <v-btn v-show="!compactMode" x-small :disabled="playingBest || !selectedRecommendation.physicalMoves.length" @click="playBest(selectedRecommendation.physicalMoves.join(' '))" title="预览所选指法（不会计入训练；预览后点重置返回本轮起点）">▶</v-btn>
+          </div>
 
           <!-- 行3.5: 结果对比 (完成后): 你的解法 + 成败计数 -->
           <div data-ble-success-result v-if="phase === 'success'" style="margin-top: 5px; padding: 5px 8px; background: #f0f7f0; border: 1px solid #d8ecd8; border-radius: 6px; font-size: 12px; line-height: 1.7;">
             <div style="display: flex; gap: 6px; min-width: 0;">
               <span style="color: #2e7d32; white-space: nowrap; font-weight: bold;">你的解法 {{ moveCount }}步</span>
-              <span v-if="trainMode === 'xcross' && completedSlots.length" style="color: #2e7d32; white-space: nowrap;">({{ completedSlots.join('/') }})</span>
+              <span v-if="trainMode !== 'cross' && completedSlots.length" style="color: #2e7d32; white-space: nowrap;">({{ completedSlots.join('/') }})</span>
               <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;">{{ userSolutionText || '—' }}</span>
             </div>
             <div v-if="observeText" style="margin-top: 2px; color: #666;">👁 观察 {{ observeText }} · ⏱ 还原 {{ elapsedText }}</div>
@@ -378,6 +396,77 @@
         </v-card-text>
       </v-card>
     </div>
+
+    <section v-if="recommendationOpen && !recommendationFull" class="ble-recommendation-panel" aria-label="BLE 指法推荐结果">
+      <div class="ble-recommendation-toolbar">
+        <b>指法推荐</b>
+        <select v-model="recommendationFront" aria-label="观察正面"><option value="ALL">四朝向</option><option v-for="front in fronts" :key="front" :value="front">{{ front }} 前</option></select>
+        <select v-if="trainMode === 'cross'" v-model="recommendationDepth" aria-label="步数分组"><option value="ALL">全部深度</option><option value="0">最短</option><option value="1">+1步</option><option value="2">+2步</option></select>
+        <button @click="recommendationAll = !recommendationAll">{{ recommendationAll ? '前4条' : '显示全部' }}</button>
+        <button @click="gripVersion = gripVersion === 'simple' ? 'full' : 'simple'">{{ gripVersion === 'simple' ? '完整指法' : '简单指法' }}</button>
+        <button @click="toggleRecommendationFull">全屏</button>
+        <button @click="closeRecommendations">关闭</button>
+      </div>
+      <div class="ble-recommendation-list">
+        <div v-if="recommendationBusy">正在搜索／评分… <button @click="closeRecommendations">取消</button></div>
+        <div v-else-if="recommendationError">{{ recommendationError }} <button @click="retryRecommendations">重试</button></div>
+        <div v-else-if="!visibleRecommendations.length">当前筛选下没有结果</div>
+        <div v-for="item in visibleRecommendations" :key="item.id" role="button" tabindex="0" class="ble-recommendation-item" :class="{'selected': selectedRecommendationId === item.id}" @click="selectRecommendation(item)" @keydown.enter="selectRecommendation(item)" @keydown.space.prevent="selectRecommendation(item)">
+          <b>{{ item.front }} 前 · {{ item.depth }}步<span v-if="trainMode === 'cross'"> · {{ item.offset === 0 ? '最短' : '+' + item.offset }}</span></b>
+          <div class="ble-recommendation-formula-row">
+            <span class="ble-recommendation-formula">{{ item.displayMoves.join(' ') || '0 步' }}</span>
+            <div v-if="selectedRecommendationId === item.id" data-ble-recommend-preview class="ble-recommendation-controls">
+              <button type="button" title="上一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' ')) <= 0" @click.stop="stepBest(item.physicalMoves.join(' '), -1)">⏮</button>
+              <button type="button" title="下一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' ')) >= bestStepCount(item.physicalMoves.join(' '))" @click.stop="stepBest(item.physicalMoves.join(' '), 1)">⏭</button>
+              <button type="button" title="播放" :disabled="playingBest || !item.physicalMoves.length" @click.stop="playBest(item.physicalMoves.join(' '))">▶</button>
+              <button type="button" title="GIF" :disabled="!gifRecording && (playingBest || !item.physicalMoves.length)" @click.stop="toggleRecommendationGif(item)">{{ gifRecording ? '⏹' : 'GIF' }}</button>
+            </div>
+          </div>
+          <small class="ble-grip-summary">{{ item.slots.length ? item.slots.join('+') + ' · ' : '' }}指法分 {{ Number(item.route.score).toFixed(2) }} · 换握 {{ item.route.regrips }}</small>
+          <template v-if="selectedRecommendationId === item.id && item.route.steps.length">
+            <small class="ble-grip-start">起手握姿：左手 {{ item.route.start_left }}；右手 {{ item.route.start_right }}</small>
+            <small v-for="(step, stepIndex) in item.route.steps" :key="stepIndex" class="ble-grip-step">{{ gripInstruction(step) }}</small>
+          </template>
+        </div>
+        <small v-if="trainMode !== 'cross'">仅评分求解器返回的候选；F2L 指法分不是实测用时。</small>
+      </div>
+    </section>
+
+    <v-dialog :value="recommendationFull" fullscreen hide-overlay scrollable @input="value => { if (!value) toggleRecommendationFull(); }">
+      <v-card class="ble-recommendation-dialog">
+        <v-card-title>指法推荐 <v-spacer></v-spacer><v-btn text @click="toggleRecommendationFull">返回魔方</v-btn></v-card-title>
+        <v-card-text>
+          <div class="ble-recommendation-toolbar">
+            <select v-model="recommendationFront" aria-label="全屏观察正面"><option value="ALL">四朝向</option><option v-for="front in fronts" :key="front" :value="front">{{ front }} 前</option></select>
+            <select v-if="trainMode === 'cross'" v-model="recommendationDepth" aria-label="全屏步数分组"><option value="ALL">全部深度</option><option value="0">最短</option><option value="1">+1步</option><option value="2">+2步</option></select>
+            <button @click="recommendationAll = !recommendationAll">{{ recommendationAll ? '前4条' : '显示全部' }}</button>
+            <button @click="gripVersion = gripVersion === 'simple' ? 'full' : 'simple'">{{ gripVersion === 'simple' ? '完整指法' : '简单指法' }}</button>
+          </div>
+          <div class="ble-recommendation-list">
+            <div v-if="recommendationBusy">正在搜索／评分…</div>
+            <div v-else-if="recommendationError">{{ recommendationError }}</div>
+            <div v-else-if="!visibleRecommendations.length">当前筛选下没有结果</div>
+            <div v-for="item in visibleRecommendations" :key="item.id" role="button" tabindex="0" class="ble-recommendation-item" :class="{'selected': selectedRecommendationId === item.id}" @click="selectRecommendation(item)" @keydown.enter="selectRecommendation(item)" @keydown.space.prevent="selectRecommendation(item)">
+              <b>{{ item.front }} 前 · {{ item.depth }}步<span v-if="trainMode === 'cross'"> · {{ item.offset === 0 ? '最短' : '+' + item.offset }}</span></b>
+              <div class="ble-recommendation-formula-row">
+                <span class="ble-recommendation-formula">{{ item.displayMoves.join(' ') || '0 步' }}</span>
+                <div v-if="selectedRecommendationId === item.id" data-ble-recommend-preview class="ble-recommendation-controls">
+                  <button type="button" title="上一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' ')) <= 0" @click.stop="stepBest(item.physicalMoves.join(' '), -1)">⏮</button>
+                  <button type="button" title="下一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' ')) >= bestStepCount(item.physicalMoves.join(' '))" @click.stop="stepBest(item.physicalMoves.join(' '), 1)">⏭</button>
+                  <button type="button" title="播放" :disabled="playingBest || !item.physicalMoves.length" @click.stop="playBest(item.physicalMoves.join(' '))">▶</button>
+                  <button type="button" title="GIF" :disabled="!gifRecording && (playingBest || !item.physicalMoves.length)" @click.stop="toggleRecommendationGif(item)">{{ gifRecording ? '⏹' : 'GIF' }}</button>
+                </div>
+              </div>
+              <small class="ble-grip-summary">{{ item.slots.length ? item.slots.join('+') + ' · ' : '' }}指法分 {{ Number(item.route.score).toFixed(2) }} · 换握 {{ item.route.regrips }}</small>
+              <template v-if="selectedRecommendationId === item.id && item.route.steps.length">
+                <small class="ble-grip-start">起手握姿：左手 {{ item.route.start_left }}；右手 {{ item.route.start_right }}</small>
+                <small v-for="(step, stepIndex) in item.route.steps" :key="stepIndex" class="ble-grip-step">{{ gripInstruction(step) }}</small>
+              </template>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
 
     <!-- 打乱信息弹窗: 完整公式 + 复制 -->
     <v-dialog v-model="scrambleDialog" max-width="340">
@@ -455,16 +544,16 @@
           <div>1. 打开魔方电源, 点「连接魔方」在弹窗中选择你的 GAN 魔方</div>
           <div>2. 连接成功后自动生成打乱公式, 在实体魔方上照着公式拧</div>
           <div>3. 首次转动 (实体拧或鼠标) 自动开始计时, 实体拧什么 3D 就同步转什么</div>
-          <div>4. 还原十字: 白十字/黄十字均可 (4 条棱围住同色中心), 完成自动判定并停止计时</div>
+          <div>4. 按 z2 当前底色还原十字 (4 条棱围住对应中心)，X/XX/XXXCross 还需完成 1/2/3 组 F2L；达标后自动停止计时</div>
           <div>5. 正确后显示你的解法与最优解对比、步数和成功/失败计数</div>
           <div>6. 勾选「自动下轮」时 2.5 秒后自动开始下一轮 (免操作):</div>
           <div>&nbsp;&nbsp;自行打乱魔方, 首次转动开始计时; 未勾选则手动点「新打乱」继续</div>
           <div>· 勾选「非最优重试」后，正确但步数不是最优时会倒计时重置同一局；达到最优后才自动进入下一局</div>
           <div style="margin-top: 8px;"><b>练习模式</b></div>
-          <div>· Cross: 白十字/黄十字任一还原即完成, 最优解按当前持握底色给出</div>
-          <div>· XCross: 十字 + 任一组 F2L (角+棱) 同时完成才算,</div>
-          <div>&nbsp;&nbsp;最优解显示 FL/FR/BL/BR 四组各自的最优解,</div>
-          <div>&nbsp;&nbsp;你完成的槽位会绿色高亮</div>
+          <div>· Cross: 按 z2 按钮所选底色还原十字；X/XX/XXXCross 再完成 1/2/3 组 F2L (角+棱)，任意槽位或指定槽位均可选</div>
+          <div>· 已完成槽位绿色高亮；指定槽位需恰好选择对应组数。半透明/隐藏模式会突出目标块</div>
+          <div>· 点「指法推荐」才搜索，魔方下方滚动区可切全屏；默认前 4 条，可显示全部、按四朝向筛选、Cross 还可筛最短/+1/+2 步</div>
+          <div>· 简单/完整指法只改变说明；选中推荐仅影响展示和预览，不改变本轮最优步数、计时、记录或自动重试</div>
           <div style="margin-top: 8px;"><b>难度与设置记忆</b></div>
           <div>· 「随机」使用普通完整打乱；2步～7步表示当前底色十字的精确最优步数</div>
           <div>· XCross 只按十字部分计算难度，F2L 部分不计入</div>
