@@ -43,3 +43,28 @@ const brokenCross = solved.split('');
 brokenCross[28] = 'F'; brokenCross[25] = 'D';
 assert.strictEqual(verifySolvedTargets(brokenCross.join(''), []).cross, false);
 console.log('cross analysis targets OK');
+
+class FakeWorker {
+  constructor() { FakeWorker.instances.push(this); this.terminated = false; }
+  postMessage(message) { this.lastMessage = message; }
+  terminate() { this.terminated = true; }
+}
+FakeWorker.instances = [];
+global.Worker = FakeWorker;
+const { CrossAnalysisClient } = require('../src/wasm/CrossAnalysisClient.ts');
+async function testWorkerCancellation() {
+  const client = new CrossAnalysisClient();
+  const first = client.request('recommendCross', { facelets: 'U'.repeat(54) });
+  const old = FakeWorker.instances[0];
+  assert.strictEqual(old.lastMessage.operation, 'recommendCross');
+  client.cancel();
+  await assert.rejects(first, /取消/);
+  assert.strictEqual(old.terminated, true);
+  const second = client.request('recommendCross', { facelets: 'R'.repeat(54) });
+  old.onmessage({ data: { id: old.lastMessage.id, ok: true, result: ['stale'] } });
+  const current = FakeWorker.instances[1];
+  current.onmessage({ data: { id: current.lastMessage.id, ok: true, result: ['fresh'] } });
+  assert.deepStrictEqual(await second, ['fresh']);
+  client.dispose();
+}
+testWorkerCancellation().then(() => console.log('cross analysis worker lifecycle OK'));
