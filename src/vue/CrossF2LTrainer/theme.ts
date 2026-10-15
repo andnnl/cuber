@@ -3,6 +3,20 @@
 // 本样式由组件 mounted 钩子注入 document.head
 
 export const TRAINER_THEME_CSS = `
+.recommendation-panel {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 42vh; z-index: 11;
+  background: #fff; box-shadow: 0 -3px 16px #28345a30; display: flex; flex-direction: column;
+  padding: 8px 10px; box-sizing: border-box; font-size: 13px;
+}
+.recommendation-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; padding: 4px 0; }
+.recommendation-toolbar button, .recommendation-toolbar select { border: 1px solid #cbd2e6; border-radius: 5px; padding: 4px 6px; background: #f5f7fc; }
+.recommendation-list { overflow-y: auto; flex: 1; overscroll-behavior: contain; }
+.recommendation-item { display: flex; flex-direction: column; gap: 3px; text-align: left; width: 100%; margin: 4px 0; padding: 8px; border: 1px solid #dbe1ed; border-radius: 7px; background: #fff; color: #273349; overflow-wrap: anywhere; }
+.recommendation-item span { font: 600 14px/1.4 'Roboto Mono', monospace; }
+.recommendation-item small { color: #66728b; }
+.recommendation-item.recommendation-selected { border-color: #5b6bf0; background: #eef0ff; }
+.recommendation-dialog .v-card__text { overflow-y: auto; }
+.recommendation-dialog .recommendation-list { max-height: calc(100vh - 120px); }
 /* ===== 面板卡片: 白卡 + 柔和分层阴影 ===== */
 .trainer-overlay-card {
   background: #ffffff !important;
@@ -105,8 +119,11 @@ export const TRAINER_THEME_CSS = `
 /* 判定结果 (内联在预判行尾, 极简图标态: ✔/✘, 完整文本见 title 提示) */
 .trainer-overlay-card .result-inline {
   font-weight: bold;
-  font-size: 16px;
-  line-height: 1;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
   background: transparent !important;
   white-space: nowrap;
 }
@@ -137,6 +154,8 @@ export const TRAINER_THEME_CSS = `
   display: flex;
   align-items: center;
   gap: 5px;
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 /* 抓手条: 细小横条, 点击展开 */
 .trainer-overlay-card .grab {

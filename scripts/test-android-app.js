@@ -19,6 +19,13 @@ const solverWorkerClient = fs.readFileSync("src/wasm/SolverWorkerClient.ts", "ut
 const bleTrainer = fs.readFileSync("src/vue/BleCrossTrainer/index.ts", "utf8");
 
 assert.ok(fs.existsSync("public/cube_cross_worker.js"));
+for (const asset of ["cube_cross_analysis_worker.js", "multi-view-grip.mjs", "joint_table.bin", "cube_cross_solve_bg.wasm"]) {
+  assert.ok(fs.existsSync(`public/${asset}`), `缺少分析资源: ${asset}`);
+  assert.match(webpack, new RegExp(asset.replaceAll(".", "\\.")), `构建未复制分析资源: ${asset}`);
+  assert.match(buildScript, /cp -r dist\/\* "\$ASSETS\/"/, "APK 必须同步全部生产资源");
+}
+assert.match(webpack, /from: "public\/multi-view-grip\.mjs", to: "multi-view-grip\.js"/, "模块使用兼容 WebView 的 .js MIME 后缀");
+assert.match(fs.readFileSync("public/cube_cross_analysis_worker.js", "utf8"), /from '\.\/multi-view-grip\.js'/);
 const solverWorker = fs.readFileSync("public/cube_cross_worker.js", "utf8");
 
 assert.match(main, /index\.html\?mode=blecross/);

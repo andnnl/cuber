@@ -1,5 +1,5 @@
 import init, * as wasm from './cube_cross_solve.js';
-import { recommendExistingViews } from './multi-view-grip.mjs';
+import { recommendExistingViews } from './multi-view-grip.js';
 
 let ready;
 let jointReady = false;

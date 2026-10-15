@@ -29,7 +29,7 @@ assert.deepStrictEqual(views.find(view => view.front === 'L').solutions[0].physi
 assert.strictEqual(simpleGripInstruction({ movement: 'R', instruction: '右食指；动作后左拇指扶稳' }), 'R：右食指');
 console.log('cross analysis mapping OK');
 
-const { remainingSlots, predictionMustReset, verifySolvedTargets } = require('../src/vue/CrossF2LTrainer/training-targets.ts');
+const { remainingSlots, predictionMustReset, verifySolvedTargets, trainingVerdict, normalizeFixedSlots } = require('../src/vue/CrossF2LTrainer/training-targets.ts');
 assert.deepStrictEqual(remainingSlots(['FR', 'BL']), ['FL', 'BR']);
 assert.deepStrictEqual(remainingSlots(['FR', 'FL', 'BL']), ['BR']);
 assert.strictEqual(predictionMustReset('FR', ['FR', 'FL']), true);
@@ -42,6 +42,12 @@ assert.strictEqual(verifySolvedTargets(twisted.join(''), ['FR']).ok, false);
 const brokenCross = solved.split('');
 brokenCross[28] = 'F'; brokenCross[25] = 'D';
 assert.strictEqual(verifySolvedTargets(brokenCross.join(''), []).cross, false);
+assert.deepStrictEqual(normalizeFixedSlots(['FR', 'BL', 'FL'], 2), ['FR', 'BL']);
+assert.deepStrictEqual(normalizeFixedSlots(['FR', 'BL'], 3), ['FR', 'BL', 'FL']);
+assert.strictEqual(trainingVerdict(solved, ['FR', 'BL'], true, false).targets.ok, true);
+assert.strictEqual(trainingVerdict(solved, ['FR', 'BL'], true, false).prediction, 'incorrect');
+assert.strictEqual(trainingVerdict(twisted.join(''), ['FR', 'BL'], null, null).targets.ok, false);
+assert.strictEqual(trainingVerdict(solved, ['FR', 'BL'], null, null).prediction, 'incomplete');
 console.log('cross analysis targets OK');
 
 class FakeWorker {

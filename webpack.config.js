@@ -89,7 +89,7 @@ module.exports = (env, argv) => ({
         { from: "public/cube_cross_solve_bg.wasm", to: "cube_cross_solve_bg.wasm" },
         { from: "public/cube_cross_worker.js", to: "cube_cross_worker.js" },
         { from: "public/cube_cross_analysis_worker.js", to: "cube_cross_analysis_worker.js" },
-        { from: "public/multi-view-grip.mjs", to: "multi-view-grip.mjs" },
+        { from: "public/multi-view-grip.mjs", to: "multi-view-grip.js" },
         { from: "public/joint_table.bin", to: "joint_table.bin" },
       ],
     }),

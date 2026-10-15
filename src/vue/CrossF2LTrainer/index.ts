@@ -10,8 +10,12 @@ import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
 import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBaseOpsFacelets, BaseOp } from "./pieces";
-import { HIGHLIGHT_COLORS, highlightPiece, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
+import { HIGHLIGHT_COLORS, highlightPiece, restoreHighlight, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
 import { TRAINER_THEME_CSS } from "./theme";
+import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
+import { applyFormulaFrom } from "../../ble/move-diff";
+import { Recommendation, relativeMove, simpleGripInstruction, FRONTS } from "./recommendations";
+import { remainingSlots, normalizeFixedSlots, trainingVerdict, verifySolvedTargets } from "./training-targets";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
@@ -38,6 +42,10 @@ export default class CrossF2LTrainer extends Vue {
   private pausedAt: number | null = null;
   onAppDeactivate(): void {
     this.appActive = false;
+    this.invalidateAnalysis();
+    this.basicAnalysisClient.cancel();
+    this.solveRequestId++;
+    this.solving = false;
     this.pausedAt = performance.now();
     if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame);
     this.viewFrame = null;
@@ -48,6 +56,7 @@ export default class CrossF2LTrainer extends Vue {
     if (this.pausedAt !== null && this.running) this.timerStart += performance.now() - this.pausedAt;
     this.pausedAt = null;
     this.appActive = true;
+    if (!this.solutions.length && this.scramble && this.phase === "idle" && !this.pendingSolve) this.solve();
     this.resize();
     this.loop();
   }
@@ -70,14 +79,37 @@ export default class CrossF2LTrainer extends Vue {
   private slot: string = "FR";
   private scramble = "";
   private solutions: string[] = [];
+  private solutionSlots: string[][] = [];
+  private solutionRecommendationIds: (string | null)[] = [];
   private selectedSolution = -1;
   private solving = false;
   private solveRequestId = 0;
 
   // 求解模式: cross = 仅十字; xcross = 十字 + 求解槽位一组 F2L (仅 WASM 支持)。
   // xcross 解法依赖求解槽位 solveSlot, 切换需重算 (cross 与槽位无关)
-  private solveMode: "cross" | "xcross" =
-    window.localStorage.getItem("trainerSolveMode") === "xcross" ? "xcross" : "cross";
+  private solveMode: "cross" | "xcross" | "xxcross" | "xxxcross" =
+    (["cross", "xcross", "xxcross", "xxxcross"].indexOf(window.localStorage.getItem("trainerSolveMode") || "") >= 0
+      ? window.localStorage.getItem("trainerSolveMode") : "cross") as "cross" | "xcross" | "xxcross" | "xxxcross";
+  private solveSlotMode: "ALL" | "FIXED" = window.localStorage.getItem("trainerSolveSlotMode") === "FIXED" ? "FIXED" : "ALL";
+  private selectedSolveSlots: string[] = normalizeFixedSlots(
+    (window.localStorage.getItem("trainerMultiSolveSlots") || "FR,BL,FL").split(","),
+    this.solveMode === "xxcross" ? 2 : 3);
+  private analysisClient = new CrossAnalysisClient();
+  private basicAnalysisClient = new CrossAnalysisClient();
+  private recommendations: Recommendation[] = [];
+  private recommendationOpen = false;
+  private recommendationFull = false;
+  private recommendationBusy = false;
+  private recommendationError = "";
+  private recommendationAll = false;
+  private recommendationScroll = 0;
+  private recommendationFront = "ALL";
+  private recommendationDepth = "ALL";
+  private gripVersion: "simple" | "full" = "simple";
+  private solveFacelets = "";
+  private recommendationRequestId = 0;
+  private selectedRecommendationId: string | null = null;
+  private readonly fronts = FRONTS;
 
   // XCross 求解槽位 (调接口求解用的 F2L 槽位, 与预判槽位 slot 解耦):
   // XCross 解法会一并还原该槽位一组 F2L, 该槽位不可再作为预判目标 (按钮灰显)
@@ -89,18 +121,23 @@ export default class CrossF2LTrainer extends Vue {
 
   // XCross 模式下求解槽位已被解法还原, 相同的预判槽位按钮灰显禁用
   isSlotDisabled(name: string): boolean {
-    return this.solveMode === "xcross" && name === this.solveSlot;
+    return this.activeSolvedSlots.indexOf(name) >= 0;
+  }
+
+  private get activeSolvedSlots(): string[] {
+    return this.solutionSlots[this.selectedSolution] ||
+      (this.solveSlotMode === "FIXED" && this.solveMode === "xcross" ? [this.solveSlot] :
+        this.solveSlotMode === "FIXED" && this.solveMode !== "cross" ? normalizeFixedSlots(this.selectedSolveSlots, this.solveMode === "xxcross" ? 2 : 3) : []);
   }
 
   // 预判槽位与求解槽位冲突时 (XCross 已还原该槽位 F2L, 无法预判),
   // 程序性切到下一可用槽位 (lastProgrammaticSlot 机制避免 onSlotChange 重复 reset)
   private avoidSlotConflict(): void {
-    if (this.solveMode !== "xcross" || this.slot !== this.solveSlot) {
-      return;
+    const available = remainingSlots(this.activeSolvedSlots);
+    if (available.indexOf(this.slot) < 0 && available.length) {
+      this.lastProgrammaticSlot = available[0];
+      this.slot = available[0];
     }
-    const order = ["FL", "FR", "BL", "BR"];
-    this.lastProgrammaticSlot = order[(order.indexOf(this.solveSlot) + 1) % order.length];
-    this.slot = this.lastProgrammaticSlot;
   }
 
   // 求解模式下拉框选项
@@ -108,6 +145,8 @@ export default class CrossF2LTrainer extends Vue {
     return [
       { text: "Cross", value: "cross" },
       { text: "XCross", value: "xcross" },
+      { text: "XXCross", value: "xxcross" },
+      { text: "XXXCross", value: "xxxcross" },
     ];
   }
 
@@ -309,6 +348,9 @@ export default class CrossF2LTrainer extends Vue {
     this.world.dirty = true;
     // 旧解法基于旋转前坐标系, 立即从列表移除防止误选; 动画结束后重新求解
     this.solutions = [];
+    this.solutionSlots = [];
+    this.invalidateAnalysis();
+    this.basicAnalysisClient.cancel();
     this.solveRequestId++;
     this.stepIndex = 0;
     this.selectedSolution = -1;
@@ -431,10 +473,7 @@ export default class CrossF2LTrainer extends Vue {
       this.phase === "idle" &&
       this.solutions.length > 0 &&
       this.selectedSolution >= 0 &&
-      this.selectedSolution < this.solutions.length &&
-      this.predictedCornerIndex !== null &&
-      this.predictedEdgeIndex !== null &&
-      this.predictTarget === null
+      this.selectedSolution < this.solutions.length
     );
   }
 
@@ -475,6 +514,8 @@ export default class CrossF2LTrainer extends Vue {
 
   beforeDestroy(): void {
     this.onAppDeactivate();
+    this.analysisClient.dispose();
+    this.basicAnalysisClient.dispose();
     if (this.timerTick !== null) {
       window.clearInterval(this.timerTick);
       this.timerTick = null;
@@ -556,6 +597,8 @@ export default class CrossF2LTrainer extends Vue {
   // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 重放 baseOps 恢复基准视角并求解。
   // 打乱固定在标准姿态 (黄底绿前) 进行; baseOps 仅由 z2/y/y' 按钮产生且跨轮保留
   private startRound(exp: string): void {
+    this.invalidateAnalysis();
+    this.basicAnalysisClient.cancel();
     this.solveRequestId++;
     this.pendingSolve = false;
     tweener.finish();
@@ -563,6 +606,8 @@ export default class CrossF2LTrainer extends Vue {
     this.clearSelection();
     this.result = "";
     this.solutions = [];
+    this.solutionSlots = [];
+    this.solutionRecommendationIds = [];
     this.stepIndex = 0;
     this.selectedSolution = -1;
     this.phase = "idle";
@@ -607,9 +652,44 @@ export default class CrossF2LTrainer extends Vue {
     }
     // 求解槽位改变: 若与当前预判槽位冲突 (该槽位 F2L 已被还原), 先程序性错开
     this.avoidSlotConflict();
+    this.invalidateAnalysis();
+    this.basicAnalysisClient.cancel();
     // 解法语义改变 (xcross 含求解槽位 F2L): 清空解法重算 (reset 内检测到空会重新求解)
     this.solutions = [];
+    this.solutionSlots = [];
     this.reset();
+  }
+
+  @Watch("solveSlotMode")
+  onSolveSlotModeChange(): void {
+    window.localStorage.setItem("trainerSolveSlotMode", this.solveSlotMode);
+    if (this.phase === "playing") return;
+    if (this.solveSlotMode === "FIXED" && (this.solveMode === "xxcross" || this.solveMode === "xxxcross")) {
+      this.selectedSolveSlots = normalizeFixedSlots(this.selectedSolveSlots, this.solveMode === "xxcross" ? 2 : 3);
+      window.localStorage.setItem("trainerMultiSolveSlots", this.selectedSolveSlots.join(","));
+    }
+    this.invalidateAnalysis();
+    this.basicAnalysisClient.cancel();
+    this.solutions = [];
+    this.solutionSlots = [];
+    this.reset();
+  }
+
+  toggleMultiSlot(name: string): void {
+    if (this.phase === "playing") return;
+    const next = this.selectedSolveSlots.slice();
+    const index = next.indexOf(name);
+    if (index >= 0) next.splice(index, 1);
+    else next.push(name);
+    this.selectedSolveSlots = next;
+    window.localStorage.setItem("trainerMultiSolveSlots", next.join(","));
+    if (this.solveSlotMode === "FIXED") {
+      this.invalidateAnalysis();
+      this.basicAnalysisClient.cancel();
+      this.solutions = [];
+      this.solutionSlots = [];
+      this.reset();
+    }
   }
 
   @Watch("solveMode")
@@ -620,7 +700,14 @@ export default class CrossF2LTrainer extends Vue {
     }
     // 模式改变 = 解法语义改变 (xcross 含求解槽位 F2L): 冲突错开后清空解法/预判/判定并重算
     this.avoidSlotConflict();
+    this.invalidateAnalysis();
+    this.basicAnalysisClient.cancel();
+    if (this.solveSlotMode === "FIXED" && (this.solveMode === "xxcross" || this.solveMode === "xxxcross")) {
+      this.selectedSolveSlots = normalizeFixedSlots(this.selectedSolveSlots, this.solveMode === "xxcross" ? 2 : 3);
+      window.localStorage.setItem("trainerMultiSolveSlots", this.selectedSolveSlots.join(","));
+    }
     this.solutions = [];
+    this.solutionSlots = [];
     this.reset();
   }
 
@@ -629,6 +716,8 @@ export default class CrossF2LTrainer extends Vue {
   // 恢复打乱态后旧解法依然有效, 故保留解法列表与选中项复用, 不重算
   // (仅在解法为空时重试求解, 覆盖「上次求解失败后重置」场景)
   reset(): void {
+    this.cancelRecommendation();
+    this.basicAnalysisClient.cancel();
     this.solveRequestId++;
     this.solving = false;
     this.pendingSolve = false;
@@ -711,8 +800,149 @@ export default class CrossF2LTrainer extends Vue {
   // 高亮它们在当前打乱状态中的实际位置, 覆层随块移动
   // 基准视角非标准时: 目标块为基准视角还原态下位于槽位的块 (槽位索引经姿态逆映射, 见 mappedCornerIndex)
   private markTargetSlot(): void {
+    for (const cubelet of this.world.cube.initials) restoreHighlight(cubelet);
+    for (const name of this.activeSolvedSlots) {
+      const target = F2L_SLOTS.find(item => item.name === name);
+      if (!target) continue;
+      highlightPiece(this.world, rotatePositionByOps(target.cornerIndex, this.inverseBaseOps), HIGHLIGHT_COLORS.answer);
+      highlightPiece(this.world, rotatePositionByOps(target.edgeIndex, this.inverseBaseOps), HIGHLIGHT_COLORS.answer);
+    }
     highlightPiece(this.world, this.mappedCornerIndex, HIGHLIGHT_COLORS.target);
     highlightPiece(this.world, this.mappedEdgeIndex, HIGHLIGHT_COLORS.target);
+  }
+
+  private cancelRecommendation(): void {
+    this.recommendationRequestId++;
+    this.analysisClient.cancel();
+    this.recommendationBusy = false;
+  }
+
+  closeRecommendations(): void {
+    this.recommendationOpen = false;
+    this.recommendationFull = false;
+    if (this.recommendationBusy) {
+      this.cancelRecommendation();
+      this.recommendationError = "已取消搜索，再次打开可重试";
+    }
+    this.resize();
+  }
+
+  retryRecommendations(): void {
+    this.recommendationError = "";
+    this.recommendations = [];
+    this.recommendationOpen = false;
+    this.openRecommendations();
+  }
+
+  toggleRecommendationFull(): void {
+    const list = document.querySelector(this.recommendationFull ? ".recommendation-dialog .recommendation-list" : ".recommendation-panel .recommendation-list") as HTMLElement | null;
+    if (list) this.recommendationScroll = list.scrollTop;
+    this.recommendationFull = !this.recommendationFull;
+    this.$nextTick(() => {
+      requestAnimationFrame(() => {
+        const next = document.querySelector(this.recommendationFull ? ".recommendation-dialog .recommendation-list" : ".recommendation-panel .recommendation-list") as HTMLElement | null;
+        if (next) next.scrollTop = this.recommendationScroll;
+      });
+      this.resize();
+    });
+  }
+
+  private invalidateAnalysis(): void {
+    this.cancelRecommendation();
+    this.recommendations = [];
+    this.selectedRecommendationId = null;
+    this.recommendationError = "";
+    this.recommendationOpen = false;
+    this.recommendationFull = false;
+    this.recommendationAll = false;
+  }
+
+  private get visibleRecommendations(): Recommendation[] {
+    const filtered = this.recommendations.filter(item =>
+      (this.recommendationFront === "ALL" || item.front === this.recommendationFront) &&
+      (this.recommendationDepth === "ALL" || item.offset === Number(this.recommendationDepth)));
+    return this.recommendationAll ? filtered : filtered.slice(0, 4);
+  }
+
+  gripInstruction(step: any): string {
+    return this.gripVersion === "simple" ? simpleGripInstruction(step) :
+      `${step.movement}：${step.instruction}${step.thumb_instruction ? `；${step.thumb_instruction}` : ""}`;
+  }
+
+  private isValidRecommendation(moves: string[], slots: string[]): boolean {
+    if (!this.solveFacelets || moves.some(move => !/^[URFDLB](2|'|)$/.test(move))) return false;
+    const end = applyFormulaFrom(this.solveFacelets, moves.join(" "));
+    return verifySolvedTargets(end, slots).ok;
+  }
+
+  async openRecommendations(): Promise<void> {
+    if (this.recommendationOpen) { this.closeRecommendations(); return; }
+    this.recommendationOpen = true;
+    this.setCollapsed(true);
+    this.$nextTick(() => this.resize());
+    if (this.recommendations.length || this.recommendationBusy || this.solving || !this.solutions.length) return;
+    const generation = ++this.recommendationRequestId;
+    const facelets = this.solveFacelets;
+    const mode = this.solveMode;
+    this.recommendationBusy = true;
+    this.recommendationError = "";
+    try {
+      let candidates: Recommendation[];
+      if (mode === "cross") {
+        const result: any = await this.analysisClient.request("recommendCross", { facelets });
+        candidates = result.buckets.reduce((all: Recommendation[], bucket: any) => {
+          for (const item of bucket.solutions) {
+            const physicalMoves = item.moves.map((move: string) => relativeMove(move, bucket.front));
+            all.push({ id: `${bucket.front}:${bucket.depth}:${item.moves.join(" ")}`,
+              front: bucket.front, displayMoves: item.moves, physicalMoves, slots: [], physicalSlots: [],
+              sourceIndices: [], route: item.route, depth: bucket.depth,
+              offset: bucket.depth - result.min_depth });
+          }
+          return all;
+        }, []);
+      } else {
+        const raw = this.solutions.map((formula, index) => ({
+          moves: formula ? formula.split(/\s+/) : [], slots: this.solutionSlots[index] || [],
+        }));
+        const views: any[] = await this.analysisClient.request("scoreExisting", { solutions: raw });
+        candidates = views.reduce((all: Recommendation[], view: any) => {
+          for (const item of view.solutions) {
+            all.push({ id: `${view.front}:${item.moves.join(" ")}`, front: view.front,
+              displayMoves: item.moves, physicalMoves: item.moves.map((move: string) => relativeMove(move, view.front)),
+              slots: item.slots, physicalSlots: (item.sourceIndices as number[]).reduce((names: string[], source: number) => {
+                for (const slot of this.solutionSlots[source] || []) if (names.indexOf(slot) < 0) names.push(slot);
+                return names;
+              }, []),
+              sourceIndices: item.sourceIndices, route: item.route,
+              depth: item.moves.length, offset: 0 });
+          }
+          return all;
+        }, []);
+      }
+      if (generation !== this.recommendationRequestId || facelets !== this.solveFacelets) return;
+      this.recommendations = candidates.filter(item => this.isValidRecommendation(item.physicalMoves, item.physicalSlots));
+      this.recommendations.sort((a, b) => a.route.score - b.route.score || a.depth - b.depth || a.front.localeCompare(b.front));
+      if (!this.recommendations.length) this.recommendationError = "没有可验证的推荐解法";
+    } catch (error) {
+      if (generation === this.recommendationRequestId) this.recommendationError = `指法推荐失败：${String(error)}`;
+    } finally {
+      if (generation === this.recommendationRequestId) this.recommendationBusy = false;
+    }
+  }
+
+  selectRecommendation(item: Recommendation): void {
+    if (this.phase !== "idle" || this.stepIndex > 0 || !this.isValidRecommendation(item.physicalMoves, item.physicalSlots)) return;
+    const formula = item.physicalMoves.join(" ");
+    let index = this.solutions.findIndex((value, i) => value === formula &&
+      (this.solutionSlots[i] || []).join(",") === item.physicalSlots.join(","));
+    if (index < 0) {
+      index = this.solutions.length;
+      this.solutions.push(formula);
+      this.solutionSlots.push(item.physicalSlots.slice());
+      this.solutionRecommendationIds.push(item.id);
+    }
+    this.selectSolution(index);
+    this.selectedRecommendationId = item.id;
   }
 
   // 调用 Cross 求解器获取多个最优解法
@@ -734,26 +964,44 @@ export default class CrossF2LTrainer extends Vue {
       if (this.baseOps.length > 0) {
         state = mapBaseOpsFacelets(state, this.baseOps);
       }
+      this.solveFacelets = state;
+      const pairCount = this.solveMode === "xxxcross" ? 3 : this.solveMode === "xxcross" ? 2 : 1;
+      const fixedSlots = this.solveMode === "xcross" ? [this.solveSlot] : this.selectedSolveSlots;
+      if (this.solveMode !== "cross" && this.solveSlotMode === "FIXED" && fixedSlots.length !== pairCount) {
+        this.solutions = [];
+        this.solutionSlots = [];
+        this.result = `请恰好选择 ${pairCount} 个求解槽位`;
+        return;
+      }
       // xcross 求「十字 + 求解槽位 solveSlot 一组 F2L」, 槽位名与映射后状态同属基准视角坐标系
       // (solveSlot 与预判槽位 slot 解耦, 见 solveSlot 注释)
-      const raw =
-        this.solveMode === "xcross"
-          ? await this.solver.solveXCross(state, this.solveSlot, 5)
-          : await this.solver.solveCross(state, 5, 8);
+      let entries: { moves: string[]; slots: string[] }[];
+      if (this.solveMode === "cross") {
+        const raw = await this.solver.solveCross(state, 5, 8);
+        entries = (raw || []).filter(s => !String(s).startsWith("error"))
+          .map((s: any) => ({ moves: (Array.isArray(s) ? s : String(s).trim().split(/\s+/)).filter(Boolean), slots: [] }));
+      } else if (this.solveMode === "xcross") {
+        const raw = await WasmSolver.solveXCross(state, this.solveSlotMode === "ALL" ? "ALL" : this.solveSlot, 5);
+        entries = raw.map(item => ({ moves: item.moves, slots: [item.slot] }));
+      } else {
+        entries = await this.basicAnalysisClient.request("solveMultiCross", {
+          facelets: state, pairCount,
+          slots: this.solveSlotMode === "ALL" ? "ALL" : fixedSlots.join(","),
+          maxSolutions: 5, maxDepth: 14,
+        });
+      }
       if (requestId !== this.solveRequestId) return;
-      // WASM 返回 string[][] (每个解法为步骤数组), 内置求解器返回 string[], 统一归一化; 最多取 4 条
-      this.solutions = (raw || [])
-        .map((s: any) => (Array.isArray(s) ? s.join(" ") : String(s)).trim())
-        .filter((s: string) => s.length > 0 && !s.startsWith("error"))
-        .slice(0, 4);
+      entries = entries.filter(item => item.slots.length === (this.solveMode === "cross" ? 0 : pairCount) &&
+        item.moves.every(move => /^[URFDLB](2|'|)$/.test(move)) &&
+        this.isValidRecommendation(item.moves, item.slots));
+      this.solutions = entries.map(item => item.moves.join(" "));
+      this.solutionSlots = entries.map(item => item.slots);
+      this.solutionRecommendationIds = entries.map(() => null);
       // 默认选中第 1 个解法
       this.selectedSolution = this.solutions.length > 0 ? 0 : -1;
-      if (this.solutions.length === 0) {
-        this.result =
-          this.solveMode === "xcross"
-            ? "十字/槽位已完成或求解失败, 请点击「重新打乱」"
-            : "十字已完成或求解失败, 请点击「重新打乱」";
-      }
+      this.avoidSlotConflict();
+      this.markTargetSlot();
+      if (!this.solutions.length) this.result = "没有找到可验证的解法，请切换槽位或重新打乱";
     } catch (e) {
       if (requestId !== this.solveRequestId) return;
       console.error("[CrossF2LTrainer] 求解失败", e);
@@ -769,7 +1017,13 @@ export default class CrossF2LTrainer extends Vue {
     if (this.phase !== "idle" || this.stepIndex > 0) {
       return;
     }
+    const oldSlot = this.slot;
+    const oldPhysicalTarget = this.mappedCornerIndex;
     this.selectedSolution = i;
+    this.selectedRecommendationId = this.solutionRecommendationIds[i] || null;
+    this.avoidSlotConflict();
+    if (oldSlot !== this.slot || oldPhysicalTarget !== this.mappedCornerIndex) this.clearSelection();
+    this.markTargetSlot();
   }
 
   // 当前选中解法的动作序列
@@ -823,6 +1077,10 @@ export default class CrossF2LTrainer extends Vue {
     // 数学等价 (位置语义共轭 R⁻¹∘τ_f∘R = τ_{R⁻¹(f)}, 且 R⁻¹ 层名映射 = C⁻¹)。
     // 解法面名本就是姿态系 (当前观察者视角) 层名, 与用户手动执行语义一致。
     const tokens = this.currentSolutionSteps;
+    if (tokens.length === 0) {
+      this.judge();
+      return;
+    }
     this.stepIndex = tokens.length; // 动画结束回调按进度判定
     this.world.cube.twister.push(tokens.join(" "));
   }
@@ -989,11 +1247,7 @@ export default class CrossF2LTrainer extends Vue {
     // 仅全部动作播完且预判完成时判定, 否则回 idle 等待下一次单步
     const tokens = this.currentSolutionSteps;
     if (tokens.length > 0 && this.stepIndex >= tokens.length) {
-      if (this.predictedCornerIndex !== null && this.predictedEdgeIndex !== null) {
-        this.judge();
-      } else {
-        this.phase = "idle";
-      }
+      this.judge();
     } else {
       this.phase = "idle";
     }
@@ -1012,12 +1266,19 @@ export default class CrossF2LTrainer extends Vue {
     const actualEdgeIndex = targetEdge.index;
     const cornerOk = actualCornerIndex === this.predictedCornerIndex;
     const edgeOk = actualEdgeIndex === this.predictedEdgeIndex;
-    if (cornerOk && edgeOk) {
-      this.result = "✅ 预判正确!";
+    const state = mapBaseOpsFacelets(this.world.cube.serialize(), this.baseOps);
+    const verdict = trainingVerdict(state, this.activeSolvedSlots,
+      this.predictedCornerIndex === null ? null : cornerOk,
+      this.predictedEdgeIndex === null ? null : edgeOk);
+    const targets = `十字${verdict.targets.cross ? "✓" : "✗"}、${this.activeSolvedSlots.length}组F2L ${this.activeSolvedSlots.map(name => `${name}${verdict.targets.slots[name] ? "✓" : "✗"}`).join(" ")}`;
+    if (verdict.prediction === "incomplete") {
+      this.result = `${verdict.targets.ok ? "✅" : "❌"} ${targets}；未完成预判`;
+    } else if (verdict.prediction === "correct") {
+      this.result = `${verdict.targets.ok ? "✅" : "❌"} ${targets}；预判正确`;
     } else {
       const cornerText = cornerOk ? "✓" : `实际位于 ${pieceName(actualCornerIndex)} 位置`;
       const edgeText = edgeOk ? "✓" : `实际位于 ${pieceName(actualEdgeIndex)} 位置`;
-      this.result = `❌ 预判错误: 角块${this.targetCornerName} ${cornerText} , 棱块${this.targetEdgeName} ${edgeText} (紫色块当前位置)`;
+      this.result = `${verdict.targets.ok ? "✅" : "❌"} ${targets}；预判错误: 角块${this.targetCornerName} ${cornerText} , 棱块${this.targetEdgeName} ${edgeText}`;
     }
     // 播放已结束 (未播放态): 青色覆层从位置绑定转回块锚定,
     // 与紫色一致地跟随视角转动; 锚定在预判位置处的块上
@@ -1046,7 +1307,7 @@ export default class CrossF2LTrainer extends Vue {
     this.height = document.documentElement.clientHeight;
     this.size = Math.ceil(Math.min(this.width / 6, this.height / 12));
     // 全屏 viewport, 仅预留底部面板高度, 魔方居中偏上不遮挡
-    this.viewport?.resize(this.width, this.height - this.size * 2.6);
+    this.viewport?.resize(this.width, this.height * (this.recommendationOpen && !this.recommendationFull ? 0.58 : 1) - this.size * 2.6);
   }
 
   loop(): void {

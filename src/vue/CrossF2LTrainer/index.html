@@ -2,12 +2,12 @@
   <div v-resize="onResize" style="user-select: none; touch-action: none; display: flex; flex-direction: column; height: 100vh; position: relative;">
     <setting />
     <!-- 3D 魔方占据全屏 -->
-    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;">
+    <div :style="{bottom: recommendationOpen && !recommendationFull ? '42vh' : '0'}" style="position: absolute; top: 0; left: 0; right: 0; transition: bottom .2s;">
       <viewport ref="viewport"></viewport>
     </div>
 
     <!-- 底部悬浮面板: 打乱/槽位/解法/预判/操作 (样式见 theme.ts, mounted 时注入) -->
-    <div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: center;">
+    <div :style="{bottom: recommendationOpen && !recommendationFull ? '42vh' : '0'}" style="position: absolute; left: 0; right: 0; z-index: 10; display: flex; justify-content: center; transition: bottom .2s;">
       <v-card
         class="trainer-overlay-card"
         :style="{width: Math.min(size * 10, width * 0.96) + 'px'}"
@@ -22,13 +22,17 @@
               <select v-model="solveMode" class="solve-mode-select" :disabled="phase === 'playing'" title="求解模式: Cross=仅十字, XCross=十字+求解槽位一组F2L" :style="{height: size * 0.55 + 'px', fontSize: size * 0.2 + 'px', width: size * 1.1 + 'px'}">
                 <option value="cross">Cross</option>
                 <option value="xcross">XCross</option>
+                <option value="xxcross">XXCross</option>
+                <option value="xxxcross">XXXCross</option>
               </select>
-              <select v-if="solveMode === 'xcross'" v-model="solveSlot" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位: XCross 解法会一并还原该槽位一组F2L, 相同的预判按钮将灰显" :style="{height: size * 0.55 + 'px', fontSize: size * 0.2 + 'px', width: size * 0.8 + 'px'}">
+              <select v-if="solveMode !== 'cross'" v-model="solveSlotMode" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位选择" style="font-size: 12px;"><option value="ALL">任意槽位</option><option value="FIXED">指定槽位</option></select>
+              <select v-if="solveMode === 'xcross' && solveSlotMode === 'FIXED'" v-model="solveSlot" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位" :style="{height: size * 0.55 + 'px', fontSize: size * 0.2 + 'px', width: size * 0.8 + 'px'}">
                 <option value="FL">FL</option>
                 <option value="FR">FR</option>
                 <option value="BL">BL</option>
                 <option value="BR">BR</option>
               </select>
+              <span v-if="solveMode === 'xxcross' || solveMode === 'xxxcross'" style="font-size: 11px;">{{ solveSlotMode === 'ALL' ? '槽位由解法决定' : '指定 ' + selectedSolveSlots.join('、') }}</span>
               <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'" style="flex: none;">
                 <v-btn value="FL" :disabled="isSlotDisabled('FL')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
                 <v-btn value="FR" :disabled="isSlotDisabled('FR')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
@@ -42,6 +46,7 @@
               <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y" :style="{height: size * 0.55 + 'px'}">y</v-btn>
               <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" title="整体旋转 y'" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
               <v-btn x-small @click="rescramble" :disabled="phase === 'playing'" title="打乱" :style="{height: size * 0.55 + 'px'}">打乱</v-btn>
+              <v-btn x-small @click="openRecommendations" :disabled="solving || !solutions.length" title="指法推荐" :style="{height: size * 0.55 + 'px'}">指法推荐</v-btn>
               <v-btn x-small @click="reset" :disabled="phase === 'playing'" title="重置" :style="{height: size * 0.55 + 'px'}">重置</v-btn>
               <div style="flex: 1; min-width: 4px; align-self: stretch; cursor: pointer;" @click="setCollapsed(false)" title="展开面板"></div>
               <v-btn x-small @click="stepBack" :disabled="!canStepBack" title="回退一步" :style="{height: size * 0.55 + 'px'}">⏮</v-btn>
@@ -52,7 +57,7 @@
             <div class="sum-r2" @click="setCollapsed(false)" title="展开面板选择解法">
               <span v-if="solutions.length > 0 && selectedSolution >= 0">
                 <span class="sum-cnt">解法 {{ selectedSolution + 1 }}/{{ solutions.length }}</span>
-                <span class="sum-expr">{{ solutions[selectedSolution] }}</span>
+                <span class="sum-expr">{{ solutions[selectedSolution] || '0 步' }} <small v-if="activeSolvedSlots.length">{{ activeSolvedSlots.join('+') }}</small></span>
               </span>
               <span v-else-if="solving || pendingSolve" class="sum-empty">📐 计算中...</span>
               <span v-else-if="solutions.length === 0" class="sum-empty">📐 暂无解法</span>
@@ -64,7 +69,7 @@
               </span>
               <span v-if="elapsedText" class="sum-timer">⏱ {{ elapsedText }}</span>
               <v-btn v-if="predictedCornerName || predictedEdgeName" x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
-              <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result.indexOf('✅') >= 0 ? "✔" : "✘" }}</span>
+              <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result }}</span>
             </div>
           </div>
 
@@ -75,13 +80,19 @@
             <select v-model="solveMode" class="solve-mode-select" :disabled="phase === 'playing'" title="求解模式: Cross=仅十字, XCross=十字+求解槽位一组F2L" :style="{height: size * 0.55 + 'px', fontSize: size * 0.24 + 'px', width: size * 1.2 + 'px'}">
               <option value="cross">Cross</option>
               <option value="xcross">XCross</option>
+              <option value="xxcross">XXCross</option>
+              <option value="xxxcross">XXXCross</option>
             </select>
-            <select v-if="solveMode === 'xcross'" v-model="solveSlot" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位: XCross 解法会一并还原该槽位一组F2L, 相同的预判按钮将灰显" :style="{height: size * 0.55 + 'px', fontSize: size * 0.24 + 'px', width: size * 0.85 + 'px'}">
+            <select v-if="solveMode !== 'cross'" v-model="solveSlotMode" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位选择" style="font-size: 12px;"><option value="ALL">任意槽位</option><option value="FIXED">指定槽位</option></select>
+            <select v-if="solveMode === 'xcross' && solveSlotMode === 'FIXED'" v-model="solveSlot" class="solve-mode-select" :disabled="phase === 'playing'" title="求解槽位" :style="{height: size * 0.55 + 'px', fontSize: size * 0.24 + 'px', width: size * 0.85 + 'px'}">
               <option value="FL">FL</option>
               <option value="FR">FR</option>
               <option value="BL">BL</option>
               <option value="BR">BR</option>
             </select>
+            <span v-if="solveMode === 'xxcross' || solveMode === 'xxxcross'" style="display: flex; gap: 3px; font-size: 11px; align-items: center;" title="固定模式须恰好选 2 或 3 个槽位">
+              <label v-for="name in ['FL','FR','BL','BR']" :key="name" style="white-space: nowrap;"><input type="checkbox" :checked="selectedSolveSlots.indexOf(name) >= 0" :disabled="solveSlotMode === 'ALL' || phase === 'playing'" @change="toggleMultiSlot(name)" />{{ name }}</label>
+            </span>
             <v-btn-toggle v-model="slot" mandatory dense :disabled="phase === 'playing'">
               <v-btn value="FL" :disabled="isSlotDisabled('FL')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">FL</v-btn>
               <v-btn value="FR" :disabled="isSlotDisabled('FR')" title="预判槽位" :style="{height: size * 0.55 + 'px'}">FR</v-btn>
@@ -96,6 +107,7 @@
               <v-btn x-small @click="rotateY(1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y</v-btn>
               <v-btn x-small @click="rotateY(-1)" :disabled="phase !== 'idle' || solving || pendingSolve" :style="{height: size * 0.55 + 'px'}">y'</v-btn>
               <v-btn x-small @click="rescramble" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">打乱</v-btn>
+              <v-btn x-small @click="openRecommendations" :disabled="solving || !solutions.length" :style="{height: size * 0.55 + 'px'}">指法推荐</v-btn>
               <v-btn x-small @click="reset" :disabled="phase === 'playing'" :style="{height: size * 0.55 + 'px'}">重置</v-btn>
               <v-btn x-small @click="stepBack" :disabled="!canStepBack" title="回退一步" :style="{height: size * 0.55 + 'px'}">⏮</v-btn>
               <v-btn x-small @click="stepForward" :disabled="!canStepForward" title="单步播放" :style="{height: size * 0.55 + 'px'}">⏭</v-btn>
@@ -138,7 +150,7 @@
                 visibility: n <= solutions.length ? 'visible' : 'hidden',
               }"
             >
-              {{ selectedSolution === n - 1 ? "●" : "○" }} {{ solutions[n - 1] }}
+              {{ selectedSolution === n - 1 ? "●" : "○" }} {{ solutions[n - 1] || '0 步' }} <small v-if="solutionSlots[n - 1] && solutionSlots[n - 1].length">{{ solutionSlots[n - 1].join('+') }}</small>
             </div>
           </div>
           <div v-else :style="{fontSize: size * 0.26 + 'px'}" style="color: #667;">{{ solving ? "📐 正在计算解法..." : "📐 暂无可用解法" }}</div>
@@ -150,12 +162,62 @@
               <span v-if="elapsedText" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedText }}</span>
             </span>
             <v-btn x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
-            <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result.indexOf('✅') >= 0 ? "✔" : "✘" }}</span>
+            <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result }}</span>
           </div>
           </div><!-- /展开态 -->
         </v-card-text>
       </v-card>
     </div>
+
+    <section v-if="recommendationOpen && !recommendationFull" class="recommendation-panel" aria-label="指法推荐结果">
+      <div class="recommendation-toolbar">
+        <b>指法推荐</b>
+        <select v-model="recommendationFront" aria-label="观察正面"><option value="ALL">四朝向</option><option v-for="front in fronts" :key="front" :value="front">{{ front }} 前</option></select>
+        <select v-if="solveMode === 'cross'" v-model="recommendationDepth" aria-label="步数分组"><option value="ALL">全部深度</option><option value="0">最短</option><option value="1">+1步</option><option value="2">+2步</option></select>
+        <button @click="recommendationAll = !recommendationAll">{{ recommendationAll ? '前4条' : '显示全部' }}</button>
+        <button @click="gripVersion = gripVersion === 'simple' ? 'full' : 'simple'">{{ gripVersion === 'simple' ? '完整指法' : '简单指法' }}</button>
+        <button @click="toggleRecommendationFull">全屏</button>
+        <button @click="closeRecommendations">关闭</button>
+      </div>
+      <div class="recommendation-list">
+        <div v-if="recommendationBusy">正在搜索／评分… <button @click="closeRecommendations">取消</button></div>
+        <div v-else-if="recommendationError">{{ recommendationError }} <button @click="retryRecommendations">重试</button></div>
+        <div v-else-if="!visibleRecommendations.length">当前筛选下没有结果</div>
+        <button v-for="item in visibleRecommendations" :key="item.id" class="recommendation-item" :class="{'recommendation-selected': selectedRecommendationId === item.id}" :disabled="phase !== 'idle' || stepIndex > 0" @click="selectRecommendation(item)">
+          <b>{{ item.front }} 前 · {{ item.depth }}步<span v-if="solveMode === 'cross'"> · {{ item.offset === 0 ? '最短' : '+' + item.offset }}</span></b>
+          <span>{{ item.displayMoves.join(' ') || '0 步' }}</span>
+          <small>{{ item.slots.length ? item.slots.join('+') + ' · ' : '' }}指法分 {{ item.route.score }} · 换握 {{ item.route.regrips }}</small>
+          <small v-if="selectedRecommendationId === item.id && item.route.steps.length">{{ item.route.steps.map(gripInstruction).join('；') }}</small>
+        </button>
+        <small v-if="solveMode !== 'cross'">仅对已返回候选评分；F2L 指法分未专项校准，不代表实测用时。</small>
+      </div>
+    </section>
+
+    <v-dialog :value="recommendationFull" fullscreen hide-overlay scrollable @input="value => { if (!value) toggleRecommendationFull(); }">
+      <v-card class="recommendation-dialog">
+        <v-card-title>指法推荐 <v-spacer></v-spacer><v-btn text @click="toggleRecommendationFull">返回魔方</v-btn></v-card-title>
+        <v-card-text>
+          <div class="recommendation-toolbar">
+            <select v-model="recommendationFront" aria-label="全屏观察正面"><option value="ALL">四朝向</option><option v-for="front in fronts" :key="front" :value="front">{{ front }} 前</option></select>
+            <select v-if="solveMode === 'cross'" v-model="recommendationDepth" aria-label="全屏步数分组"><option value="ALL">全部深度</option><option value="0">最短</option><option value="1">+1步</option><option value="2">+2步</option></select>
+            <button @click="recommendationAll = !recommendationAll">{{ recommendationAll ? '前4条' : '显示全部' }}</button>
+            <button @click="gripVersion = gripVersion === 'simple' ? 'full' : 'simple'">{{ gripVersion === 'simple' ? '完整指法' : '简单指法' }}</button>
+          </div>
+          <div class="recommendation-list">
+          <div v-if="recommendationBusy">正在搜索／评分…</div>
+          <div v-else-if="recommendationError">{{ recommendationError }}</div>
+          <div v-else-if="!visibleRecommendations.length">当前筛选下没有结果</div>
+          <button v-for="item in visibleRecommendations" :key="item.id" class="recommendation-item" :class="{'recommendation-selected': selectedRecommendationId === item.id}" :disabled="phase !== 'idle' || stepIndex > 0" @click="selectRecommendation(item)">
+            <b>{{ item.front }} 前 · {{ item.depth }}步<span v-if="solveMode === 'cross'"> · {{ item.offset === 0 ? '最短' : '+' + item.offset }}</span></b>
+            <span>{{ item.displayMoves.join(' ') || '0 步' }}</span>
+            <small>{{ item.slots.length ? item.slots.join('+') + ' · ' : '' }}指法分 {{ item.route.score }} · 换握 {{ item.route.regrips }}</small>
+            <small v-if="selectedRecommendationId === item.id && item.route.steps.length">{{ item.route.steps.map(gripInstruction).join('；') }}</small>
+          </button>
+          <small v-if="solveMode !== 'cross'">仅对已返回候选评分；F2L 指法分未专项校准，不代表实测用时。</small>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
 
     <!-- 打乱信息弹窗: 完整公式 + 目标信息 + 复制 -->
     <v-dialog v-model="scrambleDialog" max-width="340">
@@ -195,9 +257,11 @@
           <div style="margin-top: 8px;"><b>求解模式</b></div>
           <div>· Cross: 只求底面十字解法</div>
           <div>· XCross: 十字 + 求解槽位一组 F2L 一步到位 (切换求解槽位会重新求解)</div>
+          <div>· XXCross / XXXCross: 十字 + 2／3 组 F2L；可指定槽位或由解法决定。预判剩余槽位的一组角棱。</div>
+          <div>· 指法推荐: 点击后计算四朝向建议，可筛选步数、展开全部或全屏；公式会映射回当前视角播放。</div>
           <div style="margin-top: 8px;"><b>槽位</b></div>
           <div>· 预判槽位按钮 FL / FR / BL / BR: 切换要训练的 F2L 槽位 (预判目标)</div>
-          <div>· 求解槽位下拉 (仅 XCross): 指定求解时一并还原的 F2L 槽位,</div>
+          <div>· 求解槽位可选任意或固定；XX/XXX 固定时恰好选 2/3 槽,</div>
           <div>&nbsp;&nbsp;已被还原的槽位不可预判, 相同的预判按钮会灰显</div>
         </v-card-text>
         <v-card-actions>

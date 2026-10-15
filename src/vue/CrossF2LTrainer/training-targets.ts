@@ -18,6 +18,12 @@ export function predictionMustReset(predictionSlot: string, solvedSlots: string[
   return remainingSlots(solvedSlots).indexOf(predictionSlot) < 0;
 }
 
+export function normalizeFixedSlots(selected: string[], count: number): string[] {
+  const unique = selected.filter((slot, index) => SLOTS.indexOf(slot) >= 0 && selected.indexOf(slot) === index).slice(0, count);
+  for (const slot of SLOTS) if (unique.length < count && unique.indexOf(slot) < 0) unique.push(slot);
+  return unique;
+}
+
 function stickersSolved(facelets: string, indices: number[]): boolean {
   return indices.every(index => facelets[index] === CENTERS[Math.floor(index / 9)]);
 }
@@ -32,4 +38,14 @@ export function verifySolvedTargets(facelets: string, slots: string[]): {
   const slotResults: { [name: string]: boolean } = {};
   for (const slot of slots) slotResults[slot] = stickersSolved(facelets, SLOT_STICKERS[slot]);
   return { ok: cross && slots.every(slot => slotResults[slot]), cross, slots: slotResults };
+}
+
+export function trainingVerdict(facelets: string, slots: string[], cornerOk: boolean | null, edgeOk: boolean | null): {
+  targets: ReturnType<typeof verifySolvedTargets>; prediction: 'correct' | 'incorrect' | 'incomplete';
+} {
+  return {
+    targets: verifySolvedTargets(facelets, slots),
+    prediction: cornerOk === null || edgeOk === null ? 'incomplete' :
+      cornerOk && edgeOk ? 'correct' : 'incorrect',
+  };
 }

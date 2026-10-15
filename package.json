@@ -12,6 +12,7 @@
     "verify:blecross": "playwright-cli run-code --filename scripts/verify-blecross-recompute.js",
     "verify:bleconnect": "playwright-cli run-code --filename scripts/verify-bleconnect.js",
     "verify:global-ble": "playwright-cli run-code --filename scripts/verify-global-ble.js",
+    "verify:crossf2l": "playwright-cli -s=crossf2l open && playwright-cli -s=crossf2l run-code --filename scripts/verify-crossf2l-analysis.js",
     "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js",
     "test:android": "node scripts/test-android-app.js"
   },
