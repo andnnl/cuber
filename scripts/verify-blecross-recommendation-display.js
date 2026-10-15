@@ -1,11 +1,54 @@
 async page => {
-  await page.goto('http://127.0.0.1:18082/?mode=blecross');
+  await page.goto(page.url().includes('mode=blecross') ? page.url() : 'http://127.0.0.1:18082/?mode=blecross');
   await page.waitForFunction(() => window.__bleCross?.world);
   await page.getByText('新打乱').first().click();
   await page.waitForFunction(() => window.__bleCross.phase === 'observing');
   await page.locator('[data-ble-recommend-open]').click();
   await page.waitForFunction(() => window.__bleCross.recommendations.length || window.__bleCross.recommendationError, null, { timeout: 180000 });
   if (await page.evaluate(() => !!window.__bleCross.recommendationError)) throw new Error('推荐搜索失败');
+
+  await page.evaluate(() => { window.__bleCross.recommendationAll = true; });
+  const oriented = await page.evaluate(() => {
+    const vm = window.__bleCross;
+    const index = vm.visibleRecommendations.findIndex(item => item.front === 'R');
+    if (index < 0) throw new Error('缺少 R 正面推荐');
+    const item = vm.visibleRecommendations[index];
+    const center = vm.world.cube.serialize()['URFDLB'.indexOf(item.front) * 9 + 4];
+    return { index, center, color: { U: '白', D: '黄', F: '绿', R: '红', B: '蓝', L: '橙' }[center],
+      formula: item.physicalMoves.join(' '), displayed: item.displayMoves.join(' ') };
+  });
+  const orientedCard = page.locator('.ble-recommendation-panel .ble-recommendation-item').nth(oriented.index);
+  if (!(await orientedCard.locator('b').first().textContent()).includes(`R ${oriented.color}前`)) {
+    throw new Error(`R 正面推荐的颜色应为 ${oriented.color}`);
+  }
+  await orientedCard.click();
+  const previewMoves = await page.evaluate(formula => window.__bleCross.bestMovesOf(formula, window.__bleCross.selectedRecommendation).join(' '), oriented.formula);
+  if (previewMoves !== oriented.displayed) throw new Error(`预览记号未按推荐朝向转换：${previewMoves} ≠ ${oriented.displayed}`);
+  await orientedCard.locator('[data-ble-recommend-preview]').getByTitle('播放').click();
+  await page.waitForFunction(() => window.__bleCross.playingBest, null, { timeout: 5000 });
+  await page.waitForFunction(() => !window.__bleCross.playingBest, null, { timeout: 30000 });
+  const frontCenter = await page.evaluate(() => window.__bleCross.world.cube.serialize()[22]);
+  if (frontCenter !== oriented.center) throw new Error(`预览未转正推荐朝向：正面中心 ${frontCenter} ≠ ${oriented.center}`);
+  for (const front of ['F', 'L', 'B']) {
+    const item = await page.evaluate(target => {
+      const vm = window.__bleCross;
+      const index = vm.visibleRecommendations.findIndex(entry => entry.front === target);
+      if (index < 0) throw new Error(`缺少 ${target} 朝向推荐`);
+      const selected = vm.visibleRecommendations[index];
+      return { index, formula: selected.physicalMoves.join(' '), displayed: selected.displayMoves.join(' ') };
+    }, front);
+    const card = page.locator('.ble-recommendation-panel .ble-recommendation-item').nth(item.index);
+    await card.click();
+    const moves = await page.evaluate(formula => window.__bleCross.bestMovesOf(formula, window.__bleCross.selectedRecommendation).join(' '), item.formula);
+    if (moves !== item.displayed) throw new Error(`${front} 预览记号与卡片不同`);
+    await card.locator('[data-ble-recommend-preview]').getByTitle('下一步').click();
+    await page.waitForFunction(formula => window.__bleCross.bestStepAt(formula, window.__bleCross.selectedRecommendation) === 1 && !window.__bleCross.playingBest, item.formula);
+    const previewCenter = await page.evaluate(() => window.__bleCross.world.cube.serialize()[22]);
+    // 标签采用搜索时的固定快照；从当前推荐卡片取得原始中心块身份。
+    const label = await card.locator('b').first().textContent();
+    const color = { U: '白', D: '黄', F: '绿', R: '红', B: '蓝', L: '橙' }[previewCenter];
+    if (!label.includes(`${front} ${color}前`)) throw new Error(`${front} 步进前未转正：${label} / ${previewCenter}`);
+  }
 
   const check = async (selector) => {
     const card = page.locator(`${selector} .ble-recommendation-item`).first();
@@ -60,12 +103,13 @@ async page => {
   const controls = preview.locator('[data-ble-recommend-preview]');
   if (await controls.locator('button').count() !== 4) throw new Error('推荐卡片缺少上一步/下一步/播放/GIF 控件');
   const formula = await page.evaluate(() => window.__bleCross.visibleRecommendations[0].physicalMoves.join(' '));
+  const originalPos = await page.evaluate(f => window.__bleCross.bestStepAt(f, window.__bleCross.selectedRecommendation), formula);
   await controls.getByTitle('下一步').click();
-  await page.waitForFunction(f => window.__bleCross.bestStepAt(f) === 1 && !window.__bleCross.playingBest, formula);
+  await page.waitForFunction(({ f, pos }) => window.__bleCross.bestStepAt(f, window.__bleCross.selectedRecommendation) === pos + 1 && !window.__bleCross.playingBest, { f: formula, pos: originalPos });
   await controls.getByTitle('上一步').click();
-  await page.waitForFunction(f => window.__bleCross.bestStepAt(f) === 0 && !window.__bleCross.playingBest, formula);
+  await page.waitForFunction(({ f, pos }) => window.__bleCross.bestStepAt(f, window.__bleCross.selectedRecommendation) === pos && !window.__bleCross.playingBest, { f: formula, pos: originalPos });
   await controls.getByTitle('播放').click();
-  await page.waitForFunction(f => window.__bleCross.bestStepAt(f) === window.__bleCross.bestStepCount(f) && !window.__bleCross.playingBest, formula);
+  await page.waitForFunction(f => window.__bleCross.bestStepAt(f, window.__bleCross.selectedRecommendation) === window.__bleCross.bestStepCount(f, window.__bleCross.selectedRecommendation) && !window.__bleCross.playingBest, formula);
   await page.locator('.ble-recommendation-toolbar button').filter({ hasText: '全屏' }).click();
   const fullscreen = await check('.ble-recommendation-dialog');
   const fullControls = page.locator('.ble-recommendation-dialog .ble-recommendation-item').first().locator('[data-ble-recommend-preview]');
@@ -75,7 +119,7 @@ async page => {
   await page.waitForFunction(() => !window.__bleCross.gifRecording, null, { timeout: 30000 });
   const after = await page.evaluate(() => {
     const vm = window.__bleCross;
-    return { phase: vm.phase, steps: vm.bestStepAt(vm.visibleRecommendations[0].physicalMoves.join(' ')), moveCount: vm.moveCount, records: vm.records.length, scramble: vm.scrambleText, predicted: vm.predicted };
+    return { phase: vm.phase, steps: vm.bestStepAt(vm.visibleRecommendations[0].physicalMoves.join(' '), vm.visibleRecommendations[0]), moveCount: vm.moveCount, records: vm.records.length, scramble: vm.scrambleText, predicted: vm.predicted };
   });
   if (after.phase !== 'observing' || after.steps !== await page.evaluate(() => window.__bleCross.visibleRecommendations[0].physicalMoves.length)) {
     throw new Error(`GIF 未完整演示所选推荐或改变训练阶段: ${JSON.stringify(after)}`);

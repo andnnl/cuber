@@ -32,6 +32,7 @@ import { SolveRequestCache } from "../../ble/solve-request-cache";
 import { debugLog } from "../../util/debug-log";
 import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
 import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "../CrossF2LTrainer/recommendations";
+import { recommendationFrontColor, recommendationFrontTurn } from "./recommendation-preview";
 import { verifySolvedTargets } from "../CrossF2LTrainer/training-targets";
 import { CrossTrainMode, SlotSelectionMode, pairCountForMode, normalizeTrainSlots, evaluateCrossTarget, CROSS_SLOTS } from "../../ble/cross-training-target";
 
@@ -424,10 +425,11 @@ export default class BleCrossTrainer extends Vue {
   // 打乱/重置/权威重绘 (syncScene) 会打断预览; 游标随 requestBest 清残留一并清零
   playingBest = false;
   private bestPlayQueue: string[] = [];
-  private bestPlayFormula = ""; // 正在预览推进的解法原串 (预览游标键)
+  private bestPlayFormula = ""; // 正在预览推进的游标键 (普通公式或推荐 ID)
+  private bestPlayLength = 0;
   private bestPlayDelta = 1; // 预览推进方向 (+1 前进 / -1 退步)
   private bestPlayTimer: number | null = null;
-  // 预览游标 (按解法原串索引): 该解法已在 3D 上可视化推进的记号数, ▶/退一步/下一步共享
+  // 预览游标: 普通公式按原串索引，推荐按 ID 隔离 (同公式不同正面不可串用)
   bestStepPos: { [formula: string]: number } = {};
 
   // ---- 手动练习 (无蓝牙): 鼠标拧 3D 魔方, 打乱直接作用于 3D 场景
@@ -1076,6 +1078,8 @@ export default class BleCrossTrainer extends Vue {
    * 方向按屏幕语义: z2 翻转把 y 轴也倒了 (z2·y·z2 = y'), z2On 时物理转反向,
   * 保证黄顶视角下按 y 仍是「右面转向前」的观感 (与标准姿态一致) */
   rotateWholeY(times: number): void {
+    if (this.playingBest) this.cancelBestPlay();
+    if (this.gifAuto && this.gifRecording) this.cancelRecommendationGif();
     // 先落定拖动/镜像队列，再登记本按钮的一次性重算意图。否则前序动画的 drop
     // 回调可能提前消费计数，形成「最终视角链 + 中间 3D 画面」的混帧求解。
     this.world.cube.twister.finish();
@@ -1101,26 +1105,27 @@ export default class BleCrossTrainer extends Vue {
   /** 播放按钮: 在 3D 上动画预览该最优解 (展示帧记号), 每次从求解快照第 1 步播放。
    * 播完不自动复原 —— 画面停留在预览态, 需还原时手动点「重置」。
    * 纯视觉预览: 不入 history/不更新 predicted/不触发判定 (rebasing 屏蔽手动回调) */
-  playBest(formula: string): void {
+  playBest(formula: string, recommendation?: Recommendation): void {
     if (this.playingBest || !formula || !formula.trim()) {
       return;
     }
-    const moves = this.bestMovesOf(formula);
-    if (moves.length === 0 || !this.resetBestPreview(formula, true)) {
+    const moves = this.bestMovesOf(formula, recommendation);
+    if (moves.length === 0 || !this.resetBestPreview(formula, true, recommendation)) {
       return;
     }
-    this.startBestPreview(formula, moves, 1);
+    this.startBestPreview(this.previewKey(formula, recommendation), moves, 1, 1000);
   }
 
   /** 步进按钮: dir=+1 下一步 (应用下一条记号), dir=-1 退一步 (回退上一条记号)。
    * 首个 ⏭ 先恢复求解快照；其余步进沿用当前画面，⏮ 保持逐步回退。 */
-  stepBest(formula: string, dir: number): void {
+  stepBest(formula: string, dir: number, recommendation?: Recommendation): void {
     if (this.playingBest || !formula || !formula.trim()) {
       return;
     }
-    const moves = this.bestMovesOf(formula);
-    const pos = this.bestStepPos[formula] || 0;
-    if (dir > 0 && pos === 0 && !this.resetBestPreview(formula, false)) {
+    const moves = this.bestMovesOf(formula, recommendation);
+    const key = this.previewKey(formula, recommendation);
+    const pos = this.bestStepPos[key] || 0;
+    if (dir > 0 && pos === 0 && !this.resetBestPreview(formula, false, recommendation)) {
       return;
     }
     let token = "";
@@ -1135,14 +1140,18 @@ export default class BleCrossTrainer extends Vue {
       }
       token = this.inverseToken(moves[pos - 1]);
     }
-    this.startBestPreview(formula, [token], dir);
+    this.startBestPreview(key, [token], dir, 0, moves.length);
+  }
+
+  private previewKey(formula: string, recommendation?: Recommendation): string {
+    return recommendation ? `recommendation:${recommendation.id}` : formula;
   }
 
   /** 恢复当前最优解绑定的 3D 起点，不改变训练阶段、计时、步数或蓝牙权威状态。 */
-  private resetBestPreview(formula: string, clearAll: boolean): boolean {
-    const recommended = this.selectedRecommendation?.physicalMoves.join(" ") === formula;
-    const base = recommended ? this.analysisCoreBase : this.bestBaseState;
-    const viewOps = recommended ? this.recommendationViewOps : this.bestViewOps;
+  private resetBestPreview(formula: string, clearAll: boolean, recommendation?: Recommendation,
+    snapshot?: { base: string; viewOps: BaseOp[] }): boolean {
+    const base = snapshot ? snapshot.base : recommendation ? this.analysisCoreBase : this.bestBaseState;
+    const viewOps = snapshot ? snapshot.viewOps : recommendation ? this.recommendationViewOps : this.bestViewOps;
     if (!formula || !formula.trim() || !/^[URFDLB]{54}$/.test(base)) {
       return false;
     }
@@ -1154,7 +1163,16 @@ export default class BleCrossTrainer extends Vue {
           group.twist(op.times * (Math.PI / 2), true);
         }
       }
-      this.bestStepPos = clearAll ? {} : { ...this.bestStepPos, [formula]: 0 };
+      if (recommendation) {
+        const turns = recommendationFrontTurn(recommendation.front);
+        if (turns) {
+          for (const group of this.world.cube.table.groups.y) {
+            group.twist(turns * (Math.PI / 2), true);
+          }
+        }
+      }
+      this.world.dirty = true;
+      this.bestStepPos = clearAll ? {} : { ...this.bestStepPos, [this.previewKey(formula, recommendation)]: 0 };
       return true;
     } finally {
       this.rebasing = false;
@@ -1162,38 +1180,47 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 启动一次预览推进 (▶ 完整播放或单步): 共用播放队列机制, 游标按落定记号数推进 */
-  private startBestPreview(formula: string, tokens: string[], dir: number): void {
+  private startBestPreview(key: string, tokens: string[], dir: number, pauseBeforeFirstMove = 0,
+    totalLength = tokens.length): void {
     if (tokens.length === 0) {
       return;
     }
     const cube = this.world.cube;
     cube.twister.finish(); // 排空在飞动画, 从静止画面出发
     CubeGroup.durationScale = 1; // 非镜像动画恒常速 (清掉镜像提速残留)
-    this.bestPlayFormula = formula;
+    this.bestPlayFormula = key;
+    this.bestPlayLength = totalLength;
     this.bestPlayDelta = dir;
     this.playingBest = true;
     this.rebasing = true; // 手动: 屏蔽播放动画 drop 回调的活体判定/计步
     this.bestPlayQueue = tokens;
-    this.playNextBestMove();
+    if (pauseBeforeFirstMove > 0) {
+      this.bestPlayTimer = window.setTimeout(() => {
+        this.bestPlayTimer = null;
+        this.playNextBestMove();
+      }, pauseBeforeFirstMove);
+    } else {
+      this.playNextBestMove();
+    }
   }
 
   /** 解法展示记号序列 (物理帧→当前屏幕面换名, 与展示文本同一记号) */
-  private bestMovesOf(formula: string): string[] {
-    const recommended = this.selectedRecommendation?.physicalMoves.join(" ") === formula;
-    return this.displayFormulaWithOps(formula, recommended ? this.recommendationViewOps : this.bestViewOps)
+  private bestMovesOf(formula: string, recommendation?: Recommendation): string[] {
+    if (recommendation) return recommendation.displayMoves.slice();
+    return this.displayFormulaWithOps(formula, this.bestViewOps)
       .trim()
       .split(/\s+/)
       .filter(Boolean);
   }
 
   /** 预览游标 (模板绑定): 该解法已可视化推进的记号数 */
-  bestStepAt(formula: string): number {
-    return this.bestStepPos[formula] || 0;
+  bestStepAt(formula: string, recommendation?: Recommendation): number {
+    return this.bestStepPos[this.previewKey(formula, recommendation)] || 0;
   }
 
   /** 预览总步数 (模板绑定禁用态用) */
-  bestStepCount(formula: string): number {
-    return formula ? this.bestMovesOf(formula).length : 0;
+  bestStepCount(formula: string, recommendation?: Recommendation): number {
+    return formula ? this.bestMovesOf(formula, recommendation).length : 0;
   }
 
   /** 转动记号取反 (R↔R', R2 自逆) */
@@ -1210,7 +1237,7 @@ export default class BleCrossTrainer extends Vue {
     if (!formula) {
       return;
     }
-    const len = this.bestMovesOf(formula).length;
+    const len = this.bestPlayLength;
     const pos = Math.max(0, Math.min(len, (this.bestStepPos[formula] || 0) + this.bestPlayDelta));
     this.bestStepPos = { ...this.bestStepPos, [formula]: pos };
   }
@@ -1257,6 +1284,7 @@ export default class BleCrossTrainer extends Vue {
     this.playingBest = false;
     this.rebasing = false;
     this.bestPlayFormula = "";
+    this.bestPlayLength = 0;
   }
 
   // ================= 校准 (调试): 引导转动实体魔方, 对比硬件上报记号 =================
@@ -1960,6 +1988,8 @@ export default class BleCrossTrainer extends Vue {
 
   /** 切换训练目标只改变求解语义，不把本轮已拧到一半的画面当成新打乱基准。 */
   private recomputeBestForTargetChange(): void {
+    if (this.playingBest) this.cancelBestPlay();
+    if (this.gifAuto && this.gifRecording) this.cancelRecommendationGif();
     if (this.phase !== "observing" && this.phase !== "solving" && this.phase !== "success") return;
     this.world.cube.twister.finish();
     this.syncObservedOps();
@@ -1973,6 +2003,8 @@ export default class BleCrossTrainer extends Vue {
    * 重算时机仅三处: 新打乱/跳过/自动下轮 (startSolving), 按 z2 (toggleZ2), 整体转 y/y'
    * (onManualTwist 视角签名变化) —— 其余转动不重算, 最优解相对本轮打乱态固定 */
   private requestBest(state: string, viewOps: BaseOp[] = this.effectiveViewOps()): void {
+    if (this.playingBest) this.cancelBestPlay();
+    if (this.gifAuto && this.gifRecording) this.cancelRecommendationGif();
     this.invalidateRecommendations();
     this.analysisCoreBase = state;
     this.multiBestClient.cancel();
@@ -2170,6 +2202,10 @@ export default class BleCrossTrainer extends Vue {
     return this.recommendations.find(item => item.id === this.selectedRecommendationId);
   }
 
+  recommendationFrontLabel(front: string): string {
+    return `${front} ${recommendationFrontColor(front, this.recommendationViewOps)}前`;
+  }
+
   gripInstruction(step: { movement: string; instruction: string; thumb_instruction?: string }): string {
     return this.gripVersion === "simple" ? simpleGripInstruction(step) :
       `${step.movement}：${step.instruction}${step.thumb_instruction ? `；${step.thumb_instruction}` : ""}`;
@@ -2178,6 +2214,10 @@ export default class BleCrossTrainer extends Vue {
   selectRecommendation(item: Recommendation): void {
     if (this.recommendationGifId && this.recommendationGifId !== item.id) this.cancelRecommendationGif();
     // 只记录展示／预览选择；bestX/bestSolution、重试基准、蓝牙画面和 history 均不改。
+    // 不同朝向可能共用物理公式；切卡片时必须从新正面与第一步重新演示。
+    if (this.selectedRecommendationId !== item.id) {
+      this.bestStepPos = { ...this.bestStepPos, [this.previewKey(item.physicalMoves.join(" "), item)]: 0 };
+    }
     this.selectedRecommendationId = item.id;
     this.invalidateVisibilityTargets();
     this.applyVisibility();
@@ -3350,21 +3390,23 @@ export default class BleCrossTrainer extends Vue {
    * 否则纯手动录制 (再点一次停止并下载) */
   toggleGif(): void {
     if (this.gifRecording) {
+      if (this.gifPlayStarted) this.cancelBestPlay();
       this.finishGif(); // 录制中再点 = 提前停止并下载
       return;
     }
     const formula = this.isManual ? this.gifPlayTarget() : "";
     if (formula) {
+      // 成功页的「重置」会直接异步开下一轮，不能拿旧轮快照与新轮训练态混录。
+      if (this.resultTimer !== null) return;
+      const snapshot = { base: this.bestBaseState, viewOps: this.bestViewOps.map(op => ({ ...op })) };
+      const moves = this.bestMovesOf(formula);
       this.resetRound(); // 重置: 回打乱态 + 观察阶段, 预览游标/进度清零
+      if (!this.resetBestPreview(formula, true, undefined, snapshot)) return;
       this.startGif();
       this.gifAuto = true; // startGif 复位演示标志, 须在其后置位 (loop 据此自动收尾)
-      window.setTimeout(() => {
-        if (!this.gifRecording) {
-          return;
-        }
-        this.gifPlayStarted = true;
-        this.playBest(formula);
-      }, 700); // 先录 ~8 帧打乱态静止, 再开始播放
+      this.startBestPreview(formula, moves, 1, 1000); // 使用重置前稳定快照，录满 1 秒后执行第一步
+      if (this.playingBest) this.gifPlayStarted = true;
+      else this.finishGif();
     } else {
       this.startGif();
     }
@@ -3373,30 +3415,24 @@ export default class BleCrossTrainer extends Vue {
   /** 仅录制当前推荐的视觉预览；不重置训练轮次或修改实体魔方账本。 */
   toggleRecommendationGif(item: Recommendation): void {
     if (this.gifRecording) {
+      if (this.gifPlayStarted) this.cancelBestPlay();
       this.finishGif();
       return;
     }
     const formula = item.physicalMoves.join(" ");
     if (this.playingBest || this.selectedRecommendationId !== item.id ||
-        !formula || !this.resetBestPreview(formula, true)) return;
-    const generation = this.recommendationRequestId;
-    const run = ++this.recommendationGifRun;
+        !formula || !this.resetBestPreview(formula, true, item)) return;
     this.startGif();
     this.recommendationGifId = item.id;
     this.gifAuto = true;
-    window.setTimeout(() => {
-      if (!this.gifRecording || this.recommendationGifRun !== run || this.recommendationGifId !== item.id) return;
-      if (generation !== this.recommendationRequestId || this.selectedRecommendationId !== item.id) {
-        this.cancelRecommendationGif();
-        return;
-      }
-      this.playBest(formula);
-      if (this.playingBest) this.gifPlayStarted = true;
-      else this.cancelRecommendationGif();
-    }, 700);
+    // 播放自身负责在转正画面停 1 秒；录制先启动，以便 GIF 收进完整静止段。
+    this.startBestPreview(this.previewKey(formula, item), this.bestMovesOf(formula, item), 1, 1000);
+    if (this.playingBest) this.gifPlayStarted = true;
+    else this.cancelRecommendationGif();
   }
 
   private cancelRecommendationGif(): void {
+    if (this.gifPlayStarted) this.cancelBestPlay();
     this.recommendationGifRun++;
     this.gifRecording = false;
     this.gifAuto = false;
