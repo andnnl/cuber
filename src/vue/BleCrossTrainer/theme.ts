@@ -12,8 +12,8 @@ export const BLE_THEME_CSS = `
 .ble-recommendation-formula-row { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
 .ble-recommendation-formula-row .ble-recommendation-formula { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ble-recommendation-item small { color: #66728b; }
-.ble-recommendation-item .ble-grip-start { display: block; font-weight: 600; color: #455a72; }
-.ble-recommendation-item .ble-grip-step { display: block; line-height: 1.55; }
+.ble-recommendation-item .ble-grip-start { display: block; font-size: 14px; line-height: 1.5; font-weight: 600; color: #455a72; }
+.ble-recommendation-item .ble-grip-step { display: block; font-size: 14px; line-height: 1.55; }
 .ble-recommendation-item.selected { border-color: #5b6bf0; background: #eef0ff; }
 .ble-recommendation-controls { display: flex; flex: none; gap: 3px; }
 .ble-recommendation-controls button { min-width: 32px; min-height: 32px; padding: 4px; border: 1px solid #b8c3e1; border-radius: 6px; background: #fff; color: #344577; cursor: pointer; touch-action: manipulation; }

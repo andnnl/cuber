@@ -295,12 +295,14 @@ export default class BleCrossTrainer extends Vue {
   gripVersion: "simple" | "full" = "simple";
   selectedRecommendationId: string | null = null;
   private recommendationRequestId = 0;
+  private refreshingRecommendationScramble = false;
   private analysisCoreBase = "";
   private recommendationViewOps: BaseOp[] = [];
   readonly fronts = FRONTS;
   difficulty: CrossDifficulty = "random";
   private roundDifficulty: CrossDifficulty | null = null;
   private scrambleGenerationId = 0;
+  private roundRevision = 0;
   generatingDifficulty = false;
   // 当前打乱公式 (显示给用户照着拧) 与打乱目标态 (54 串, = 魔方当前态 + 公式推演)
   scramble = "";
@@ -1103,7 +1105,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   /** 播放按钮: 在 3D 上动画预览该最优解 (展示帧记号), 每次从求解快照第 1 步播放。
-   * 播完不自动复原 —— 画面停留在预览态, 需还原时手动点「重置」。
+   * 播完不自动复原 —— 画面停留在预览态, 可点「返回起点」恢复推荐快照。
    * 纯视觉预览: 不入 history/不更新 predicted/不触发判定 (rebasing 屏蔽手动回调) */
   playBest(formula: string, recommendation?: Recommendation): void {
     if (this.playingBest || !formula || !formula.trim()) {
@@ -1114,6 +1116,13 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     this.startBestPreview(this.previewKey(formula, recommendation), moves, 1, 1000);
+  }
+
+  /** 只复位当前推荐的视觉预览，不重置轮次或实体魔方账本。 */
+  returnRecommendationStart(item: Recommendation): void {
+    if (this.playingBest || this.gifRecording) return;
+    this.world.cube.twister.finish();
+    this.resetBestPreview(item.physicalMoves.join(' '), false, item);
   }
 
   /** 步进按钮: dir=+1 下一步 (应用下一条记号), dir=-1 退一步 (回退上一条记号)。
@@ -1265,7 +1274,7 @@ export default class BleCrossTrainer extends Vue {
     this.bestPlayTimer = window.setTimeout(() => this.playNextBestMove(), 620);
   }
 
-  /** 预览结束/打断: 落定在飞尾帧, 画面停留在已播预览态 (不再自动复原, 重置按钮还原) */
+  /** 预览结束/打断: 落定在飞尾帧, 画面停留在已播预览态 (推荐可点返回起点) */
   private finishBestPlay(): void {
     if (this.bestPlayTimer !== null) {
       window.clearTimeout(this.bestPlayTimer);
@@ -2173,10 +2182,12 @@ export default class BleCrossTrainer extends Vue {
     this.recommendationRequestId++;
     this.analysisClient.cancel();
     this.recommendations = [];
-    this.recommendationBusy = false;
+    this.recommendationBusy = this.refreshingRecommendationScramble;
     this.recommendationError = "";
-    this.recommendationOpen = false;
-    this.recommendationFull = false;
+    if (!this.refreshingRecommendationScramble) {
+      this.recommendationOpen = false;
+      this.recommendationFull = false;
+    }
     this.selectedRecommendationId = null;
   }
 
@@ -2246,10 +2257,10 @@ export default class BleCrossTrainer extends Vue {
     void this.openRecommendations();
   }
 
-  async openRecommendations(): Promise<void> {
-    if (this.recommendationOpen) { this.closeRecommendations(); return; }
+  async openRecommendations(refresh = false): Promise<void> {
+    if (this.recommendationOpen && !refresh) { this.closeRecommendations(); return; }
     this.recommendationOpen = true;
-    if (this.recommendations.length || this.recommendationBusy) return;
+    if (!refresh && (this.recommendations.length || this.recommendationBusy)) return;
     const coreBase = this.analysisCoreBase;
     if (!/^[URFDLB]{54}$/.test(coreBase)) {
       this.recommendationError = "请先新打乱，建立本轮起点";
@@ -2345,6 +2356,27 @@ export default class BleCrossTrainer extends Vue {
       if (generation === this.recommendationRequestId) this.recommendationError = String(error);
     } finally {
       if (generation === this.recommendationRequestId) this.recommendationBusy = false;
+    }
+  }
+
+  /** 推荐面板内开新轮；保留当前面板形态，只展示新轮的推荐。 */
+  async newScrambleWithRecommendations(): Promise<void> {
+    if (this.generatingDifficulty || this.refreshingRecommendationScramble) return;
+    const revision = this.roundRevision;
+    this.refreshingRecommendationScramble = true;
+    try {
+      await this.newScramble();
+      if (!this.recommendationOpen) return; // 用户在生成期间主动关闭
+      if (revision === this.roundRevision) {
+        this.recommendationBusy = false;
+        this.recommendationError = this.statusText.startsWith("难度生成失败")
+          ? this.statusText : "新打乱失败，请重试";
+        return;
+      }
+      await this.openRecommendations(true);
+    } finally {
+      this.refreshingRecommendationScramble = false;
+      if (!this.recommendationOpen) this.recommendationBusy = false;
     }
   }
 
@@ -2573,6 +2605,7 @@ export default class BleCrossTrainer extends Vue {
       this.solveStart = 0;
       this.running = true; // 驱动观察计时显示
       this.statusText = "观察阶段: 可整体转动魔方观察, 首次转动开始还原计时";
+      this.roundRevision++;
       return;
     }
     const base = this.predicted ?? SOLVED_FACELETS;
@@ -2604,6 +2637,7 @@ export default class BleCrossTrainer extends Vue {
     this.requestBest(this.scrambleTarget); // 对打乱目标态预求最优解 (相对本轮打乱态固定)
     this.statusText = "已开轮: 3D 已进入打乱态, 鼠标或蓝牙转动都会追加一步, 首次转动开始计时";
     this.beginBleRoundSync();
+    this.roundRevision++;
   }
 
   /** 重置本轮 (三模式统一): 3D 回本轮打乱基准，计时/步数/history 清零重新观察；

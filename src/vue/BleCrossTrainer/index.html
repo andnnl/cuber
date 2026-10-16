@@ -406,9 +406,10 @@
         <button @click="gripVersion = gripVersion === 'simple' ? 'full' : 'simple'">{{ gripVersion === 'simple' ? '完整指法' : '简单指法' }}</button>
         <button @click="toggleRecommendationFull">全屏</button>
         <button @click="closeRecommendations">关闭</button>
+        <button :disabled="generatingDifficulty || refreshingRecommendationScramble" @click="newScrambleWithRecommendations">新打乱</button>
       </div>
       <div class="ble-recommendation-list">
-        <div v-if="recommendationBusy">正在搜索／评分… <button @click="closeRecommendations">取消</button></div>
+        <div v-if="recommendationBusy">{{ generatingDifficulty ? '正在生成打乱…' : '正在搜索／评分…' }} <button @click="closeRecommendations">取消</button></div>
         <div v-else-if="recommendationError">{{ recommendationError }} <button @click="retryRecommendations">重试</button></div>
         <div v-else-if="!visibleRecommendations.length">当前筛选下没有结果</div>
         <div v-for="item in visibleRecommendations" :key="item.id" role="button" tabindex="0" class="ble-recommendation-item" :class="{'selected': selectedRecommendationId === item.id}" @click="selectRecommendation(item)" @keydown.enter="selectRecommendation(item)" @keydown.space.prevent="selectRecommendation(item)">
@@ -416,6 +417,7 @@
           <div class="ble-recommendation-formula-row">
             <span class="ble-recommendation-formula">{{ item.displayMoves.join(' ') || '0 步' }}</span>
             <div v-if="selectedRecommendationId === item.id" data-ble-recommend-preview class="ble-recommendation-controls">
+              <button type="button" title="返回起点" :disabled="playingBest || gifRecording" @click.stop="returnRecommendationStart(item)">⏪</button>
               <button type="button" title="上一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) <= 0" @click.stop="stepBest(item.physicalMoves.join(' '), -1, item)">⏮</button>
               <button type="button" title="下一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) >= bestStepCount(item.physicalMoves.join(' '), item)" @click.stop="stepBest(item.physicalMoves.join(' '), 1, item)">⏭</button>
               <button type="button" title="播放" :disabled="playingBest || !item.physicalMoves.length" @click.stop="playBest(item.physicalMoves.join(' '), item)">▶</button>
@@ -441,9 +443,11 @@
             <select v-if="trainMode === 'cross'" v-model="recommendationDepth" aria-label="全屏步数分组"><option value="ALL">全部深度</option><option value="0">最短</option><option value="1">+1步</option><option value="2">+2步</option></select>
             <button @click="recommendationAll = !recommendationAll">{{ recommendationAll ? '前4条' : '显示全部' }}</button>
             <button @click="gripVersion = gripVersion === 'simple' ? 'full' : 'simple'">{{ gripVersion === 'simple' ? '完整指法' : '简单指法' }}</button>
+            <button @click="closeRecommendations">关闭</button>
+            <button :disabled="generatingDifficulty || refreshingRecommendationScramble" @click="newScrambleWithRecommendations">新打乱</button>
           </div>
           <div class="ble-recommendation-list">
-            <div v-if="recommendationBusy">正在搜索／评分…</div>
+            <div v-if="recommendationBusy">{{ generatingDifficulty ? '正在生成打乱…' : '正在搜索／评分…' }}</div>
             <div v-else-if="recommendationError">{{ recommendationError }}</div>
             <div v-else-if="!visibleRecommendations.length">当前筛选下没有结果</div>
             <div v-for="item in visibleRecommendations" :key="item.id" role="button" tabindex="0" class="ble-recommendation-item" :class="{'selected': selectedRecommendationId === item.id}" @click="selectRecommendation(item)" @keydown.enter="selectRecommendation(item)" @keydown.space.prevent="selectRecommendation(item)">
@@ -451,6 +455,7 @@
               <div class="ble-recommendation-formula-row">
                 <span class="ble-recommendation-formula">{{ item.displayMoves.join(' ') || '0 步' }}</span>
                 <div v-if="selectedRecommendationId === item.id" data-ble-recommend-preview class="ble-recommendation-controls">
+                  <button type="button" title="返回起点" :disabled="playingBest || gifRecording" @click.stop="returnRecommendationStart(item)">⏪</button>
                   <button type="button" title="上一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) <= 0" @click.stop="stepBest(item.physicalMoves.join(' '), -1, item)">⏮</button>
                   <button type="button" title="下一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) >= bestStepCount(item.physicalMoves.join(' '), item)" @click.stop="stepBest(item.physicalMoves.join(' '), 1, item)">⏭</button>
                   <button type="button" title="播放" :disabled="playingBest || !item.physicalMoves.length" @click.stop="playBest(item.physicalMoves.join(' '), item)">▶</button>
