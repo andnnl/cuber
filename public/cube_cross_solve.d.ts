@@ -42,6 +42,13 @@ export function rewrite_cross_js(scramble: string, baseline: any, limit: number)
 */
 export function score_cross_grip_js(baseline: any): any;
 /**
+* WASM: 同一公式返回按指法成本排序的不同握姿/手法路线。
+* @param {any} baseline
+* @param {number} limit
+* @returns {any}
+*/
+export function score_cross_grip_routes_js(baseline: any, limit: number): any;
+/**
 * WASM: 查询打乱后十字的精确最短步数，供随机难度生成使用。
 * @param {string} scramble
 * @returns {number}
@@ -130,6 +137,7 @@ export interface InitOutput {
   readonly rewrite_cross_js: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly sample_exact_cross_scramble_js: (a: number, b: number) => void;
   readonly score_cross_grip_js: (a: number, b: number) => void;
+  readonly score_cross_grip_routes_js: (a: number, b: number, c: number) => void;
   readonly solve_multi: (a: number, b: number, c: number, d: number) => void;
   readonly solve_multi_cross: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
   readonly solve_xcross: (a: number, b: number, c: number, d: number, e: number, f: number) => void;

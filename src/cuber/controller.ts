@@ -71,6 +71,8 @@ export default class Controller {
 
   world: World;
   sensitivity = 0.5;
+  private running = true;
+  private frame = 0;
   constructor(world: World) {
     this.world = world;
     this.taps = [];
@@ -78,8 +80,14 @@ export default class Controller {
   }
 
   loop(): void {
-    requestAnimationFrame(this.loop.bind(this));
+    if (!this.running) return;
+    this.frame = requestAnimationFrame(() => this.loop());
     this.update();
+  }
+
+  stop(): void {
+    this.running = false;
+    cancelAnimationFrame(this.frame);
   }
 
   update(): void {

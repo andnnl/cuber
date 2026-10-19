@@ -3,6 +3,44 @@
 // 本样式由组件 mounted 钩子注入 document.head
 
 export const BLE_THEME_CSS = `
+.ble-fixed-overlay { position:absolute; inset:0; z-index:100; background:#f7f8fc; display:flex; flex-direction:column; color:#273349; touch-action:pan-y; user-select:text; }
+.ble-fixed-top { display:flex; align-items:center; gap:10px; flex:none; padding:10px 14px; background:white; box-shadow:0 2px 8px #28345a20; }
+.ble-fixed-top span { flex:1; font-size:12px; color:#607086; }
+.ble-fixed-overlay button { cursor:pointer; border:1px solid #cbd2e6; border-radius:6px; padding:6px 9px; background:white; color:#273349; touch-action:manipulation; }
+.ble-fixed-overlay button.active { color:#3449b8; background:#e9edff; border-color:#778af0; }
+.ble-fixed-overlay button:disabled { opacity:.5; cursor:default; }
+.ble-fixed-visual-options { display:flex; align-items:center; flex-wrap:wrap; gap:6px 11px; padding:5px 10px; background:white; border-bottom:1px solid #e3e8f0; font-size:12px; }
+.ble-fixed-visual-options label { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; cursor:pointer; }
+.ble-fixed-visual-options input[type=checkbox] { width:14px; height:14px; }
+.ble-fixed-background-options { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.ble-fixed-background-options > span { margin-right:3px; }
+.ble-fixed-visual-options .ble-fixed-swatch { width:20px; height:20px; min-width:20px; padding:0; border:1px solid #8c95a4; border-radius:4px; }
+.ble-fixed-visual-options .ble-fixed-swatch.active { outline:2px solid #4556d3; outline-offset:1px; }
+.ble-fixed-background-options input[type=color] { width:26px; height:24px; padding:0; border:0; background:transparent; cursor:pointer; }
+.ble-fixed-body { flex:1; min-height:0; display:grid; grid-template-columns:minmax(240px, 1fr) minmax(300px, 400px); }
+.ble-fixed-stage { min-height:0; display:flex; flex-direction:column; align-items:center; padding:8px; }
+.ble-fixed-canvas { width:100%; flex:1; min-height:180px; overflow:hidden; touch-action:none; }
+.ble-fixed-canvas > div, .ble-fixed-canvas > div > div { width:100%; height:100%; }
+.ble-fixed-canvas canvas { display:block; }
+.ble-fixed-formula { max-width:100%; text-align:center; font:bold 16px/1.5 monospace; overflow-wrap:anywhere; }
+.ble-fixed-formula small { display:block; font:12px sans-serif; color:#66728b; }
+.ble-fixed-controls { display:flex; flex-wrap:wrap; justify-content:center; gap:5px; margin:6px 0; }
+.ble-fixed-controls button { min-width:34px; min-height:34px; padding:4px; font-size:16px; line-height:1; border-color:#b8c3e1; color:#344577; }
+.ble-fixed-hint { text-align:center; font-size:11px; color:#66728b; }
+.ble-fixed-grip-routes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin:6px 0; }
+.ble-fixed-grip-routes button { display:flex; flex-direction:column; align-items:flex-start; min-width:0; text-align:left; gap:2px; font-size:12px; }
+.ble-fixed-grip-routes button strong { font-size:13px; }
+.ble-fixed-grip-routes button small { color:#66728b; font-size:11px; }
+.ble-fixed-sidebar { display:flex; flex-direction:column; min-height:0; overflow:hidden; padding:8px; gap:8px; }
+.ble-fixed-tabs { display:flex; gap:6px; flex:none; }
+.ble-fixed-list { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:5px; overflow:auto; min-height:90px; flex:1; align-content:start; }
+.ble-fixed-list button { text-align:left; font:13px/1.4 monospace; overflow-wrap:anywhere; }
+.ble-fixed-guide { flex:1; min-height:100px; overflow:auto; background:white; padding:8px; border:1px solid #e0e4ed; border-radius:8px; font-size:13px; line-height:1.6; }
+.ble-fixed-guide > b, .ble-fixed-guide > span { display:block; }
+.ble-fixed-grip-switch { display:flex; gap:5px; padding:5px 0; }
+.ble-fixed-guide > div { padding:3px 6px; }
+.ble-fixed-guide > div.active { background:#e9edff; border-radius:4px; }
+@media (max-width:650px) { .ble-fixed-body { display:flex; flex-direction:column; } .ble-fixed-stage { flex:none; height:43%; min-height:210px; } .ble-fixed-canvas { min-height:100px; } .ble-fixed-sidebar { flex:1; } .ble-fixed-list { flex:1; } .ble-fixed-guide { flex:1; } .ble-fixed-top span { display:none; } }
 .ble-recommendation-panel { position: absolute; bottom: 0; left: 0; right: 0; height: 42vh; z-index: 12; background: #fff; box-shadow: 0 -3px 16px #28345a30; display: flex; flex-direction: column; padding: 8px 10px; box-sizing: border-box; font-size: 13px; }
 .ble-recommendation-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; padding: 4px 0; }
 .ble-recommendation-toolbar button, .ble-recommendation-toolbar select { border: 1px solid #cbd2e6; border-radius: 5px; padding: 4px 6px; background: #f5f7fc; }

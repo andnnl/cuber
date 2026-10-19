@@ -1,5 +1,5 @@
 <v-app>
-  <div v-resize="onResize" style="user-select: none; touch-action: none; display: flex; flex-direction: column; height: 100vh; position: relative;">
+  <div v-resize="onResize" :style="{touchAction: fixedCasesOpen ? 'auto' : 'none'}" style="user-select: none; display: flex; flex-direction: column; height: 100vh; position: relative;">
     <setting />
     <!-- 3D 镜像魔方占据全屏 -->
     <div
@@ -9,6 +9,10 @@
       <viewport ref="viewport"></viewport>
     </div>
 
+    <fixed-cases v-if="fixedCasesOpen" ref="fixedCases"
+      :ghost="visGhost" :hide="visHide" :background="backgroundColor" :presets="backgroundPresets"
+      @set-ghost="setFixedGhost" @set-hide="setFixedHide" @set-background="setBackgroundColor"
+      @close="fixedCasesOpen = false" />
     <!-- 底部悬浮面板: 连接 / 打乱 / 状态 (样式见 theme.ts, mounted 时注入) -->
     <div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: center;">
       <v-card
@@ -21,6 +25,7 @@
           <div class="ble-compact-header">
             <div style="flex: 1;"></div>
             <v-btn data-ble-recommend-open x-small @click="openRecommendations" :disabled="phase !== 'observing' && phase !== 'solving' && phase !== 'success'" title="按本轮起点搜索四朝向指法；实体转动不会自动重算">指法推荐</v-btn>
+            <v-btn data-ble-fixed-open x-small @click="openFixedCases" title="从还原状态构造独立案例，播放固定公式及查看逐步指法">固定公式</v-btn>
             <v-btn data-ble-compact-toggle x-small @click="toggleCompactMode">{{ compactMode ? '展开' : '收纳' }}</v-btn>
           </div>
 

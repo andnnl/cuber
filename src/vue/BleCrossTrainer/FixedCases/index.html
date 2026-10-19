@@ -1,0 +1,60 @@
+<div class="ble-fixed-overlay" role="dialog" aria-label="固定公式案例库">
+  <div class="ble-fixed-top">
+    <strong>固定公式案例库</strong>
+    <span>独立案例 · 不跟随实体魔方</span>
+    <button type="button" @click="$emit('close')">关闭</button>
+  </div>
+  <div class="ble-fixed-visual-options">
+    <label><input data-ble-fixed-ghost type="checkbox" :checked="ghost" @change="$emit('set-ghost', $event.target.checked)">半透明</label>
+    <label><input data-ble-fixed-hide type="checkbox" :checked="hide" @change="$emit('set-hide', $event.target.checked)">隐藏无关</label>
+    <button data-ble-fixed-z2 type="button" :class="{active:z2On}" :disabled="playing" @click="toggleZ2" :title="z2On ? '白底模式，点击切回黄底' : '黄底模式，点击切到白底'">z2 {{ z2On ? '白底' : '黄底' }}</button>
+    <div class="ble-fixed-background-options">
+      <span>背景色</span>
+      <button v-for="item in presets" :key="item.value" type="button" class="ble-fixed-swatch" :class="{active:background.toUpperCase() === item.value.toUpperCase()}" :style="{backgroundColor:item.value}" :title="item.name" @click="setBackground(item.value)"></button>
+      <input data-ble-fixed-bg-custom type="color" :value="background" title="自定义背景色" @input="setBackground($event.target.value)">
+    </div>
+  </div>
+  <div class="ble-fixed-body">
+    <div class="ble-fixed-stage">
+      <div class="ble-fixed-canvas" ref="caseCanvas" :style="{backgroundColor:background}"><viewport ref="caseViewport" /></div>
+      <div class="ble-fixed-formula">{{ selected.formula }} <small>第 {{ step }} / {{ selected.moves.length }} 步</small></div>
+      <div class="ble-fixed-controls">
+        <button type="button" title="返回起点" aria-label="返回起点" @click="toStart" :disabled="playing || step === 0">⏪</button>
+        <button type="button" title="上一步" aria-label="上一步" @click="previous" :disabled="playing || step === 0">⏮</button>
+        <button type="button" title="下一步" aria-label="下一步" @click="next" :disabled="playing || step === selected.moves.length">⏭</button>
+        <button type="button" title="播放" aria-label="播放" @click="play" :disabled="playing || step === selected.moves.length">▶</button>
+      </div>
+      <div class="ble-fixed-hint">案例起点 = 还原状态执行所选公式的逆操作；播放原公式将回到还原状态。</div>
+    </div>
+    <div class="ble-fixed-sidebar">
+      <div class="ble-fixed-tabs">
+        <button type="button" :class="{active: group === '普通情况'}" @click="changeGroup('普通情况')">普通情况 (39)</button>
+        <button type="button" :class="{active: group === '麻烦情况'}" @click="changeGroup('麻烦情况')">麻烦情况 (12)</button>
+      </div>
+      <div class="ble-fixed-list">
+        <button v-for="item in visibleCases" :key="item.id" type="button" :class="{active: selected.id === item.id}" :disabled="playing" @click="select(item)">{{ item.formula }}</button>
+      </div>
+      <div class="ble-fixed-guide" aria-live="polite">
+        <b>逐步指法</b>
+        <div v-if="routes.length" class="ble-fixed-grip-routes" role="group" aria-label="指法路线">
+          <button v-for="(candidate, index) in routes" :key="index" data-ble-fixed-grip-route type="button"
+            :class="{active: selectedRouteIndex === index}" :aria-pressed="selectedRouteIndex === index ? 'true' : 'false'"
+            @click="selectRoute(index)">
+            <strong>指法 {{ index + 1 }}<span v-if="index === 0"> · 推荐</span></strong>
+            <span>左手 {{ candidate.start_left }} · 右手 {{ candidate.start_right }}</span>
+            <small>指法分 {{ Number(candidate.score).toFixed(2) }} · 换握 {{ candidate.regrips }}</small>
+          </button>
+        </div>
+        <div v-if="route" class="ble-fixed-grip-switch">
+          <button type="button" :class="{active: gripVersion === 'simple'}" @click="gripVersion = 'simple'">简版</button>
+          <button type="button" :class="{active: gripVersion === 'full'}" @click="gripVersion = 'full'">完整版</button>
+        </div>
+        <span v-if="scoring">正在计算握姿与评分…</span>
+        <span v-else-if="route">指法分 {{ Number(route.score).toFixed(2) }} · 换握 {{ route.regrips }}<br>起手握姿：左手 {{ route.start_left }}；右手 {{ route.start_right }}</span>
+        <span v-else>{{ selected.scoreable ? '动作提示（评分暂不可用）' : '动作提示（扩展记号不支持指法评分）' }}</span>
+        <span v-if="error">{{ error }}</span>
+        <div v-for="(hint, index) in instructions" :key="index" :class="{active: index === step}">{{ index + 1 }}. {{ hint }}</div>
+      </div>
+    </div>
+  </div>
+</div>

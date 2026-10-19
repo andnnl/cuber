@@ -34,6 +34,8 @@ import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
 import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "../CrossF2LTrainer/recommendations";
 import { recommendationFrontColor, recommendationFrontTurn } from "./recommendation-preview";
 import { verifySolvedTargets } from "../CrossF2LTrainer/training-targets";
+import FixedCases from "./FixedCases";
+import { FACELET_TARGETS, paintCubeVisibility, pieceColorSignature } from './visibility';
 import { CrossTrainMode, SlotSelectionMode, pairCountForMode, normalizeTrainSlots, evaluateCrossTarget, CROSS_SLOTS } from "../../ble/cross-training-target";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
@@ -99,135 +101,12 @@ function normalizeBackgroundColor(value: string | null): string {
 const RECORDS_KEY = "bleTrainRecords";
 const RECORDS_MAX = 500; // 本地缓存上限, 防膨胀
 
-type FaceletTarget = [number, FACE];
-const FACELET_TARGETS: FaceletTarget[] = (() => {
-  const targets: FaceletTarget[] = [];
-  // U: y=2, for z asc, for x asc
-  for (let z = 0; z < 3; z++) {
-    for (let x = 0; x < 3; x++) {
-      targets.push([z * 9 + 2 * 3 + x, FACE.U]);
-    }
-  }
-  // R: x=2, for y desc, for z desc
-  for (let y = 2; y >= 0; y--) {
-    for (let z = 2; z >= 0; z--) {
-      targets.push([z * 9 + y * 3 + 2, FACE.R]);
-    }
-  }
-  // F: z=2, for y desc, for x asc
-  for (let y = 2; y >= 0; y--) {
-    for (let x = 0; x < 3; x++) {
-      targets.push([2 * 9 + y * 3 + x, FACE.F]);
-    }
-  }
-  // D: y=0, for z desc, for x asc
-  for (let z = 2; z >= 0; z--) {
-    for (let x = 0; x < 3; x++) {
-      targets.push([z * 9 + 0 * 3 + x, FACE.D]);
-    }
-  }
-  // L: x=0, for y desc, for z asc
-  for (let y = 2; y >= 0; y--) {
-    for (let z = 0; z < 3; z++) {
-      targets.push([z * 9 + y * 3 + 0, FACE.L]);
-    }
-  }
-  // B: z=0, for y desc, for x desc
-  for (let y = 2; y >= 0; y--) {
-    for (let x = 2; x >= 0; x--) {
-      targets.push([0 * 9 + y * 3 + x, FACE.B]);
-    }
-  }
-  return targets;
-})();
-
-// ---- 无关块可视化 (半透明/隐藏) 材质基础设施 ----
-// serialize→getColor 按贴纸材质身份反查色字符: 换成未注册材质会得 "?" 破坏序列化
-// (判定/求解/重绘全挂)。因此可视化一律「替换贴纸材质」: 半透明=同色低透明度，
-// 隐藏=按真实色分别注册、但视觉统一为灰色低透明度
-// 材质 (visible 恒 true, 反查表仍能读色); 所需块高亮=同色无光照纯亮材质 (Basic, 实心)。
-// VIS_MAT_COLORS 注册 自定义材质→色字符, getColor 原型补丁优先查表保 serialize 恒真实
-const VIS_MAT_COLORS = new Map<THREE.Material, string>();
-const VIS_GHOST_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
-const VIS_CENTER_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
-const VIS_SOFT_MATS: { [color: string]: THREE.MeshLambertMaterial } = {};
-const VIS_BRIGHT_MATS: { [color: string]: THREE.MeshBasicMaterial } = {};
-const VIS_GHOST_OPACITY = 0.18;
-const VIS_CENTER_OPACITY = 0.8;
-// 「隐藏无关」档: 无关贴纸统一灰化，保留轻微透明轮廓；真实色仍由材质注册表记录
-const VIS_SOFT_COLOR = 0x80868b;
-const VIS_SOFT_OPACITY = 0.1;
-const VIS_FRAME_SOFT_OPACITY = 0.06;
-// 塑料体 (frame) 处理: 半透明档直接 frame.visible=false (黑骨架完全隐去, 透过薄纱
-// 贴纸直接见背后块色); 隐藏档骨架同 0.06 隐约 (CORE.clone)
-const VIS_FRAME_SOFT = ((): THREE.MeshPhongMaterial => {
-  const mat = Cubelet.CORE.clone() as THREE.MeshPhongMaterial;
-  mat.transparent = true;
-  mat.opacity = VIS_FRAME_SOFT_OPACITY;
-  mat.depthWrite = false;
-  return mat;
-})();
-
-function visMaterialOf(color: string, mode: "ghost" | "center" | "soft" | "bright"): THREE.Material {
-  if (mode === "bright") {
-    // 所需块高亮: 无光照纯色 (Basic), 在半透明无关块后依然鲜亮醒目
-    let mat = VIS_BRIGHT_MATS[color];
-    if (!mat) {
-      mat = new THREE.MeshBasicMaterial();
-      VIS_BRIGHT_MATS[color] = mat;
-      VIS_MAT_COLORS.set(mat, color);
-    }
-    const lamber = Cubelet.LAMBERS[color];
-    if (lamber) {
-      mat.color.copy(lamber.color);
-    }
-    return mat;
-  }
-  const table = mode === "ghost" ? VIS_GHOST_MATS : mode === "center" ? VIS_CENTER_MATS : VIS_SOFT_MATS;
-  let mat = table[color];
-  if (!mat) {
-    mat = new THREE.MeshLambertMaterial({
-      transparent: true,
-      opacity: mode === "ghost" ? VIS_GHOST_OPACITY : mode === "center" ? VIS_CENTER_OPACITY : VIS_SOFT_OPACITY,
-      depthWrite: false,
-    });
-    table[color] = mat;
-    VIS_MAT_COLORS.set(mat, color);
-  }
-  if (mode === "soft") {
-    // 每种真实色仍使用独立材质并注册到 VIS_MAT_COLORS，只统一视觉色以减少干扰
-    mat.color.setHex(VIS_SOFT_COLOR);
-  } else {
-    // 配色可随时在菜单修改 (直接改 LAMBERS 色值): 每次取用时同步, 避免半透明块颜色过期
-    const lamber = Cubelet.LAMBERS[color];
-    if (lamber) {
-      mat.color.copy(lamber.color);
-    }
-  }
-  return mat;
-}
-
-// getColor 原型补丁 (模块加载时一次性): 自定义可视化材质反查色字符, 其余走原实现
-const _visOrigGetColor = Cubelet.prototype.getColor;
-if (!(Cubelet.prototype as { __visPatched?: boolean }).__visPatched) {
-  (Cubelet.prototype as { __visPatched?: boolean }).__visPatched = true;
-  Cubelet.prototype.getColor = function (this: Cubelet, face: FACE): string {
-    const sticker = this.stickers[this.getFace(face)];
-    if (sticker) {
-      const mapped = VIS_MAT_COLORS.get(sticker.material as THREE.Material);
-      if (mapped) {
-        return mapped;
-      }
-    }
-    return _visOrigGetColor.call(this, face);
-  };
-}
-
 @Component({
   template: require("./index.html"),
   components: {
     viewport: Viewport,
     setting: Setting,
+    fixedCases: FixedCases,
   },
 })
 export default class BleCrossTrainer extends Vue {
@@ -242,6 +121,24 @@ export default class BleCrossTrainer extends Vue {
 
   @Ref("viewport")
   viewport: Viewport;
+
+  fixedCasesOpen = false;
+  @Ref('fixedCases') fixedCases: FixedCases;
+
+  openFixedCases(): void {
+    this.fixedCasesOpen = true;
+    this.$nextTick(() => this.fixedCases?.resize());
+  }
+
+  setFixedGhost(value: boolean): void {
+    this.visGhost = value;
+    this.saveVisGhost();
+  }
+
+  setFixedHide(value: boolean): void {
+    this.visHide = value;
+    this.saveVisHide();
+  }
 
   // ---- 蓝牙连接 ----
   @Inject("cubeSession") private link: CubeSession;
@@ -2967,7 +2864,7 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private pieceColorSignature(colors: string[]): string {
-    return colors.filter(Boolean).slice().sort().join("");
+    return pieceColorSignature(colors);
   }
 
   private invalidateVisibilityTargets(): void {
@@ -2987,15 +2884,6 @@ export default class BleCrossTrainer extends Vue {
     const active = ghost || hide;
     const cube = this.world.cube;
     const s = cube.serialize();
-    // 状态串 → 位置×世界面 色表 (FACELET_TARGETS 与 serialize 同序分解, 任意姿态成立)
-    const posColors: string[][] = [];
-    for (let p = 0; p < 27; p++) {
-      posColors.push(["", "", "", "", "", ""]);
-    }
-    for (let i = 0; i < 54; i++) {
-      const target = FACELET_TARGETS[i];
-      posColors[target[0]][target[1]] = s[i];
-    }
     // 训练底色 (与判定 isTrainDone / 求解 toTrainFrame 同帧语义): 黄底训练 = 核心 D 中心;
     // 白底 (z2On) 训练 = 核心 U 中心 —— 白中心恒在核心 U 轴, z2 切白底后高亮 4 条白棱。
     // 不能用世界帧 s[31]: 持握 (z2/y) 会改世界帧中心分布, 与训练目标底色无关
@@ -3028,54 +2916,7 @@ export default class BleCrossTrainer extends Vue {
       }
       this.visibilityNeededSignatures = needed;
     }
-    // 逐块刷材质。等级: 无关块→淡化 (hide 开取更透明档, 涵盖半透明); 所需块→高亮;
-    // 半透明模式中心块→80%; 未开启→标准色。getFace(世界面)→局部面: 块姿态任意时也能定位到正确贴纸
-    for (let p = 0; p < 27; p++) {
-      const piece = cube.cubelets[p];
-      if (!piece || !piece.exist) {
-        continue;
-      }
-      const colors = posColors[p].filter(Boolean);
-      const signature = this.pieceColorSignature(colors);
-      const isNeeded = active && colors.length > 1 && !!this.visibilityNeededSignatures?.has(signature);
-      const irrelevant = active && colors.length > 1 && !isNeeded;
-      const isCenter = colors.length === 1;
-      const mode: "normal" | "ghost" | "center" | "soft" | "bright" = irrelevant
-        ? hide
-          ? "soft"
-          : "ghost"
-        : isNeeded
-        ? "bright"
-        : ghost && isCenter
-        ? "center"
-        : "normal";
-      // 塑料体 (frame): 半透明模式下所有块 (含高亮块) 的骨架一律完全隐去, 场景只剩贴纸层
-      // —— 用户明确要求零可见骨架 (灰板/黑板都不要); 隐藏档 (半透明关) 无关块骨架同 0.06
-      // 隐约, 其余实心; 关闭时按 hollow 偏好恢复
-      const frame = piece.frame;
-      if (ghost) {
-        frame.visible = false;
-      } else if (active) {
-        frame.visible = true;
-        frame.material = mode === "soft" ? VIS_FRAME_SOFT : this.preferance.hollow ? Cubelet.TRANS : Cubelet.CORE;
-      } else {
-        frame.visible = true;
-        frame.material = this.preferance.hollow ? Cubelet.TRANS : Cubelet.CORE;
-      }
-      for (let w = 0; w < 6; w++) {
-        const color = posColors[p][w];
-        if (!color) {
-          continue;
-        }
-        const sticker = piece.stickers[piece.getFace(w as FACE)];
-        if (!sticker) {
-          continue;
-        }
-        sticker.visible = true;
-        sticker.material = mode === "normal" ? Cubelet.LAMBERS[color] : visMaterialOf(color, mode);
-      }
-    }
-    this.world.dirty = true;
+    paintCubeVisibility(this.world, this.visibilityNeededSignatures, ghost, hide, this.preferance.hollow);
   }
 
   /** 手动 MAC 输入变更: 持久化, 下次复用避免再次输入 (空串清除保存值) */
