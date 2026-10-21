@@ -10,8 +10,8 @@
     </div>
 
     <fixed-cases v-if="fixedCasesOpen" ref="fixedCases"
-      :ghost="visGhost" :hide="visHide" :background="backgroundColor" :presets="backgroundPresets"
-      @set-ghost="setFixedGhost" @set-hide="setFixedHide" @set-background="setBackgroundColor"
+      :ghost="visGhost" :hide="visHide" :background="backgroundColor" :background-mode="backgroundMode" :presets="backgroundPresets"
+      @set-ghost="setFixedGhost" @set-hide="setFixedHide" @set-background="setBackgroundColor" @set-background-mode="setBackgroundMode"
       @close="fixedCasesOpen = false" />
     <!-- 底部悬浮面板: 连接 / 打乱 / 状态 (样式见 theme.ts, mounted 时注入) -->
     <div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: center;">
@@ -197,6 +197,12 @@
                 </button>
               </template>
               <v-card class="ble-bg-menu">
+                <label style="display:flex; align-items:center; gap:5px; padding:6px; font-size:12px;">
+                  背景模式
+                  <select data-ble-bg-mode :value="backgroundMode" @change="setBackgroundMode($event.target.value)">
+                    <option value="global">跟随全局</option><option value="custom">本界面自定义</option>
+                  </select>
+                </label>
                 <div class="ble-bg-grid">
                   <button
                     v-for="item in backgroundPresets"
@@ -436,6 +442,32 @@
           </template>
         </div>
         <small v-if="trainMode !== 'cross'">仅评分求解器返回的候选；F2L 指法分不是实测用时。</small>
+        <div v-if="trainMode === 'cross'" class="ble-wide-section" data-wide-cross>
+          <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+          <template v-if="wideOpen">
+            <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅预览，不参与训练判定。</small>
+            <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
+            <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
+            <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>
+            <div v-for="item in visibleWideRecommendations" :key="item.id" class="ble-recommendation-item" :class="{'selected': selectedRecommendationId === item.id}" role="button" tabindex="0" @click="selectRecommendation(item)" @keydown.enter="selectRecommendation(item)">
+              <b>{{ recommendationFrontLabel(item.front) }} · {{ item.depth }}步</b>
+              <div class="ble-recommendation-formula-row"><span class="ble-recommendation-formula">{{ item.displayMoves.join(' ') }}</span>
+                <div v-if="selectedRecommendationId === item.id" class="ble-recommendation-controls">
+                  <button title="返回起点" :disabled="playingBest || gifRecording" @click.stop="returnRecommendationStart(item)">⏪</button>
+                  <button title="上一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) <= 0" @click.stop="stepBest(item.physicalMoves.join(' '), -1, item)">⏮</button>
+                  <button title="下一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) >= item.depth" @click.stop="stepBest(item.physicalMoves.join(' '), 1, item)">⏭</button>
+                  <button title="播放" :disabled="playingBest" @click.stop="playBest(item.physicalMoves.join(' '), item)">▶</button>
+                  <button title="GIF" :disabled="playingBest && !gifRecording" @click.stop="toggleRecommendationGif(item)">{{ gifRecording ? '⏹' : 'GIF' }}</button>
+                </div>
+              </div>
+              <small>{{ item.route.estimated ? '参考指法分' : '指法分' }} {{ Number(item.route.score).toFixed(2) }} · 换握 {{ item.route.regrips }}</small>
+              <template v-if="selectedRecommendationId === item.id"><small class="ble-grip-start">起手握姿：左手 {{ item.route.start_left }}；右手 {{ item.route.start_right }}</small><small v-for="(step, i) in item.route.steps" :key="i" class="ble-grip-step">{{ gripInstruction(step) }}</small></template>
+            </div>
+            <small v-if="wideLimited">搜索预算已用尽，结果可能不完整。</small>
+            <small v-if="wideRejected">已过滤 {{ wideRejected }} 条与 3D 播放不一致的候选。</small>
+            <small v-if="wideRecommendations.some(item => item.route.estimated)">白底 d 宽转为参考指法，具体手指触点待核验。</small>
+          </template>
+        </div>
       </div>
     </section>
 
@@ -473,6 +505,32 @@
                 <small v-for="(step, stepIndex) in item.route.steps" :key="stepIndex" class="ble-grip-step">{{ gripInstruction(step) }}</small>
               </template>
             </div>
+          </div>
+          <div v-if="trainMode === 'cross'" class="ble-wide-section" data-wide-cross>
+            <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+            <template v-if="wideOpen">
+              <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅预览，不参与训练判定。</small>
+              <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
+              <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
+              <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>
+              <div v-for="item in visibleWideRecommendations" :key="item.id" class="ble-recommendation-item" :class="{'selected': selectedRecommendationId === item.id}" role="button" tabindex="0" @click="selectRecommendation(item)" @keydown.enter="selectRecommendation(item)">
+                <b>{{ recommendationFrontLabel(item.front) }} · {{ item.depth }}步</b>
+                <div class="ble-recommendation-formula-row"><span class="ble-recommendation-formula">{{ item.displayMoves.join(' ') }}</span>
+                  <div v-if="selectedRecommendationId === item.id" class="ble-recommendation-controls">
+                    <button title="返回起点" :disabled="playingBest || gifRecording" @click.stop="returnRecommendationStart(item)">⏪</button>
+                    <button title="上一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) <= 0" @click.stop="stepBest(item.physicalMoves.join(' '), -1, item)">⏮</button>
+                    <button title="下一步" :disabled="playingBest || bestStepAt(item.physicalMoves.join(' '), item) >= item.depth" @click.stop="stepBest(item.physicalMoves.join(' '), 1, item)">⏭</button>
+                    <button title="播放" :disabled="playingBest" @click.stop="playBest(item.physicalMoves.join(' '), item)">▶</button>
+                    <button title="GIF" :disabled="playingBest && !gifRecording" @click.stop="toggleRecommendationGif(item)">{{ gifRecording ? '⏹' : 'GIF' }}</button>
+                  </div>
+                </div>
+                <small>{{ item.route.estimated ? '参考指法分' : '指法分' }} {{ Number(item.route.score).toFixed(2) }} · 换握 {{ item.route.regrips }}</small>
+                <template v-if="selectedRecommendationId === item.id"><small class="ble-grip-start">起手握姿：左手 {{ item.route.start_left }}；右手 {{ item.route.start_right }}</small><small v-for="(step, i) in item.route.steps" :key="i" class="ble-grip-step">{{ gripInstruction(step) }}</small></template>
+              </div>
+              <small v-if="wideLimited">搜索预算已用尽，结果可能不完整。</small>
+              <small v-if="wideRejected">已过滤 {{ wideRejected }} 条与 3D 播放不一致的候选。</small>
+              <small v-if="wideRecommendations.some(item => item.route.estimated)">白底 d 宽转为参考指法，具体手指触点待核验。</small>
+            </template>
           </div>
         </v-card-text>
       </v-card>

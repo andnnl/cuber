@@ -40,14 +40,14 @@ R' B' R' F
 D2 R' L F B' U L2`;
 
 const AWKWARD = `x U' R U x' R2
-x U L D R U
+x U L D R U x'
 L R B F D2 L R
-x R D' L' U' F' R' U2
+x R D' L' U' F' R' U2 x'
 M2 U2 M2
-z' U' R U R' U'
-x U2 D2 z U2 D2
-z U2 D2 R' U2 D2
-R2 U' x L2 U2 F' R2
+z' U' R U R' U' z
+x U2 D2 z U2 D2 x'
+z U2 D2 R2 x U2 D2
+R2 U' x L2 U2 F' R2 x'
 L R U2 y' r' U x R' F
 x R' U R' z2 R' U R' x'
 F U B L' R' F D' R'`;

@@ -13,6 +13,7 @@ export default class FixedCases extends Vue {
   @Prop({ default: false }) ghost: boolean;
   @Prop({ default: false }) hide: boolean;
   @Prop({ default: '#FFFFFF' }) background: string;
+  @Prop({ default: 'global' }) backgroundMode: string;
   @Prop({ default: () => [] }) presets: { name: string; value: string }[];
   @Provide('world') world = new World();
   @Provide('preferance') preferance = new PreferanceData(this.world);

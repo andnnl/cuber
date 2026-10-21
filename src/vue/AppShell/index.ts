@@ -8,6 +8,7 @@ import Algs from "../Algs";
 import F2LTrainer from "../F2LTrainer";
 import CrossF2LTrainer from "../CrossF2LTrainer";
 import BleCrossTrainer from "../BleCrossTrainer";
+import CfopLearning from "../CfopLearning";
 import BleConnectTutorial from "../BleConnectTutorial";
 import { CubeSession, SessionSnapshot } from "../../ble/cube-session";
 import { FollowGate } from "../../ble/follow-gate";
@@ -15,11 +16,12 @@ import { AppRoute, parseAppRoute, routeKey, routeUrl } from "../../ble/app-route
 import { nativeBridgeAvailable, webBluetoothAvailable } from "../../ble/cube-link";
 import { LinkEvent } from "../../ble/types";
 import tweener from "../../cuber/tweener";
+import { BackgroundStore } from "../background-store";
 import "./index.css";
 
 const views: { [mode: string]: VueConstructor } = {
   playground: Playground, director: Director, player: Player, helper: Helper, algs: Algs,
-  f2l: F2LTrainer, crossf2l: CrossF2LTrainer, blecross: BleCrossTrainer, bleconnect: BleConnectTutorial,
+  f2l: F2LTrainer, crossf2l: CrossF2LTrainer, blecross: BleCrossTrainer, cfop: CfopLearning, bleconnect: BleConnectTutorial,
 };
 
 @Component({
@@ -29,12 +31,16 @@ const views: { [mode: string]: VueConstructor } = {
       cubeSession: this.session,
       navigate: (route: AppRoute) => this.navigate(route),
       getActiveMode: () => this.activeMode,
+      isFollowing: () => this.following,
       openConnection: () => this.openConnection(),
+      cubeBackground: this.background,
     };
   },
 })
 export default class AppShell extends Vue {
   readonly session = new CubeSession();
+  readonly background = new BackgroundStore(window.localStorage);
+  backgroundVersion = 0;
   readonly gate = new FollowGate(window.localStorage);
   route: AppRoute = parseAppRoute(location.search);
   snapshot: SessionSnapshot = this.session.snapshot;
@@ -45,6 +51,7 @@ export default class AppShell extends Vue {
   macError = "";
   private stopSession: (() => void) | null = null;
   private stopScan: (() => void) | null = null;
+  private stopBackground: (() => void) | null = null;
 
   get activeMode(): string { return this.route.mode; }
   get currentComponent(): VueConstructor { return views[this.activeMode]; }
@@ -53,24 +60,40 @@ export default class AppShell extends Vue {
   get following(): boolean { return this.gate.isEnabled(this.activeMode); }
   get supportsBluetooth(): boolean { return nativeBridgeAvailable() || webBluetoothAvailable(); }
   get nativeBt(): boolean { return nativeBridgeAvailable(); }
+  get effectiveBackground(): string {
+    void this.backgroundVersion;
+    if (this.activeMode === "bleconnect") return "#FFFFFF";
+    return this.background.effective(this.activeMode, this.activeMode === "cfop" ? "#EEF1F7" : "#FFFFFF");
+  }
+
+  private onBackgroundStorage = (event: StorageEvent): void => {
+    if (event.storageArea === window.localStorage &&
+        (event.key === null || event.key.indexOf("cubeBackground.") === 0 || event.key === "bleBackgroundColor")) {
+      this.background.reload();
+    }
+  };
 
   // $refs 非响应式；Vue computed 会缓存第一次页面的实例，必须每次直接读取。
   private currentView(): any { return this.$refs.activeView as Vue | undefined; }
 
   mounted(): void {
+    this.stopBackground = this.background.subscribe(() => { this.backgroundVersion++; });
+    window.addEventListener("storage", this.onBackgroundStorage);
     (window as any).__appShell = this;
     (window as any).__cubeSession = this.session;
     this.gate.activate(this.activeMode);
     Vue.prototype.mode = this.activeMode;
     this.stopSession = this.session.subscribe((snapshot) => {
       this.snapshot = snapshot;
-      if (this.activeMode === "blecross") this.currentView()?.onSessionSnapshot?.(snapshot);
+      if (this.activeMode === "blecross" || this.activeMode === "cfop") this.currentView()?.onSessionSnapshot?.(snapshot);
     }, (event) => this.dispatch(event));
     window.addEventListener("popstate", this.onPopState);
     void this.session.tryAutoReconnect();
   }
 
   beforeDestroy(): void {
+    window.removeEventListener("storage", this.onBackgroundStorage);
+    this.stopBackground?.();
     window.removeEventListener("popstate", this.onPopState);
     this.closeScan();
     this.stopSession?.();
@@ -118,13 +141,17 @@ export default class AppShell extends Vue {
     const view = this.currentView();
     if (!view) return;
     if (event.type === "move") {
-      if (!this.gate.accept(this.activeMode, event)) return;
-    } else if (event.type === "facelets" && this.activeMode === "blecross" && !this.following) {
+      if (!this.gate.accept(this.activeMode, event)) {
+        if (this.activeMode === "cfop" && view.needsFacelets) view.handlePhysicalEvent?.(event);
+        return;
+      }
+    } else if (event.type === "facelets" && (this.activeMode === "blecross" || this.activeMode === "cfop") &&
+      !this.following && !view.needsFacelets) {
       return;
-    } else if (this.activeMode !== "blecross") {
+    } else if (this.activeMode !== "blecross" && this.activeMode !== "cfop") {
       return;
     }
-    if (this.activeMode === "blecross") view.handlePhysicalEvent?.(event);
+    if (this.activeMode === "blecross" || this.activeMode === "cfop") view.handlePhysicalEvent?.(event);
     else if (event.type === "move" && !view.playbar?.playing && !view.playing && !view.playingBest &&
       view.state !== "playing" && view.phase !== "playing" && view.world?.cube) {
       if (view.applyPhysicalMove) view.applyPhysicalMove(event.move, event.serial);
@@ -134,7 +161,7 @@ export default class AppShell extends Vue {
 
   setFollowing(enabled: boolean): void {
     this.gate.setEnabled(this.activeMode, enabled);
-    if (this.activeMode === "blecross") this.currentView()?.onPhysicalFollowChanged?.(enabled);
+    if (this.activeMode === "blecross" || this.activeMode === "cfop") this.currentView()?.onPhysicalFollowChanged?.(enabled);
     this.$forceUpdate();
   }
 

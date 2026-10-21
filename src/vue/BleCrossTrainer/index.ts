@@ -31,10 +31,16 @@ import { isSolveTimeOverTarget, parseSolveTimeTarget } from "../../ble/solve-tim
 import { SolveRequestCache } from "../../ble/solve-request-cache";
 import { debugLog } from "../../util/debug-log";
 import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
+import { WideCrossClient } from "../../wasm/WideCrossClient";
+import { gripTokens, displayWideGripRoute } from "../CrossF2LTrainer/wide-grip";
+import { parseWideRecommendations, wideToPhysicalMove } from "../CrossF2LTrainer/wide-recommendations";
+import { correctWideCross } from "../CrossF2LTrainer/wide-playback";
 import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "../CrossF2LTrainer/recommendations";
 import { recommendationFrontColor, recommendationFrontTurn } from "./recommendation-preview";
 import { verifySolvedTargets } from "../CrossF2LTrainer/training-targets";
 import FixedCases from "./FixedCases";
+import { BackgroundMode, BackgroundStore } from "../background-store";
+import { BACKGROUND_PRESETS } from "../background-presets";
 import { FACELET_TARGETS, paintCubeVisibility, pieceColorSignature } from './visibility';
 import { CrossTrainMode, SlotSelectionMode, pairCountForMode, normalizeTrainSlots, evaluateCrossTarget, CROSS_SLOTS } from "../../ble/cross-training-target";
 
@@ -75,28 +81,7 @@ type TrainRecord = {
   steps: number;
 };
 
-type BackgroundPreset = {
-  name: string;
-  value: string;
-};
-
 const BLE_BACKGROUND_DEFAULT = "#FFFFFF";
-const BLE_BACKGROUND_PRESETS: BackgroundPreset[] = [
-  { name: "白色", value: "#FFFFFF" },
-  { name: "浅灰", value: "#F3F4F6" },
-  { name: "米白", value: "#FFF8E7" },
-  { name: "淡黄", value: "#FFFDE7" },
-  { name: "淡绿", value: "#E8F5E9" },
-  { name: "淡青", value: "#465255" },
-  { name: "淡蓝", value: "#48515E" },
-  { name: "淡紫", value: "#514B5B" },
-  { name: "淡粉", value: "#5D4C53" },
-  { name: "暗黑", value: "#121212" },
-];
-
-function normalizeBackgroundColor(value: string | null): string {
-  return value && /^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : BLE_BACKGROUND_DEFAULT;
-}
 
 const RECORDS_KEY = "bleTrainRecords";
 const RECORDS_MAX = 500; // 本地缓存上限, 防膨胀
@@ -142,6 +127,7 @@ export default class BleCrossTrainer extends Vue {
 
   // ---- 蓝牙连接 ----
   @Inject("cubeSession") private link: CubeSession;
+  @Inject("cubeBackground") private background: BackgroundStore;
   @Inject("openConnection") private openGlobalConnection: () => void;
   private appActive = true;
   private pausedAt: number | null = null;
@@ -180,6 +166,15 @@ export default class BleCrossTrainer extends Vue {
   selectedSolveSlots: string[] = ["FR", "BL", "FL"];
   private analysisClient = new CrossAnalysisClient();
   private multiBestClient = new CrossAnalysisClient();
+  private wideClient = new WideCrossClient();
+  wideOpen = false;
+  wideBusy = false;
+  wideError = "";
+  wideLimited = false;
+  wideRejected = 0;
+  wideStage = "";
+  wideRecommendations: Recommendation[] = [];
+  private wideRequestId = 0;
   recommendations: Recommendation[] = [];
   recommendationOpen = false;
   recommendationFull = false;
@@ -261,7 +256,9 @@ export default class BleCrossTrainer extends Vue {
   visHide = false;
   // 仅 BLE Cross 3D 视口使用的背景色，不影响全局 Vuetify 暗黑主题
   backgroundColor = BLE_BACKGROUND_DEFAULT;
-  readonly backgroundPresets = BLE_BACKGROUND_PRESETS;
+  backgroundMode: BackgroundMode = "global";
+  private stopBackground: (() => void) | null = null;
+  readonly backgroundPresets = BACKGROUND_PRESETS;
   // xcross 模式下保留显示的 F2L 槽位 (棱块+角块), 与屏幕四下槽位同帧 (localStorage "bleVisSlot")
   visSlot = "FL";
   // 相关块按颜色组合追踪，不按当前位置追踪。整体拖动或普通层转只会移动块，
@@ -406,9 +403,8 @@ export default class BleCrossTrainer extends Vue {
       this.applyVisibility();
       this.rebasing = false;
     });
-    this.backgroundColor = normalizeBackgroundColor(window.localStorage.getItem("bleBackgroundColor"));
-    // 统一修正旧值大小写，并把非法值持久化回默认值，刷新后的状态保持稳定
-    window.localStorage.setItem("bleBackgroundColor", this.backgroundColor);
+    this.stopBackground = this.background.subscribe(() => this.refreshBackground());
+    this.refreshBackground();
     this.loadRecords(); // 训练记录 (localStorage)
     const savedRecLimit = parseInt(window.localStorage.getItem("bleRecLimit") || "", 10);
     if (savedRecLimit === 10 || savedRecLimit === 20 || savedRecLimit === 50 || savedRecLimit === 100) {
@@ -459,6 +455,8 @@ export default class BleCrossTrainer extends Vue {
   }
 
   beforeDestroy(): void {
+    this.stopBackground?.();
+    this.wideClient.dispose();
     this.analysisClient.dispose();
     this.multiBestClient.dispose();
     this.cancelDifficultyGeneration();
@@ -804,7 +802,10 @@ export default class BleCrossTrainer extends Vue {
   /** 核心帧单步记号 → 指定屏幕视角记号。所有单步/公式显示统一经此函数换名。 */
   private displayMoveWithOps(move: string, ops: BaseOp[]): string {
     const map = baseOpsFaceCharMap(ops);
-    return (map[move.charAt(0)] || move.charAt(0)) + move.slice(1);
+    const face = move.charAt(0);
+    if (face !== 'u' && face !== 'd') return (map[face] || face) + move.slice(1);
+    const mapped = map[face.toUpperCase()] || face.toUpperCase();
+    return mapped.toLowerCase() + move.slice(1);
   }
 
   /** 展示层转动换名: 核心帧记号 → 当前屏幕面。 */
@@ -1061,6 +1062,10 @@ export default class BleCrossTrainer extends Vue {
     if (!formula || !formula.trim() || !/^[URFDLB]{54}$/.test(base)) {
       return false;
     }
+    const history = this.world.cube.history;
+    const previousList = history.list.map(a => new TwistAction(a.sign, a.reverse, a.times));
+    const previousInit = history.init;
+    const previousExp = history.exp;
     this.rebasing = true;
     try {
       this.syncScene(base);
@@ -1081,6 +1086,10 @@ export default class BleCrossTrainer extends Vue {
       this.bestStepPos = clearAll ? {} : { ...this.bestStepPos, [this.previewKey(formula, recommendation)]: 0 };
       return true;
     } finally {
+      // Preview redraw is visual only; keep turns made earlier in this round.
+      history.list = previousList;
+      history.init = previousInit;
+      history.exp = previousExp;
       this.rebasing = false;
     }
   }
@@ -1594,6 +1603,13 @@ export default class BleCrossTrainer extends Vue {
       `[BT] MOVE ${move} s=${serial === undefined ? "-" : serial & 0xff} rel=${rel} cov=${coveredByAuthoritative ? 1 : 0} ` +
         `ph=${this.phase} pred=${this.predicted}`
     );
+    // A physical turn takes over the scene from any visual-only wide preview.
+    // Restore this round's starting frame before mirroring the incoming turn.
+    if (this.wideRecommendations.some(item => item.id === this.selectedRecommendationId)) {
+      this.endWidePreview();
+      this.cancelWide();
+      this.wideOpen = false;
+    }
     if (this.calibStep >= 0) {
       // 校准流程: 状态推演照常维护 (转层真实发生了), 但只记录上报记号, 不参与判定
       if (this.predicted && !coveredByAuthoritative) {
@@ -2075,6 +2091,12 @@ export default class BleCrossTrainer extends Vue {
   }
 
   private invalidateRecommendations(): void {
+    // The caller is changing the round/view and will redraw its own current state.
+    // Never flash the now-stale recommendation snapshot during that transition.
+    this.endWidePreview(false);
+    this.cancelWide();
+    this.wideOpen = false;
+    this.wideRecommendations = [];
     if (this.recommendationGifId) this.cancelRecommendationGif();
     this.recommendationRequestId++;
     this.analysisClient.cancel();
@@ -2089,6 +2111,9 @@ export default class BleCrossTrainer extends Vue {
   }
 
   closeRecommendations(): void {
+    this.endWidePreview();
+    this.cancelWide();
+    this.wideOpen = false;
     this.recommendationOpen = false;
     this.recommendationFull = false;
     if (this.recommendationBusy) {
@@ -2104,6 +2129,79 @@ export default class BleCrossTrainer extends Vue {
       (this.recommendationFront === "ALL" || item.front === this.recommendationFront) &&
       (this.recommendationDepth === "ALL" || item.offset === Number(this.recommendationDepth)));
     return this.recommendationAll ? filtered : filtered.slice(0, 4);
+  }
+
+  get visibleWideRecommendations(): Recommendation[] {
+    const filtered = this.wideRecommendations.filter(item =>
+      this.recommendationFront === 'ALL' || item.front === this.recommendationFront);
+    return this.recommendationAll ? filtered : filtered.slice(0, 4);
+  }
+
+  private cancelWide(): void {
+    this.wideRequestId++;
+    this.wideClient.cancel();
+    this.wideBusy = false;
+  }
+
+  private endWidePreview(restore = true): void {
+    const item = this.wideRecommendations.find(candidate => candidate.id === this.selectedRecommendationId);
+    if (!item) return;
+    if (this.recommendationGifId === item.id) this.cancelRecommendationGif();
+    else this.cancelBestPlay();
+    if (restore) this.resetBestPreview(item.physicalMoves.join(' '), false, undefined,
+      { base: this.analysisCoreBase, viewOps: this.recommendationViewOps });
+    this.selectedRecommendationId = null;
+  }
+
+  async toggleWide(): Promise<void> {
+    if (this.wideOpen) {
+      this.endWidePreview();
+      this.cancelWide();
+      this.wideOpen = false;
+      return;
+    }
+    this.wideOpen = true;
+    if (this.wideRecommendations.length || this.trainMode !== 'cross') return;
+    const coreBase = this.analysisCoreBase;
+    if (!/^[URFDLB]{54}$/.test(coreBase)) { this.wideError = '请先新打乱'; return; }
+    const white = this.z2On;
+    const facelets = white ? toTrainFrame(coreBase) : coreBase;
+    const viewOps = this.effectiveViewOps().map(op => ({ ...op }));
+    const generation = ++this.wideRequestId;
+    this.wideBusy = true;
+    this.wideError = '';
+    this.wideStage = '';
+    try {
+      const result = parseWideRecommendations(facelets,
+        await this.wideClient.request(facelets, stage => { if (generation === this.wideRequestId) this.wideStage = stage; }));
+      if (generation !== this.wideRequestId || coreBase !== this.analysisCoreBase || white !== this.z2On) return;
+      this.wideLimited = result.limited;
+      this.wideRejected = result.buckets.reduce((n, bucket) => n + bucket.solutions.length, 0);
+      const candidates = result.buckets.reduce((all: Recommendation[], bucket) => {
+        for (const item of bucket.solutions) {
+          const corrected = correctWideCross(facelets, item.physicalMoves);
+          if (!corrected) continue;
+          const physicalMoves = corrected.map(move => wideToPhysicalMove(move, white));
+          const screenMoves = physicalMoves.map(move => this.displayMoveWithOps(move, viewOps));
+          const screenFront = this.displayMoveWithOps(wideToPhysicalMove(bucket.front, white), viewOps);
+          const front = FRONTS.indexOf(screenFront) >= 0 ? screenFront : bucket.front;
+          all.push({ id: item.id, front, displayMoves: screenMoves.map(move => physicalMove(move, front)),
+            physicalMoves, slots: [], physicalSlots: [], sourceIndices: [], route: item.route,
+            depth: corrected.length, offset: 0 });
+        }
+        return all;
+      }, []);
+      const routes = await this.wideClient.score(candidates.map(item => gripTokens(item.displayMoves)));
+      if (generation !== this.wideRequestId || coreBase !== this.analysisCoreBase || white !== this.z2On) return;
+      if (routes.length !== candidates.length) throw new Error('宽转指法结果数量不一致');
+      candidates.forEach((item, index) => { item.route = displayWideGripRoute(routes[index], item.displayMoves); });
+      this.wideRecommendations = candidates;
+      this.wideRejected -= this.wideRecommendations.length;
+    } catch (error) {
+      if (generation === this.wideRequestId) this.wideError = `宽转搜索失败：${String(error)}`;
+    } finally {
+      if (generation === this.wideRequestId) this.wideBusy = false;
+    }
   }
 
   get selectedRecommendation(): Recommendation | undefined {
@@ -2849,11 +2947,19 @@ export default class BleCrossTrainer extends Vue {
     this.applyVisibility();
   }
 
-  /** 设置 BLE Cross 专用 3D 背景色；严格限制为 6 位 RGB，非法值回退白色。 */
-  setBackgroundColor(value: string): void {
-    this.backgroundColor = normalizeBackgroundColor(value);
-    window.localStorage.setItem("bleBackgroundColor", this.backgroundColor);
+  private refreshBackground(): void {
+    this.backgroundMode = this.background.mode("blecross");
+    this.backgroundColor = this.background.effective("blecross", BLE_BACKGROUND_DEFAULT);
     this.world.dirty = true;
+  }
+
+  setBackgroundMode(value: BackgroundMode): void {
+    this.background.setMode("blecross", value);
+  }
+
+  /** 设置 BLE Cross 专用 3D 背景色，固定公式界面与训练界面共用。 */
+  setBackgroundColor(value: string): void {
+    this.background.setCustom("blecross", value);
   }
 
   /** XCross 槽位选择变更: 持久化并重刷 (所需棱块+角块随槽位变化) */

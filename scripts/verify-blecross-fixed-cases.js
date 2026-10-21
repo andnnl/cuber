@@ -1,5 +1,5 @@
 async page => {
-  await page.goto('http://127.0.0.1:18082/?mode=blecross');
+  await page.goto(`http://127.0.0.1:18083/?mode=blecross&verify=${Date.now()}`);
   await page.waitForFunction(() => window.__bleCross?.world);
   const original = await page.evaluate(() => {
     const vm = window.__bleCross;

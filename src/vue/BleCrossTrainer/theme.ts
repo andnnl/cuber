@@ -58,6 +58,9 @@ export const BLE_THEME_CSS = `
 .ble-recommendation-controls button:disabled { opacity: .45; cursor: default; }
 .ble-recommendation-dialog .v-card__text { overflow-y: auto; }
 .ble-recommendation-dialog .ble-recommendation-list { max-height: calc(100vh - 120px); }
+.ble-wide-section { border-top: 1px solid #dbe1ed; margin-top: 10px; padding-top: 8px; }
+.ble-wide-section > button, .ble-wide-section > div > button { border: 1px solid #b8c3e1; border-radius: 5px; padding: 4px 8px; background: #f5f7fc; }
+.ble-wide-section small { display: block; color: #66728b; }
 .ble-selected-recommendation { display: flex; align-items: center; gap: 5px; min-width: 0; margin-top: 4px; padding: 3px 7px; background: #eef0ff; border-radius: 5px; font-size: 11px; }
 .ble-selected-recommendation span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ble-multi-slots { display: inline-flex; gap: 3px; font-size: 11px; white-space: nowrap; }

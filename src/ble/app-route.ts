@@ -1,6 +1,6 @@
 export type AppRoute = { mode: string; data?: string };
 
-const MODES = new Set(["playground", "director", "player", "helper", "algs", "f2l", "crossf2l", "blecross", "bleconnect"]);
+const MODES = new Set(["playground", "director", "player", "helper", "algs", "f2l", "crossf2l", "blecross", "cfop", "bleconnect"]);
 
 export function parseAppRoute(search: string): AppRoute {
   const params = new URLSearchParams(search);

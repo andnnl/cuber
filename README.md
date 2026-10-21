@@ -1,28 +1,31 @@
 # [魔方栈](https://huazhechen.gitee.io/cuber)
 
-
 - 优美而强大的网页魔方
-
 - 地址: <https://huazhechen.gitee.io/cuber>
-- 地址: <https://andnnl.github.io/cuber/dist>
-
-  <img width="120px" src="resource/icon.png"  alt="icon"/>
-
 - 使用过程中发现任何问题, 或者有任何需求和想法, 欢迎联系作者:
   > 微信: huazhechen
   >
   > QQ: 37705123
   >
   > email: <37705123@qq.com>
+
 # 运行
-  npm run watch
+
+npm run watch
+
 # 推送
-  git push github HEAD:v2
+
+git push github HEAD:v2
+
 # Android APP 打包
-  打包教程见 [android/README.md](android/README.md)（一键脚本: `bash android/build-apk.sh`，产物 release APK 约 3MB）
+
+打包教程见 [android/README.md](android/README.md)（一键脚本: `bash android/build-apk.sh`，产物 release APK 约 3MB）
+
 # 功能介绍
+
 ## 新增功能，可选白底配色，十字求解
-- 十字/XCross 求解算法使用独立 Rust 项目 [cube_cross_solve](https://gitee.com/andnnl/cube_cross_solve)，编译为 WASM 供前端调用
+
+- 十字/XCross 求解算法使用独立 Rust 项目 [cube\_cross\_solve](https://gitee.com/andnnl/cube_cross_solve)，编译为 WASM 供前端调用
 
 ## [十字/F2L 预判训练](https://andnnl.github.io/cuber/dist/?mode=crossf2l)
 
@@ -66,19 +69,15 @@
 - 触控操作
 
   ![touch](screenshot/touch.gif)
-
 - 撤销操作
 
   ![undo](screenshot/undo.gif)
-
 - 操作历史
 
   ![history](screenshot/history.gif)
-
 - 自定义打乱
 
   ![scramble](screenshot/scramble.gif)
-
 - 复盘
 
   ![replay](screenshot/replay.gif)
@@ -102,41 +101,37 @@
 - 场景布置与截图
 
   ![snap](screenshot/snap.gif)
-
 - 动画编写与播放
 
   ![action](screenshot/action.gif)
-
 - 导出 gif
 
   ![gif](screenshot/gif.gif)
-
 - 自由涂色
 
   ![colorize](screenshot/colorize.gif)
-
 - 输出配置
 
   ![output](screenshot/output.gif)
-
 - 动画共享
 
   ![output](screenshot/share.gif)
 
 ## 配置选项
 
+### 3D 魔方背景色
+
+在菜单底部可设置「全局 3D 背景色」，也可将当前界面设为「本界面自定义」。选择「跟随全局」时使用全局色；全局色未设置时，保留该界面原有底色。修改某界面的自定义色不会改变其他界面；「恢复默认」只清除全局色，不删除各界面的自定义设置。BLE Cross 的训练画面和固定公式共用一套背景色设置，原有 BLE Cross 背景色会自动保留。背景设置不改变操作面板、贴纸颜色或暗黑主题。
+
 - 阶数选择
 
   ![order](screenshot/order.gif)
-
 - 操作设置
 
   ![control](screenshot/control.gif)
-
 - 外观设置
 
   ![appear](screenshot/appear.gif)
-
 - 主题设置
 
   ![theme](screenshot/theme.gif)

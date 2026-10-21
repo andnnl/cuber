@@ -17,6 +17,9 @@ export const TRAINER_THEME_CSS = `
 .recommendation-item.recommendation-selected { border-color: #5b6bf0; background: #eef0ff; }
 .recommendation-dialog .v-card__text { overflow-y: auto; }
 .recommendation-dialog .recommendation-list { max-height: calc(100vh - 120px); }
+.wide-section { border-top: 1px solid #dbe1ed; margin-top: 10px; padding-top: 8px; }
+.wide-section > button, .wide-controls button { border: 1px solid #b8c3e1; border-radius: 5px; padding: 4px 8px; margin: 2px; background: #f5f7fc; }
+.wide-section small, .wide-controls small { display: block; color: #66728b; }
 /* ===== 面板卡片: 白卡 + 柔和分层阴影 ===== */
 .trainer-overlay-card {
   background: #ffffff !important;

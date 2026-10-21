@@ -77,7 +77,7 @@ export class BackgroundStore {
   setMode(scope: string, mode: BackgroundMode): void {
     if (mode !== 'global' && mode !== 'custom') return;
     const key = this.scope(scope);
-    if (mode === 'custom' && !this.colors[key]) {
+    if (mode === 'custom' && this.modes[key] !== 'custom') {
       this.colors[key] = this.effective(key, key === 'cfop' ? '#EEF1F7' : '#FFFFFF');
       this.write(`cubeBackground.${key}.color`, this.colors[key]);
     }

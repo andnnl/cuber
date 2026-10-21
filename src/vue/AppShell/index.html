@@ -1,4 +1,4 @@
-<div data-app-shell @click.capture="onInternalLink">
+<div data-app-shell :style="{'--cube-background': effectiveBackground}" @click.capture="onInternalLink">
   <keep-alive>
     <component :is="currentComponent" :key="currentKey" ref="activeView"></component>
   </keep-alive>

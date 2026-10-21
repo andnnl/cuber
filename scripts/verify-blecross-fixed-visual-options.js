@@ -25,11 +25,11 @@ async page => {
   const shared = await page.evaluate(() => {
     const vm = window.__bleCross;
     return { ghost:vm.visGhost, hide:vm.visHide, background:vm.backgroundColor,
-      storage:[localStorage.getItem('bleVisGhost'),localStorage.getItem('bleVisHide'),localStorage.getItem('bleBackgroundColor')],
+      storage:[localStorage.getItem('bleVisGhost'),localStorage.getItem('bleVisHide'),localStorage.getItem('cubeBackground.blecross.color'),localStorage.getItem('cubeBackground.blecross.mode')],
       caseBackground:getComputedStyle(document.querySelector('.ble-fixed-canvas')).backgroundColor };
   });
   if (!shared.ghost || !shared.hide || shared.background !== '#334455' ||
-      JSON.stringify(shared.storage) !== JSON.stringify(['1','1','#334455']) || shared.caseBackground !== 'rgb(51, 68, 85)') {
+      JSON.stringify(shared.storage) !== JSON.stringify(['1','1','#334455','custom']) || shared.caseBackground !== 'rgb(51, 68, 85)') {
     throw new Error(`案例设置未共享：${JSON.stringify(shared)}`);
   }
   const painted = await page.evaluate(() => {

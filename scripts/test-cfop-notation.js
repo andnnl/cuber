@@ -1,0 +1,17 @@
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const ts = require('typescript');
+const source = fs.readFileSync(path.join(__dirname, '../src/vue/CfopLearning/notation.ts'), 'utf8');
+const code = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS}}).outputText;
+const target = {exports:{}};
+new Function('module', 'exports', code)(target, target.exports);
+const {mapStep} = target.exports;
+assert.deepStrictEqual(mapStep('y', 0), {nextOrientation:1, viewTurn:'y', requiresPhysicalSnapshot:false});
+assert.equal(mapStep('F', 1).physicalMove, 'L');
+assert.equal(mapStep('R', 1).physicalMove, 'F');
+assert.equal(mapStep('S', 1).physicalMove, 'M');
+assert.equal(mapStep("y'", 1).nextOrientation, 0);
+assert.equal(mapStep("B'", 0).physicalMove, "B'");
+assert.throws(() => mapStep('Q', 0), /不支持/);
+console.log('CFOP notation mappings verified');

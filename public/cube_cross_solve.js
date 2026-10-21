@@ -216,6 +216,161 @@ export function load_table_from_bytes(data) {
     }
 }
 
+/**
+* CFOP 学习：选择首阶段候选（仅 Cross、XCross、XXCross、XXXCross）。
+* @param {string} input
+* @param {string} mode
+* @param {number} max_solutions
+* @param {number} max_depth
+* @returns {any}
+*/
+export function cfop_start_js(input, mode, max_solutions, max_depth) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(mode, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.cfop_start_js(retptr, ptr0, len0, ptr1, len1, max_solutions, max_depth);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* CFOP 学习：从原始输入严格重放已选公式，再逐组提供下一阶段最短候选。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @param {number} per_slot
+* @returns {any}
+*/
+export function cfop_stages_js(input, prefix, max_depth, per_slot) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.cfop_stages_js(retptr, ptr0, len0, addHeapObject(prefix), max_depth, per_slot);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* CFOP 学习：核对已选完整公式是否完成十字与四组 F2L。
+* @param {string} input
+* @param {any} prefix
+* @returns {any}
+*/
+export function cfop_verify_js(input, prefix) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.cfop_verify_js(retptr, ptr0, len0, addHeapObject(prefix));
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* 快速合规候选，不声明全段最短。找不到候选时返回 null，严格证明仍可继续。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @returns {any}
+*/
+export function cfop_quick_f2l_js(input, prefix, max_depth) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.cfop_quick_f2l_js(retptr, ptr0, len0, addHeapObject(prefix), max_depth);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* CFOP 学习：逐槽位选择当前状态下的合规 HTM 最短解，返回实际阶段。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @param {any} allowed_actions
+* @returns {any}
+*/
+export function cfop_auto_f2l_js(input, prefix, max_depth, allowed_actions) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.cfop_auto_f2l_js(retptr, ptr0, len0, addHeapObject(prefix), max_depth, addHeapObject(allowed_actions));
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* CFOP 学习：从当前已选公式后的 Cross 状态，一次搜索四组 F2L 全段最短解。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @param {number} max_solutions
+* @returns {any}
+*/
+export function cfop_full_f2l_js(input, prefix, max_depth, max_solutions) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.cfop_full_f2l_js(retptr, ptr0, len0, addHeapObject(prefix), max_depth, max_solutions);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8Memory0().subarray(ptr / 1, ptr / 1 + len);
@@ -291,6 +446,79 @@ export function solve_multi(scramble, max_solutions) {
 }
 
 /**
+* 只为原有十字公式提供经完整状态重放验证的宽 U 手法提示。
+* @param {string} input
+* @param {any} moves
+* @param {string} front
+* @returns {any}
+*/
+export function cross_wide_hints_js(input, moves, front) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(front, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.cross_wide_hints_js(retptr, ptr0, len0, addHeapObject(moves), ptr1, len1);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* WASM: exhaustive four-view Cross recommendations, through 8 HTM.
+* @param {string} scramble
+* @returns {any}
+*/
+export function recommend_cross_js(scramble) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(scramble, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.recommend_cross_js(retptr, ptr0, len0);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* WASM: same four-view Cross search, starting from the actual 54 facelets.
+* @param {string} facelets
+* @returns {any}
+*/
+export function recommend_cross_state_js(facelets) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(facelets, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.recommend_cross_state_js(retptr, ptr0, len0);
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
 * WASM: 有界、逐条验证的 Cross 纯面转公式改写（不执行独立搜索）。
 * @param {string} scramble
 * @param {any} baseline
@@ -324,6 +552,27 @@ export function score_cross_grip_js(baseline) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.score_cross_grip_js(retptr, addHeapObject(baseline));
+        var r0 = getInt32Memory0()[retptr / 4 + 0];
+        var r1 = getInt32Memory0()[retptr / 4 + 1];
+        var r2 = getInt32Memory0()[retptr / 4 + 2];
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+* Score a final Cross formula containing u/u' after view and correction mapping.
+* @param {any} baseline
+* @returns {any}
+*/
+export function score_wide_grip_js(baseline) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.score_wide_grip_js(retptr, addHeapObject(baseline));
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         var r2 = getInt32Memory0()[retptr / 4 + 2];
@@ -540,16 +789,16 @@ export function solve_multi_cross(scramble, pair_count, slots, max_solutions, ma
 }
 
 /**
-* WASM: exhaustive four-view Cross recommendations, through 8 HTM.
-* @param {string} scramble
+* 独立的四朝向宽转 Cross 候选搜索；Worker 内存表不修改现有 BIN。
+* @param {string} input
 * @returns {any}
 */
-export function recommend_cross_js(scramble) {
+export function recommend_wide_cross_js(input) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(scramble, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
         const len0 = WASM_VECTOR_LEN;
-        wasm.recommend_cross_js(retptr, ptr0, len0);
+        wasm.recommend_wide_cross_js(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         var r2 = getInt32Memory0()[retptr / 4 + 2];
@@ -563,16 +812,19 @@ export function recommend_cross_js(scramble) {
 }
 
 /**
-* WASM: same four-view Cross search, starting from the actual 54 facelets.
-* @param {string} facelets
+* 从版本化宽转 BIN 读取距离表；不重新生成 BFS，损坏时返回错误供 Worker 回退。
+* @param {string} input
+* @param {Uint8Array} table_bytes
 * @returns {any}
 */
-export function recommend_cross_state_js(facelets) {
+export function recommend_wide_cross_cached_js(input, table_bytes) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(facelets, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
         const len0 = WASM_VECTOR_LEN;
-        wasm.recommend_cross_state_js(retptr, ptr0, len0);
+        const ptr1 = passArray8ToWasm0(table_bytes, wasm.__wbindgen_export_0);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.recommend_wide_cross_cached_js(retptr, ptr0, len0, ptr1, len1);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         var r2 = getInt32Memory0()[retptr / 4 + 2];
@@ -634,14 +886,6 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_string_get = function(arg0, arg1) {
-        const obj = getObject(arg1);
-        const ret = typeof(obj) === 'string' ? obj : undefined;
-        var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
-        var len1 = WASM_VECTOR_LEN;
-        getInt32Memory0()[arg0 / 4 + 1] = len1;
-        getInt32Memory0()[arg0 / 4 + 0] = ptr1;
-    };
     imports.wbg.__wbindgen_is_string = function(arg0) {
         const ret = typeof(getObject(arg0)) === 'string';
         return ret;
@@ -649,6 +893,14 @@ function __wbg_get_imports() {
     imports.wbg.__wbindgen_error_new = function(arg0, arg1) {
         const ret = new Error(getStringFromWasm0(arg0, arg1));
         return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_string_get = function(arg0, arg1) {
+        const obj = getObject(arg1);
+        const ret = typeof(obj) === 'string' ? obj : undefined;
+        var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        var len1 = WASM_VECTOR_LEN;
+        getInt32Memory0()[arg0 / 4 + 1] = len1;
+        getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {
         const ret = getObject(arg0);

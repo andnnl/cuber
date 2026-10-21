@@ -10,6 +10,9 @@
     <button data-ble-fixed-z2 type="button" :class="{active:z2On}" :disabled="playing" @click="toggleZ2" :title="z2On ? '白底模式，点击切回黄底' : '黄底模式，点击切到白底'">z2 {{ z2On ? '白底' : '黄底' }}</button>
     <div class="ble-fixed-background-options">
       <span>背景色</span>
+      <select data-ble-fixed-bg-mode :value="backgroundMode" @change="$emit('set-background-mode', $event.target.value)">
+        <option value="global">跟随全局</option><option value="custom">本界面自定义</option>
+      </select>
       <button v-for="item in presets" :key="item.value" type="button" class="ble-fixed-swatch" :class="{active:background.toUpperCase() === item.value.toUpperCase()}" :style="{backgroundColor:item.value}" :title="item.name" @click="setBackground(item.value)"></button>
       <input data-ble-fixed-bg-custom type="color" :value="background" title="自定义背景色" @input="setBackground($event.target.value)">
     </div>

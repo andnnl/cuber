@@ -13,8 +13,12 @@ import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBa
 import { HIGHLIGHT_COLORS, highlightPiece, restoreHighlight, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
 import { TRAINER_THEME_CSS } from "./theme";
 import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
+import { WideCrossClient } from "../../wasm/WideCrossClient";
+import { parseWideRecommendations, WideRecommendation } from "./wide-recommendations";
+import { correctWideCross } from "./wide-playback";
+import { gripTokens, displayWideGripRoute } from "./wide-grip";
 import { applyFormulaFrom } from "../../ble/move-diff";
-import { Recommendation, relativeMove, simpleGripInstruction, FRONTS } from "./recommendations";
+import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "./recommendations";
 import { remainingSlots, normalizeFixedSlots, trainingVerdict, verifySolvedTargets } from "./training-targets";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
@@ -96,6 +100,17 @@ export default class CrossF2LTrainer extends Vue {
     this.solveMode === "xxcross" ? 2 : 3);
   private analysisClient = new CrossAnalysisClient();
   private basicAnalysisClient = new CrossAnalysisClient();
+  private wideClient = new WideCrossClient();
+  private wideRequestId = 0;
+  private wideOpen = false;
+  private wideBusy = false;
+  private wideError = "";
+  private wideStage = "";
+  private wideLimited = false;
+  private wideRejected = 0;
+  private wideRecommendations: WideRecommendation[] = [];
+  private selectedWideId: string | null = null;
+  private wideStep = 0;
   private recommendations: Recommendation[] = [];
   private recommendationOpen = false;
   private recommendationFull = false;
@@ -513,6 +528,7 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   beforeDestroy(): void {
+    this.wideClient.dispose();
     this.onAppDeactivate();
     this.analysisClient.dispose();
     this.basicAnalysisClient.dispose();
@@ -716,6 +732,10 @@ export default class CrossF2LTrainer extends Vue {
   // 恢复打乱态后旧解法依然有效, 故保留解法列表与选中项复用, 不重算
   // (仅在解法为空时重试求解, 覆盖「上次求解失败后重置」场景)
   reset(): void {
+    this.cancelWide();
+    this.wideOpen = false;
+    this.wideRecommendations = [];
+    this.selectedWideId = null;
     this.cancelRecommendation();
     this.basicAnalysisClient.cancel();
     this.solveRequestId++;
@@ -818,6 +838,10 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   closeRecommendations(): void {
+    if (this.selectedWideId) this.wideReturnStart();
+    this.selectedWideId = null;
+    this.cancelWide();
+    this.wideOpen = false;
     this.recommendationOpen = false;
     this.recommendationFull = false;
     if (this.recommendationBusy) {
@@ -848,6 +872,11 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   private invalidateAnalysis(): void {
+    if (this.selectedWideId && this.scramble) this.wideReturnStart();
+    this.cancelWide();
+    this.wideOpen = false;
+    this.wideRecommendations = [];
+    this.selectedWideId = null;
     this.cancelRecommendation();
     this.recommendations = [];
     this.selectedRecommendationId = null;
@@ -862,6 +891,95 @@ export default class CrossF2LTrainer extends Vue {
       (this.recommendationFront === "ALL" || item.front === this.recommendationFront) &&
       (this.recommendationDepth === "ALL" || item.offset === Number(this.recommendationDepth)));
     return this.recommendationAll ? filtered : filtered.slice(0, 4);
+  }
+
+  private get visibleWideRecommendations(): WideRecommendation[] {
+    const filtered = this.wideRecommendations.filter(item =>
+      this.recommendationFront === 'ALL' || item.front === this.recommendationFront);
+    return this.recommendationAll ? filtered : filtered.slice(0, 4);
+  }
+
+  private cancelWide(): void {
+    this.wideRequestId++;
+    this.wideClient.cancel();
+    this.wideBusy = false;
+  }
+
+  async toggleWide(): Promise<void> {
+    if (this.wideOpen) {
+      if (this.selectedWideId) this.wideReturnStart();
+      this.selectedWideId = null;
+      this.cancelWide(); this.wideOpen = false; return;
+    }
+    this.wideOpen = true;
+    if (this.wideRecommendations.length || this.solveMode !== 'cross') return;
+    const facelets = this.solveFacelets;
+    if (!/^[URFDLB]{54}$/.test(facelets)) { this.wideError = '请先新打乱'; return; }
+    const generation = ++this.wideRequestId;
+    this.wideBusy = true;
+    this.wideError = '';
+    this.wideStage = '';
+    try {
+      const parsed = parseWideRecommendations(facelets,
+        await this.wideClient.request(facelets, stage => { if (generation === this.wideRequestId) this.wideStage = stage; }));
+      if (generation !== this.wideRequestId || facelets !== this.solveFacelets) return;
+      this.wideLimited = parsed.limited;
+      this.wideRejected = parsed.buckets.reduce((n, bucket) => n + bucket.solutions.length, 0);
+      const candidates = parsed.buckets.reduce((all: WideRecommendation[], bucket) =>
+        all.concat(bucket.solutions.reduce((valid: WideRecommendation[], item) => {
+          const corrected = correctWideCross(facelets, item.physicalMoves);
+          if (!corrected) return valid;
+          if (corrected.join(' ') !== item.physicalMoves.join(' ')) {
+            item.physicalMoves = corrected;
+            item.displayMoves = corrected.map(move => physicalMove(move, item.front));
+            item.moves = item.displayMoves.slice();
+            item.depth = corrected.length;
+          }
+          valid.push(item);
+          return valid;
+        }, [])), []);
+      const routes = await this.wideClient.score(candidates.map(item => gripTokens(item.displayMoves)));
+      if (generation !== this.wideRequestId || facelets !== this.solveFacelets) return;
+      if (routes.length !== candidates.length) throw new Error('宽转指法结果数量不一致');
+      candidates.forEach((item, index) => { item.route = displayWideGripRoute(routes[index], item.displayMoves); });
+      this.wideRecommendations = candidates;
+      this.wideRejected -= this.wideRecommendations.length;
+    } catch (error) {
+      if (generation === this.wideRequestId) this.wideError = `宽转搜索失败：${String(error)}`;
+    } finally {
+      if (generation === this.wideRequestId) this.wideBusy = false;
+    }
+  }
+
+  /** 宽转仅在 3D 做视觉演示，不进入原解法数组或训练判定。 */
+  private wideReturnStart(): void {
+    this.world.cube.twister.finish();
+    this.restoreView(true);
+    this.world.cube.twister.setup(this.scramble);
+    this.applyBaseOrientation();
+    this.wideStep = 0;
+  }
+
+  selectWide(item: WideRecommendation): void {
+    if (this.phase !== 'idle' || this.stepIndex > 0) return;
+    this.selectedWideId = item.id;
+    this.wideReturnStart();
+  }
+
+  playWide(item: WideRecommendation): void {
+    if (this.selectedWideId !== item.id || this.phase !== 'idle') return;
+    this.wideReturnStart();
+    this.wideStep = item.physicalMoves.length;
+    this.world.cube.twister.push(item.physicalMoves.join(' '));
+  }
+
+  stepWide(item: WideRecommendation, dir: number): void {
+    if (this.selectedWideId !== item.id || this.phase !== 'idle') return;
+    if (dir > 0 && this.wideStep < item.physicalMoves.length) {
+      this.world.cube.twister.push(item.physicalMoves[this.wideStep++]);
+    } else if (dir < 0 && this.wideStep > 0) {
+      this.world.cube.twister.push(invertMove(item.physicalMoves[--this.wideStep]));
+    }
   }
 
   gripInstruction(step: any): string {

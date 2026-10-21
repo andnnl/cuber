@@ -260,7 +260,7 @@ async page => {
       domPresets: document.querySelectorAll("[data-ble-bg-preset]").length,
       hasCustom: !!document.querySelector("[data-ble-bg-custom]"),
       style: wrapper ? getComputedStyle(wrapper).backgroundColor : "missing",
-      saved: localStorage.getItem("bleBackgroundColor"),
+      saved: localStorage.getItem("cubeBackground.blecross.color"),
       gif: vm.gifBackColor(),
       unchanged: before === vm.world.cube.serialize(),
     };
@@ -297,7 +297,7 @@ async page => {
     return {
       value: vm.backgroundColor,
       style: wrapper ? getComputedStyle(wrapper).backgroundColor : "missing",
-      saved: localStorage.getItem("bleBackgroundColor"),
+      saved: localStorage.getItem("cubeBackground.blecross.color"),
     };
   });
   if (
@@ -308,7 +308,12 @@ async page => {
     throw new Error(`BLE Cross 自定义背景没有刷新恢复: ${JSON.stringify(restoredBackground)}`);
   }
 
-  await page.evaluate(() => localStorage.setItem("bleBackgroundColor", "not-a-color"));
+  await page.evaluate(() => {
+    localStorage.removeItem("cubeBackground.blecross.mode");
+    localStorage.removeItem("cubeBackground.blecross.color");
+    localStorage.removeItem("cubeBackground.global");
+    localStorage.setItem("bleBackgroundColor", "not-a-color");
+  });
   await page.reload();
   await page.waitForFunction(() => window.__bleCross && window.__bleCross.world);
   const invalidBackground = await page.evaluate(() => {

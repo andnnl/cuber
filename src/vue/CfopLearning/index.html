@@ -1,0 +1,77 @@
+<v-app>
+  <div class="cfop-root" v-resize="resize">
+    <setting />
+    <div class="cfop-cube"><viewport ref="viewport"></viewport></div>
+    <section class="cfop-panel" aria-label="CFOP Cross 与 F2L 学习">
+      <h3>CFOP · 十字与逐组 F2L</h3>
+      <div class="cfop-row">
+        <input type="text" v-model="input" @input="invalidate" aria-label="打乱公式或 54 位面贴纸" placeholder="打乱公式或 54 位 URFDLB 状态">
+        <button @click="newScramble">随机打乱</button>
+      </div>
+      <div class="cfop-row">
+        <label><input data-cfop-bottom-z2 type="checkbox" v-model="bottomColorZ2" @change="saveBottomColorZ2">打乱后切换底色 z2（记住选择，随机打乱自动应用）</label>
+        <label><input type="checkbox" v-model="autoCross" @change="saveAutoOptions">自动十字</label>
+        <label><input type="checkbox" v-model="autoF2l" @change="saveAutoOptions">自动 F2L</label>
+        <button @click="readPhysicalStart" :disabled="snapshot.status !== 'connected'">读取实体状态</button>
+      </div>
+      <small>末尾 z2 只切换观察底色，不计入求解步数；54 位面贴纸状态不会自动追加。</small>
+      <details>
+        <summary>一键可用动作（B 禁用，切片默认关闭）</summary>
+        <label v-for="action in availableActions" :key="action" style="display:inline-block; margin:3px 7px;">
+          <input type="checkbox" :value="action" v-model="allowedActions" @change="cancelSearch">{{action}}
+        </label>
+      </details>
+      <div class="cfop-row">
+        <label>首阶段 <select v-model="mode" @change="invalidate"><option v-for="item in ['AUTO','CROSS','XCROSS','XXCROSS','XXXCROSS','READY']" :key="item">{{item}}</option></select></label>
+        <label>首阶段上限 <input type="number" min="0" max="14" v-model.number="startDepth"></label>
+        <label>每组上限 <input type="number" min="0" max="18" v-model.number="stageDepth"></label>
+        <label>一键总上限 <input type="number" min="0" max="30" v-model.number="fullDepth"></label>
+        <label>候选数 <input type="number" min="1" max="5" v-model.number="perSlot"></label>
+        <label>超时/秒 <input type="number" min="5" max="180" v-model.number="timeLimit"></label>
+      </div>
+      <div class="cfop-row">
+        <button @click="searchStart">搜索首阶段</button>
+        <button @click="searchFull" :disabled="!stages.length">一键求解剩余 F2L</button>
+        <button @click="searchStages" :disabled="!stages.length">逐组搜索</button>
+        <button @click="backStage" :disabled="!stages.length">撤销上个阶段</button>
+        <button @click="cancelSearch" :disabled="!busy">取消搜索</button>
+      </div>
+      <div class="cfop-row" v-if="status">{{status}}</div>
+      <div class="cfop-row cfop-error" v-if="error" role="alert">{{error}}</div>
+      <div class="cfop-options" v-if="options.length">
+        <button class="cfop-option" v-for="(option, index) in options" :key="index" @click="choose(option)">
+          {{option.target || '首阶段'}} · {{option.moves.join(' ') || '0 步'}} · {{(option.completed_slots || []).join('、')}}
+        </button>
+      </div>
+      <div class="cfop-row" v-if="route">
+        <button @click="seek(0)">返回起点</button>
+        <button @click="seek(cursor - 1)" :disabled="cursor === 0 || !!follow">上一步</button>
+        <button @click="next" :disabled="cursor >= route.moves.length || !!follow || stepping">下一步</button>
+        <button @click="togglePlay" :disabled="!!follow">{{playing ? '暂停' : '播放'}}</button>
+        <label>速度 <select v-model.number="speed"><option :value="1100">慢</option><option :value="700">标准</option><option :value="400">快</option></select></label>
+        <button @click="startTraining" :disabled="snapshot.status !== 'connected' || !route || route.moves.some(move => move[0] === 'S')">开始跟练</button>
+        <small v-if="route.moves.some(move => move[0] === 'S')">切片不可由设备逐步验证，仅支持 3D 播放</small>
+        <button v-if="follow" @click="stopTraining">退出跟练</button>
+        <button v-if="follow && follow.status === 'view'" @click="confirmOrientation">确认持方 y/y'</button>
+        <button v-if="follow && follow.status === 'paused'" @click="rescanFromPhysical">从当前状态重算</button>
+      </div>
+      <div v-if="follow" role="status">跟练：{{follow.status}} · {{follow.reason || ''}}
+        <span v-if="follow.expected">预期 {{follow.expected}}，实际 {{follow.received}}</span>
+      </div>
+      <div v-if="route" class="cfop-lines">
+        <div class="cfop-tracking" aria-live="polite">
+          <span v-if="tracking.current"><i :style="{backgroundColor: trackingColorCss(tracking.current)}"></i>当前组 {{tracking.current}}（角块＋棱块）</span>
+          <span v-if="tracking.next"><i :style="{backgroundColor: trackingColorCss(tracking.next)}"></i>下一组 {{tracking.next}}（角块＋棱块）</span>
+        </div>
+        <div class="cfop-segment" v-for="segment in route.segments" :key="segment.label" @click="seek(segment.start)">
+          <span class="cfop-label">{{segment.label}}</span>
+          <div class="cfop-formula" v-if="segment.moves.length">
+            <span class="cfop-token" v-for="(move, i) in segment.moves" :key="i"
+              :class="{active:cursor === segment.start + i}">{{move}}</span>
+          </div>
+          <span v-else>首阶段已完成</span>
+        </div>
+      </div>
+    </section>
+  </div>
+</v-app>

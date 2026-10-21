@@ -190,6 +190,33 @@
           <small v-if="selectedRecommendationId === item.id && item.route.steps.length">{{ item.route.steps.map(gripInstruction).join('；') }}</small>
         </button>
         <small v-if="solveMode !== 'cross'">仅对已返回候选评分；F2L 指法分未专项校准，不代表实测用时。</small>
+        <div v-if="solveMode === 'cross'" class="wide-section" data-wide-cross>
+          <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+          <template v-if="wideOpen">
+            <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅用于视觉预览。</small>
+            <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
+            <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
+            <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>
+            <div v-for="item in visibleWideRecommendations" :key="item.id" class="recommendation-item" :class="{'recommendation-selected': selectedWideId === item.id}">
+              <b>{{ item.front }} 前 · {{ item.depth }}步</b>
+              <span>{{ item.displayMoves.join(' ') }}</span>
+              <small>{{ item.route.estimated ? '参考指法分' : '指法分' }} {{ Number(item.route.score).toFixed(2) }} · 换握 {{ item.route.regrips }} · B 转 {{ item.backTurns }}</small>
+              <div class="wide-controls">
+                <button @click="selectWide(item)">选择</button>
+                <template v-if="selectedWideId === item.id">
+                  <button @click="wideReturnStart">⏪</button>
+                  <button :disabled="wideStep <= 0" @click="stepWide(item, -1)">⏮</button>
+                  <button :disabled="wideStep >= item.depth" @click="stepWide(item, 1)">⏭</button>
+                  <button @click="playWide(item)">▶</button>
+                  <small>起手握姿：左手 {{ item.route.start_left }}；右手 {{ item.route.start_right }}</small>
+                  <small v-for="(step, i) in item.route.steps" :key="i">{{ gripInstruction(step) }}</small>
+                </template>
+              </div>
+            </div>
+            <small v-if="wideLimited">搜索预算已用尽，结果可能不完整。</small>
+            <small v-if="wideRejected">已过滤 {{ wideRejected }} 条与 3D 播放不一致的候选。</small>
+          </template>
+        </div>
       </div>
     </section>
 
@@ -214,6 +241,29 @@
             <small v-if="selectedRecommendationId === item.id && item.route.steps.length">{{ item.route.steps.map(gripInstruction).join('；') }}</small>
           </button>
           <small v-if="solveMode !== 'cross'">仅对已返回候选评分；F2L 指法分未专项校准，不代表实测用时。</small>
+          <div v-if="solveMode === 'cross'" class="wide-section" data-wide-cross>
+            <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+            <template v-if="wideOpen">
+              <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅用于视觉预览。</small>
+              <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
+              <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
+              <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>
+              <div v-for="item in visibleWideRecommendations" :key="item.id" class="recommendation-item" :class="{'recommendation-selected': selectedWideId === item.id}">
+                <b>{{ item.front }} 前 · {{ item.depth }}步</b><span>{{ item.displayMoves.join(' ') }}</span>
+                <small>{{ item.route.estimated ? '参考指法分' : '指法分' }} {{ Number(item.route.score).toFixed(2) }} · 换握 {{ item.route.regrips }} · B 转 {{ item.backTurns }}</small>
+                <div class="wide-controls"><button @click="selectWide(item)">选择</button>
+                  <template v-if="selectedWideId === item.id">
+                    <button @click="wideReturnStart">⏪</button><button :disabled="wideStep <= 0" @click="stepWide(item, -1)">⏮</button>
+                    <button :disabled="wideStep >= item.depth" @click="stepWide(item, 1)">⏭</button><button @click="playWide(item)">▶</button>
+                    <small>起手握姿：左手 {{ item.route.start_left }}；右手 {{ item.route.start_right }}</small>
+                    <small v-for="(step, i) in item.route.steps" :key="i">{{ gripInstruction(step) }}</small>
+                  </template>
+                </div>
+              </div>
+              <small v-if="wideLimited">搜索预算已用尽，结果可能不完整。</small>
+              <small v-if="wideRejected">已过滤 {{ wideRejected }} 条与 3D 播放不一致的候选。</small>
+            </template>
+          </div>
           </div>
         </v-card-text>
       </v-card>

@@ -28,6 +28,9 @@ bg.setCustom('blecross', '#665544');
 assert.strictEqual(bg.effective('blecross', '#FFFFFF'), '#665544');
 assert.strictEqual(bg.effective('cfop', '#EEF1F7'), '#123456');
 assert.strictEqual(bg.effective('fixedcases', '#FFFFFF'), '#665544');
+bg.setMode('blecross', 'global');
+bg.setMode('blecross', 'custom');
+assert.strictEqual(bg.effective('blecross', '#FFFFFF'), '#123456', '切回自定义应从当前有效色开始');
 
 let notifications = 0;
 const unsubscribe = bg.subscribe(() => notifications++);
