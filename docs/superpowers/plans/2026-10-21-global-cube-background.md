@@ -69,7 +69,7 @@ export class BackgroundStore {
 }
 ```
 
-- [ ] **步骤 4：编译并验证模型。** 运行 `./node_modules/.bin/tsc src/vue/background-store.ts --target es2019 --module commonjs --skipLibCheck --outDir .tmp/background`，然后 `node scripts/test-background-store.js`；预期全部断言通过。补充订阅／取消、无效存储值、抛错桩与重新加载断言。
+- [ ] **步骤 4：编译并验证模型。** 运行 `./node_modules/.bin/tsc src/vue/background-store.ts --target es2019 --module commonjs --skipLibCheck --types webpack-env --outDir .tmp/background`，然后 `node scripts/test-background-store.js`；预期全部断言通过。`--types webpack-env` 避免当前 TypeScript 4.3 解析仓库里较新的 Node 声明失败。补充订阅／取消、无效存储值、抛错桩与重新加载断言。
 - [ ] **步骤 5：提交该独立新增模块和测试。** 只暂存这两个文件，检查暂存差异后 `git commit -m 'feat(背景色): 添加全局与界面隔离的设置模型'`。
 
 ### 任务 2：AppShell、透明画布与全局入口
