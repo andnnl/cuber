@@ -20,6 +20,6 @@ Linux 生成 AppImage：`npm run desktop:linux`。Windows 生成 NSIS 安装包�
 
 ## 蓝牙魔方
 
-点击「连接魔方」后，Electron 显示附近设备列表；选择 GAN、MG 等支持的魔方。桌面端使用与 Chrome/Edge 一样的 Web Bluetooth 传输层，Android 原生蓝牙桥不会在桌面端启用。GAN Gen2 如无法自动取得 MAC 地址，请先在连接面板手动输入设备 MAC。Windows／Linux 的蓝牙适配器、权限、驱动和设备固件都会影响扫描；首次发布前仍需分别用实体魔方验证连接、转动通知和断开重连。
+点击「连接魔方」后，Electron 显示附近设备列表；选择 GAN、MG 等支持的魔方。桌面端使用与 Chrome/Edge 一样的 Web Bluetooth 传输层，Android 原生蓝牙桥不会在桌面端启用。Windows 和 Linux 均尝试自动识别 MAC；GAN Gen2 如无法自动取得地址，请在连接面板手动输入设备 MAC。两端的蓝牙适配器、权限、驱动和设备固件都会影响扫描；首次发布前仍需分别用实体魔方验证连接、转动通知和断开重连。
 
-Linux 如扫描不到设备，先确认蓝牙已启用、用户可访问 BlueZ，且魔方未连接其他应用。桌面安装包未签名，Windows SmartScreen 可能提示未知发布者；正式分发前应配置签名证书。已生成的 APK 不受桌面打包配置影响。
+Linux 桌面版随 AppImage 携带基于 BlueZ D-Bus 的扫描程序，选择设备时尝试自动识别 MAC，无法唯一识别仍可手动输入。自行打包时需安装 C 编译器和 `libglib2.0-dev`（GIO）。如扫描不到设备，先确认蓝牙已启用、用户可访问 BlueZ，且魔方未连接其他应用。桌面安装包未签名，Windows SmartScreen 可能提示未知发布者；正式分发前应配置签名证书。已生成的 APK 不受桌面打包配置影响。

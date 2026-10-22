@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { resolveAsset } = require('./assets.cjs');
 const { normalizeDevices, normalizeMac, matchAddress, AddressSelection } = require('./bluetooth.cjs');
-const { NativeScan } = require('./windows-ble.cjs');
+const { NativeScan, scannerPath, supportsNativeScan } = require('./windows-ble.cjs');
 const { startAssetServer } = require('./server.cjs');
 function test(name, fn) { fn(); console.log(`✓ ${name}`); }
 
@@ -79,6 +79,57 @@ test('scanner bounds records and stops its process on cancel', () => {
   assert.equal(matchAddress('GAN 12', scan.records), '10:20:30:40:50:60');
   scan.stop();
   assert.equal(killed, 2);
+});
+
+test('late events from a stopped scan cannot affect a new scan', () => {
+  const children = [];
+  const scan = new NativeScan(() => {
+    const listeners = {};
+    const child = {
+      stdout: { on(name, fn) { listeners[name] = fn; } },
+      on(name, fn) { listeners[name] = fn; },
+      kill() { child.killed = true; },
+      emit(name, value) { listeners[name]?.(value); },
+      feed(value) { listeners.data?.(Buffer.from(value)); },
+    };
+    children.push(child);
+    return child;
+  });
+  scan.start('scanner');
+  scan.stop();
+  scan.start('scanner');
+  children[0].feed('{"name":"GAN 12","mac":"AABBCCDDEEFF"}\n');
+  children[0].emit('error', new Error('late failure'));
+  assert.equal(scan.records.length, 0);
+  assert.equal(children[1].killed, undefined);
+  children[1].feed('{"name":"GAN 12","mac":"001122334455"}\n');
+  assert.equal(matchAddress('GAN 12', scan.records), '00:11:22:33:44:55');
+  scan.stop();
+});
+
+test('manufacturer data may upgrade an existing record at the scan limit', () => {
+  let feed;
+  const scan = new NativeScan(() => ({ stdout: { on(_name, fn) { feed = fn; } }, on() {}, kill() {} }));
+  scan.start('scanner');
+  feed(Buffer.from('{"name":"GAN 12","mac":"AABBCCDDEEFF","address":"AABBCCDDEEFF","source":"radio"}\n'));
+  for (let i = 1; i < 128; i++) {
+    const mac = i.toString(16).padStart(12, '0');
+    feed(Buffer.from(JSON.stringify({ name: `Other ${i}`, mac }) + '\n'));
+  }
+  feed(Buffer.from('{"name":"GAN 12","mac":"102030405060","address":"AABBCCDDEEFF","source":"manufacturer"}\n'));
+  assert.equal(scan.records.length, 128);
+  assert.equal(matchAddress('GAN 12', scan.records), '10:20:30:40:50:60');
+  scan.stop();
+});
+
+test('Linux scanner uses packaged executable while Windows keeps existing path', () => {
+  const resources = path.join(__dirname, 'test-resources');
+  assert.equal(scannerPath({ isPackaged: true }, 'linux', resources), path.join(resources, 'linux-ble-scanner', 'CuberBleScanner'));
+  assert.equal(scannerPath({ isPackaged: false }, 'linux'), path.join(__dirname, 'linux-ble-scanner', 'publish', 'CuberBleScanner'));
+  assert.equal(scannerPath({ isPackaged: true }, 'win32', resources), path.join(resources, 'windows-ble-scanner', 'CuberBleScanner.exe'));
+  assert.equal(supportsNativeScan('linux'), true);
+  assert.equal(supportsNativeScan('win32'), true);
+  assert.equal(supportsNativeScan('darwin'), false);
 });
 
 (async () => {

@@ -23,8 +23,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install BlueZ scanner build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libglib2.0-dev pkg-config
       - run: npm install --legacy-peer-deps
       - run: npm run test:desktop
+      - name: Test Linux BlueZ scanner
+        if: runner.os == 'Linux'
+        run: npm run test:linux-scanner
       - uses: actions/setup-dotnet@v4
         if: runner.os == 'Windows'
         with:
@@ -39,6 +45,9 @@ jobs:
       - name: Verify scanner embedded in Windows package
         if: runner.os == 'Windows'
         run: if (!(Test-Path desktop-release/win-unpacked/resources/windows-ble-scanner/CuberBleScanner.exe)) { throw 'Built Windows package omitted BLE scanner' }
+      - name: Verify scanner embedded in Linux package
+        if: runner.os == 'Linux'
+        run: test -x desktop-release/linux-unpacked/resources/linux-ble-scanner/CuberBleScanner
       - uses: actions/upload-artifact@v4
         with:
           name: cuber-${{ runner.os }}

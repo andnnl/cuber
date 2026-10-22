@@ -20,3 +20,4 @@ desktop-release/
 desktop/windows-ble-scanner/bin/
 desktop/windows-ble-scanner/obj/
 desktop/windows-ble-scanner/publish/
+desktop/linux-ble-scanner/publish/

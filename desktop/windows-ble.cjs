@@ -15,8 +15,10 @@ class NativeScan {
     this.stop();
     this.records = [];
     this.remainder = '';
-    this.child = this.launch(executable);
-    this.child.stdout.on('data', chunk => {
+    const child = this.launch(executable);
+    this.child = child;
+    child.stdout.on('data', chunk => {
+      if (this.child !== child) return;
       this.remainder += chunk.toString('utf8');
       if (this.remainder.length > 8192) { this.remainder = ''; return; }
       const lines = this.remainder.split('\n');
@@ -25,19 +27,19 @@ class NativeScan {
         try {
           const record = JSON.parse(line);
           const mac = normalizeMac(record.mac);
-          if (typeof record.name === 'string' && record.name.length > 0 && record.name.length < 100 && mac && this.records.length < 128) {
+          if (typeof record.name === 'string' && record.name.length > 0 && record.name.length < 100 && mac) {
             const address = normalizeMac(record.address);
             const existing = address ? this.records.findIndex(other => other.address === address && other.name === record.name) : -1;
             if (existing >= 0) {
               if (record.source === 'manufacturer') this.records[existing] = { name: record.name, mac, address, source: record.source };
-            } else if (!this.records.some(other => other.name === record.name && other.mac === mac)) {
+            } else if (this.records.length < 128 && !this.records.some(other => other.name === record.name && other.mac === mac)) {
               this.records.push({ name: record.name, mac, address, source: record.source });
             }
           }
         } catch { /* Ignore malformed scanner output. */ }
       }
     });
-    this.child.on('error', () => this.stop());
+    child.on('error', () => { if (this.child === child) this.stop(); });
     this.timer = setTimeout(() => this.stop(), 16000);
     this.timer.unref?.();
   }
@@ -51,9 +53,13 @@ class NativeScan {
   }
 }
 
-function scannerPath(app) {
-  return app.isPackaged ? path.join(process.resourcesPath, 'windows-ble-scanner', 'CuberBleScanner.exe')
-    : path.join(__dirname, 'windows-ble-scanner', 'publish', 'CuberBleScanner.exe');
+function supportsNativeScan(platform = process.platform) { return platform === 'win32' || platform === 'linux'; }
+
+function scannerPath(app, platform = process.platform, resources = process.resourcesPath) {
+  const directory = platform === 'linux' ? 'linux-ble-scanner' : 'windows-ble-scanner';
+  const executable = platform === 'linux' ? 'CuberBleScanner' : 'CuberBleScanner.exe';
+  return app.isPackaged ? path.join(resources, directory, executable)
+    : path.join(__dirname, directory, 'publish', executable);
 }
 
-module.exports = { NativeScan, scannerPath };
+module.exports = { NativeScan, scannerPath, supportsNativeScan };

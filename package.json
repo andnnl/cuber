@@ -17,9 +17,10 @@
     "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js",
     "test:android": "node scripts/test-android-app.js",
     "test:desktop": "node desktop/desktop.test.cjs",
+    "test:linux-scanner": "sh scripts/build-linux-scanner.sh && node scripts/test-linux-scanner.cjs",
     "desktop:dev": "electron .",
-    "desktop:build": "npm run build && node scripts/gen-table.mjs dist && electron-builder --linux AppImage && node scripts/require-windows-scanner.cjs && electron-builder --win nsis",
-    "desktop:linux": "npm run build && node scripts/gen-table.mjs dist && electron-builder --linux AppImage",
+    "desktop:build": "npm run test:linux-scanner && npm run build && node scripts/gen-table.mjs dist && electron-builder --linux AppImage && node scripts/require-windows-scanner.cjs && electron-builder --win nsis",
+    "desktop:linux": "npm run test:linux-scanner && npm run build && node scripts/gen-table.mjs dist && electron-builder --linux AppImage",
     "desktop:win": "node scripts/require-windows-scanner.cjs && npm run build && node scripts/gen-table.mjs dist && electron-builder --win nsis"
   },
   "build": {
@@ -51,7 +52,14 @@
         "AppImage"
       ],
       "category": "Education",
-      "icon": "resource/icon.png"
+      "icon": "resource/icon.png",
+      "extraResources": [
+        {
+          "from": "desktop/linux-ble-scanner/publish",
+          "to": "linux-ble-scanner",
+          "filter": ["CuberBleScanner"]
+        }
+      ]
     },
     "win": {
       "target": [

@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-if (process.platform === 'win32') {
+if (process.platform === 'win32' || process.platform === 'linux') {
   contextBridge.exposeInMainWorld('cuberDesktopBluetooth', {
     macForDevice: id => typeof id === 'string' ? ipcRenderer.invoke('bluetooth-mac', id) : Promise.resolve(null),
     confirmMac: (id, mac) => typeof id === 'string' && typeof mac === 'string'

@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const { startAssetServer } = require('./server.cjs');
 const { normalizeDevices, matchAddress, AddressSelection } = require('./bluetooth.cjs');
-const { NativeScan, scannerPath } = require('./windows-ble.cjs');
+const { NativeScan, scannerPath, supportsNativeScan } = require('./windows-ble.cjs');
 
 // Electron does not expose navigator.bluetooth on Linux without this Chromium feature.
 app.commandLine.appendSwitch('enable-features', 'WebBluetooth');
@@ -47,9 +47,9 @@ function openChooser(devices, callback) {
   closeChooser();
   currentDevices = devices;
   finishChooser = callback;
-  if (process.platform === 'win32') {
+  if (supportsNativeScan()) {
     try { scan.start(scannerPath(app)); }
-    catch (error) { console.warn('[desktop] Windows 蓝牙扫描未启动:', error.message); }
+    catch (error) { console.warn('[desktop] 原生蓝牙扫描未启动:', error.message); }
   }
   chooser = new BrowserWindow({
     parent: mainWindow, modal: true, width: 420, height: 440, minWidth: 340, minHeight: 320,
@@ -73,7 +73,7 @@ ipcMain.on('bluetooth-select', async (event, deviceId) => {
     const selected = normalizeDevices(currentDevices).find(device => device.id === deviceId);
     const activeChooser = chooser;
     // The native scanner may start after the user clicks quickly; allow one short scan window.
-    if (selected && process.platform === 'win32' && !scan.records.some(record =>
+    if (selected && supportsNativeScan() && !scan.records.some(record =>
       record.name === selected.name && record.source === 'manufacturer')) {
       await new Promise(resolve => setTimeout(resolve, 1200));
     }
