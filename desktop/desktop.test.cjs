@@ -5,7 +5,7 @@ const { normalizeDevices } = require('./bluetooth.cjs');
 const { startAssetServer } = require('./server.cjs');
 function test(name, fn) { fn(); console.log(`✓ ${name}`); }
 
-const root = path.join(path.sep, 'application', 'dist');
+const root = path.resolve('application', 'dist');
 
 test('localhost serves the bundled index and worker assets', () => {
   assert.equal(resolveAsset(root, 'http://127.0.0.1:34657/'), path.join(root, 'index.html'));

@@ -25,7 +25,7 @@ jobs:
           node-version: '22'
       - run: npm install --legacy-peer-deps
       - run: npm run test:desktop
-      - run: npm run ${{ matrix.command }}
+      - run: npm run ${{ matrix.command }} -- --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: cuber-${{ runner.os }}
