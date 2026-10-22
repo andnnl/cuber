@@ -21,6 +21,10 @@ git push github HEAD:v2
 
 打包教程见 [android/README.md](android/README.md)（一键脚本: `bash android/build-apk.sh`，产物 release APK 约 3MB）
 
+# Windows / Linux 桌面版
+
+Electron 桌面版支持 Linux AppImage 和 Windows 安装包。构建及蓝牙连接注意事项见 [desktop/README.md](desktop/README.md)。
+
 # 功能介绍
 
 ## 新增功能，可选白底配色，十字求解

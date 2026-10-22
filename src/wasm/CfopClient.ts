@@ -13,7 +13,7 @@ export class CfopClient {
     if (this.disposed) throw new Error('CFOP 求解器已关闭');
     const channel = this.channels[name];
     if (channel.worker) return channel.worker;
-    const worker = new Worker(`cfop_${name}_worker.js`, {type: 'module'});
+    const worker = new Worker(`cfop_${name}_worker.js?v=20261022-xxcross`, {type: 'module'});
     worker.onmessage = event => {
       if (channel.worker !== worker) return;
       const {id, ok, result, error} = event.data || {};

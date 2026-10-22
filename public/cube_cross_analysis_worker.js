@@ -1,4 +1,4 @@
-import init, * as wasm from './cube_cross_solve.js?v=20261020-wide-grip';
+import init, * as wasm from './cube_cross_solve.js?v=20261022-xxcross';
 import { recommendExistingViews } from './multi-view-grip.js';
 
 let ready;
@@ -31,7 +31,7 @@ async function cacheJoint(bytes) {
 
 async function ensureReady() {
   if (!ready) ready = (async () => {
-    await init(new URL('./cube_cross_solve_bg.wasm?v=20261020-wide-grip', import.meta.url));
+    await init(new URL('./cube_cross_solve_bg.wasm?v=20261022-xxcross', import.meta.url));
     const response = await fetch(new URL('./cube_cross_table.bin', import.meta.url));
     if (!response.ok) throw new Error(`Cross 搜索表加载失败：HTTP ${response.status}`);
     wasm.load_table_from_bytes(new Uint8Array(await response.arrayBuffer()));
@@ -61,7 +61,7 @@ self.onmessage = async ({ data }) => {
   const { id, operation, payload = {} } = data || {};
   try {
     // 固定公式只需指法评分器，不依赖可能尚未下载的 Cross 距离表。
-    if (operation === 'scoreFixedCase') await init(new URL('./cube_cross_solve_bg.wasm?v=20261020-wide-grip', import.meta.url));
+    if (operation === 'scoreFixedCase') await init(new URL('./cube_cross_solve_bg.wasm?v=20261022-xxcross', import.meta.url));
     else await ensureReady();
     let result;
     switch (operation) {

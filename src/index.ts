@@ -8,6 +8,7 @@ import AppShell from "./vue/AppShell";
 /* eslint-disable */
 var _hmt: any = _hmt || [];
 (function () {
+  if (location.hostname === '127.0.0.1') return; // 桌面离线版不加载外部统计脚本
   var hm = document.createElement("script");
   hm.src = "https://hm.baidu.com/hm.js?e3fd96123e7614cd5ea9dc70df73217f";
   var s = document.getElementsByTagName("script")[0];

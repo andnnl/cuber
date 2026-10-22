@@ -6,6 +6,58 @@
 */
 export function load_table_from_bytes(data: Uint8Array): void;
 /**
+* CFOP 学习：选择首阶段候选（仅 Cross、XCross、XXCross、XXXCross）。
+* @param {string} input
+* @param {string} mode
+* @param {number} max_solutions
+* @param {number} max_depth
+* @returns {any}
+*/
+export function cfop_start_js(input: string, mode: string, max_solutions: number, max_depth: number): any;
+/**
+* CFOP 学习：从原始输入严格重放已选公式，再逐组提供下一阶段最短候选。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @param {number} per_slot
+* @returns {any}
+*/
+export function cfop_stages_js(input: string, prefix: any, max_depth: number, per_slot: number): any;
+/**
+* CFOP 学习：核对已选完整公式是否完成十字与四组 F2L。
+* @param {string} input
+* @param {any} prefix
+* @returns {any}
+*/
+export function cfop_verify_js(input: string, prefix: any): any;
+/**
+* 快速合规候选，不声明全段最短。找不到候选时返回 null，严格证明仍可继续。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @returns {any}
+*/
+export function cfop_quick_f2l_js(input: string, prefix: any, max_depth: number): any;
+/**
+* CFOP 学习：逐槽位选择当前状态下的合规 HTM 最短解，返回实际阶段。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @param {any} allowed_actions
+* @param {boolean} prioritize_no_rotations
+* @returns {any}
+*/
+export function cfop_auto_f2l_js(input: string, prefix: any, max_depth: number, allowed_actions: any, prioritize_no_rotations: boolean): any;
+/**
+* CFOP 学习：从当前已选公式后的 Cross 状态，一次搜索四组 F2L 全段最短解。
+* @param {string} input
+* @param {any} prefix
+* @param {number} max_depth
+* @param {number} max_solutions
+* @returns {any}
+*/
+export function cfop_full_f2l_js(input: string, prefix: any, max_depth: number, max_solutions: number): any;
+/**
 * WASM: 获取搜索表的字节数组
 * @returns {Uint8Array}
 */
@@ -28,6 +80,26 @@ export function generate_table(max_depth: number): void;
 */
 export function solve_multi(scramble: string, max_solutions: number): any;
 /**
+* 只为原有十字公式提供经完整状态重放验证的宽 U 手法提示。
+* @param {string} input
+* @param {any} moves
+* @param {string} front
+* @returns {any}
+*/
+export function cross_wide_hints_js(input: string, moves: any, front: string): any;
+/**
+* WASM: exhaustive four-view Cross recommendations, through 8 HTM.
+* @param {string} scramble
+* @returns {any}
+*/
+export function recommend_cross_js(scramble: string): any;
+/**
+* WASM: same four-view Cross search, starting from the actual 54 facelets.
+* @param {string} facelets
+* @returns {any}
+*/
+export function recommend_cross_state_js(facelets: string): any;
+/**
 * WASM: 有界、逐条验证的 Cross 纯面转公式改写（不执行独立搜索）。
 * @param {string} scramble
 * @param {any} baseline
@@ -41,6 +113,12 @@ export function rewrite_cross_js(scramble: string, baseline: any, limit: number)
 * @returns {any}
 */
 export function score_cross_grip_js(baseline: any): any;
+/**
+* Score a final Cross formula containing u/u' after view and correction mapping.
+* @param {any} baseline
+* @returns {any}
+*/
+export function score_wide_grip_js(baseline: any): any;
 /**
 * WASM: 同一公式返回按指法成本排序的不同握姿/手法路线。
 * @param {any} baseline
@@ -108,23 +186,31 @@ export function solve_xcross(scramble: string, slot: string, max_solutions: numb
 */
 export function solve_multi_cross(scramble: string, pair_count: number, slots: string, max_solutions: number, max_depth: number): any;
 /**
-* WASM: exhaustive four-view Cross recommendations, through 8 HTM.
-* @param {string} scramble
+* 独立的四朝向宽转 Cross 候选搜索；Worker 内存表不修改现有 BIN。
+* @param {string} input
 * @returns {any}
 */
-export function recommend_cross_js(scramble: string): any;
+export function recommend_wide_cross_js(input: string): any;
 /**
-* WASM: same four-view Cross search, starting from the actual 54 facelets.
-* @param {string} facelets
+* 从版本化宽转 BIN 读取距离表；不重新生成 BFS，损坏时返回错误供 Worker 回退。
+* @param {string} input
+* @param {Uint8Array} table_bytes
 * @returns {any}
 */
-export function recommend_cross_state_js(facelets: string): any;
+export function recommend_wide_cross_cached_js(input: string, table_bytes: Uint8Array): any;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly cfop_auto_f2l_js: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+  readonly cfop_full_f2l_js: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+  readonly cfop_quick_f2l_js: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly cfop_stages_js: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+  readonly cfop_start_js: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+  readonly cfop_verify_js: (a: number, b: number, c: number, d: number) => void;
   readonly cross_scramble_depth_js: (a: number, b: number, c: number) => void;
+  readonly cross_wide_hints_js: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly generate_table: (a: number, b: number) => void;
   readonly get_joint_table_bytes: (a: number) => void;
   readonly get_table_bytes: (a: number) => void;
@@ -134,10 +220,13 @@ export interface InitOutput {
   readonly load_table_from_bytes: (a: number, b: number, c: number) => void;
   readonly recommend_cross_js: (a: number, b: number, c: number) => void;
   readonly recommend_cross_state_js: (a: number, b: number, c: number) => void;
+  readonly recommend_wide_cross_cached_js: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly recommend_wide_cross_js: (a: number, b: number, c: number) => void;
   readonly rewrite_cross_js: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly sample_exact_cross_scramble_js: (a: number, b: number) => void;
   readonly score_cross_grip_js: (a: number, b: number) => void;
   readonly score_cross_grip_routes_js: (a: number, b: number, c: number) => void;
+  readonly score_wide_grip_js: (a: number, b: number) => void;
   readonly solve_multi: (a: number, b: number, c: number, d: number) => void;
   readonly solve_multi_cross: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
   readonly solve_xcross: (a: number, b: number, c: number, d: number, e: number, f: number) => void;

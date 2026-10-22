@@ -325,14 +325,15 @@ export function cfop_quick_f2l_js(input, prefix, max_depth) {
 * @param {any} prefix
 * @param {number} max_depth
 * @param {any} allowed_actions
+* @param {boolean} prioritize_no_rotations
 * @returns {any}
 */
-export function cfop_auto_f2l_js(input, prefix, max_depth, allowed_actions) {
+export function cfop_auto_f2l_js(input, prefix, max_depth, allowed_actions, prioritize_no_rotations) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
         const len0 = WASM_VECTOR_LEN;
-        wasm.cfop_auto_f2l_js(retptr, ptr0, len0, addHeapObject(prefix), max_depth, addHeapObject(allowed_actions));
+        wasm.cfop_auto_f2l_js(retptr, ptr0, len0, addHeapObject(prefix), max_depth, addHeapObject(allowed_actions), prioritize_no_rotations);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         var r2 = getInt32Memory0()[retptr / 4 + 2];
@@ -886,14 +887,6 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_is_string = function(arg0) {
-        const ret = typeof(getObject(arg0)) === 'string';
-        return ret;
-    };
-    imports.wbg.__wbindgen_error_new = function(arg0, arg1) {
-        const ret = new Error(getStringFromWasm0(arg0, arg1));
-        return addHeapObject(ret);
-    };
     imports.wbg.__wbindgen_string_get = function(arg0, arg1) {
         const obj = getObject(arg1);
         const ret = typeof(obj) === 'string' ? obj : undefined;
@@ -901,6 +894,14 @@ function __wbg_get_imports() {
         var len1 = WASM_VECTOR_LEN;
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
+    };
+    imports.wbg.__wbindgen_error_new = function(arg0, arg1) {
+        const ret = new Error(getStringFromWasm0(arg0, arg1));
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_is_string = function(arg0) {
+        const ret = typeof(getObject(arg0)) === 'string';
+        return ret;
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {
         const ret = getObject(arg0);

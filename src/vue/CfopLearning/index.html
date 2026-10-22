@@ -7,6 +7,7 @@
       <div class="cfop-row">
         <input type="text" v-model="input" @input="invalidate" aria-label="打乱公式或 54 位面贴纸" placeholder="打乱公式或 54 位 URFDLB 状态">
         <button @click="newScramble">随机打乱</button>
+        <button @click="applyInputScramble">按公式打乱</button>
       </div>
       <div class="cfop-row">
         <label><input data-cfop-bottom-z2 type="checkbox" v-model="bottomColorZ2" @change="saveBottomColorZ2">打乱后切换底色 z2（记住选择，随机打乱自动应用）</label>
@@ -48,6 +49,8 @@
         <button @click="seek(cursor - 1)" :disabled="cursor === 0 || !!follow">上一步</button>
         <button @click="next" :disabled="cursor >= route.moves.length || !!follow || stepping">下一步</button>
         <button @click="togglePlay" :disabled="!!follow">{{playing ? '暂停' : '播放'}}</button>
+        <label><input type="checkbox" v-model="ghost" @change="refreshTracking">半透明</label>
+        <label><input type="checkbox" v-model="hideUnrelated" @change="refreshTracking">隐藏无关</label>
         <label>速度 <select v-model.number="speed"><option :value="1100">慢</option><option :value="700">标准</option><option :value="400">快</option></select></label>
         <button @click="startTraining" :disabled="snapshot.status !== 'connected' || !route || route.moves.some(move => move[0] === 'S')">开始跟练</button>
         <small v-if="route.moves.some(move => move[0] === 'S')">切片不可由设备逐步验证，仅支持 3D 播放</small>

@@ -17,7 +17,7 @@ export class WideCrossClient {
   private send(payload: object, onStage?: (stage: string) => void): Promise<any> {
     if (this.disposed) return Promise.reject(new Error('宽转推荐已关闭'));
     this.cancel();
-    const workerUrl = 'cube_cross_wide_worker.js?v=20261020-wide-grip';
+    const workerUrl = 'cube_cross_wide_worker.js?v=20261022-xxcross';
     const worker = new Worker(workerUrl, { type: 'module' });
     const id = ++this.sequence;
     this.worker = worker;

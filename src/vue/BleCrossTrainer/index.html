@@ -238,7 +238,7 @@
             </select>
             <div style="flex: 1;"></div>
             <select
-              v-if="trainMode !== 'cross' && (visGhost || visHide)"
+              v-if="trainMode === 'xcross' && (visGhost || visHide)"
               v-model="visSlot"
               @change="saveVisSlot"
               title="XCross: 选择要还原的 F2L 槽位 (一组棱块+角块), 半透明/隐藏时该槽位的块保持显示"

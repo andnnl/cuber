@@ -12,7 +12,7 @@ async function initMainThread(): Promise<void> {
   if (!wasm) {
     throw new Error("WASM 模块未找到，请确保在 HTML 中正确加载了 cube_cross_solve.js");
   }
-  await wasm.default();
+  await wasm.default(new URL('cube_cross_solve_bg.wasm?v=20261022-xxcross', window.location.href));
   wasmModule = wasm;
   backend = "main";
   isInitialized = true;

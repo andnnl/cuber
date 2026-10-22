@@ -1,7 +1,14 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export function cfop_auto_f2l_js(a: number, b: number, c: number, d: number, e: number, f: number, g: number): void;
+export function cfop_full_f2l_js(a: number, b: number, c: number, d: number, e: number, f: number): void;
+export function cfop_quick_f2l_js(a: number, b: number, c: number, d: number, e: number): void;
+export function cfop_stages_js(a: number, b: number, c: number, d: number, e: number, f: number): void;
+export function cfop_start_js(a: number, b: number, c: number, d: number, e: number, f: number, g: number): void;
+export function cfop_verify_js(a: number, b: number, c: number, d: number): void;
 export function cross_scramble_depth_js(a: number, b: number, c: number): void;
+export function cross_wide_hints_js(a: number, b: number, c: number, d: number, e: number, f: number): void;
 export function generate_table(a: number, b: number): void;
 export function get_joint_table_bytes(a: number): void;
 export function get_table_bytes(a: number): void;
@@ -11,9 +18,13 @@ export function load_joint_table_from_bytes(a: number, b: number, c: number): vo
 export function load_table_from_bytes(a: number, b: number, c: number): void;
 export function recommend_cross_js(a: number, b: number, c: number): void;
 export function recommend_cross_state_js(a: number, b: number, c: number): void;
+export function recommend_wide_cross_cached_js(a: number, b: number, c: number, d: number, e: number): void;
+export function recommend_wide_cross_js(a: number, b: number, c: number): void;
 export function rewrite_cross_js(a: number, b: number, c: number, d: number, e: number): void;
 export function sample_exact_cross_scramble_js(a: number, b: number): void;
 export function score_cross_grip_js(a: number, b: number): void;
+export function score_cross_grip_routes_js(a: number, b: number, c: number): void;
+export function score_wide_grip_js(a: number, b: number): void;
 export function solve_multi(a: number, b: number, c: number, d: number): void;
 export function solve_multi_cross(a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number): void;
 export function solve_xcross(a: number, b: number, c: number, d: number, e: number, f: number): void;

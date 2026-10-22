@@ -264,6 +264,8 @@ export default class BleCrossTrainer extends Vue {
   // 相关块按颜色组合追踪，不按当前位置追踪。整体拖动或普通层转只会移动块，
   // 不会改变块的颜色组合；显式视角/训练设置变化时才清空并重建。
   private visibilityNeededSignatures: Set<string> | null = null;
+  // 当前播放/步进的公式目标；动画结束后保留，直到换公式或开新轮。
+  private visibilityPreviewSlots: string[] | null = null;
   statusText = "未连接魔方: 点「新打乱」免蓝牙直接练习";
 
   // ---- 计时 (data 属性 + rAF/interval 双刷新, 不能用 computed: 依赖不变会缓存冻结) ----
@@ -1047,7 +1049,17 @@ export default class BleCrossTrainer extends Vue {
       }
       token = this.inverseToken(moves[pos - 1]);
     }
+    // 首步复位时已按该公式刷新过目标；其余步进才需要在这里切换。
+    if (!(dir > 0 && pos === 0)) this.usePreviewVisibility(formula, recommendation);
     this.startBestPreview(key, [token], dir, 0, moves.length);
+  }
+
+  private usePreviewVisibility(formula: string, recommendation?: Recommendation): void {
+    const slots = recommendation?.physicalSlots || this.bestX.find(item => item.formula === formula)?.slot.split("+");
+    this.visibilityPreviewSlots = slots && slots.length === pairCountForMode(this.trainMode) &&
+      slots.every(slot => CROSS_SLOTS.indexOf(slot) >= 0) ? slots.slice() : null;
+    this.invalidateVisibilityTargets();
+    this.applyVisibility();
   }
 
   private previewKey(formula: string, recommendation?: Recommendation): string {
@@ -1062,6 +1074,7 @@ export default class BleCrossTrainer extends Vue {
     if (!formula || !formula.trim() || !/^[URFDLB]{54}$/.test(base)) {
       return false;
     }
+    this.usePreviewVisibility(formula, recommendation);
     const history = this.world.cube.history;
     const previousList = history.list.map(a => new TwistAction(a.sign, a.reverse, a.times));
     const previousInit = history.init;
@@ -2075,18 +2088,24 @@ export default class BleCrossTrainer extends Vue {
       if (reqId !== this.bestReqId) return;
       this.bestBaseState = state;
       this.bestViewOps = viewOps.map(op => ({ ...op }));
-      this.bestX = raw.filter(item => item.slots.length === pairCountForMode(mode) &&
+      this.bestX = raw.filter(item => item.slots.length >= pairCountForMode(mode) &&
+        (slots === "ALL" || this.fixedTrainSlots().every(slot => item.slots.indexOf(slot) >= 0)) &&
         item.moves.every(move => /^[URFDLB](2|'|)$/.test(move)) &&
         verifySolvedTargets(applyFormulaFrom(solverState, item.moves.join(" ")), item.slots).ok)
         .map(item => ({
-          slot: item.slots.map(slot => this.z2On ? slotToPhysical(slot) : slot).join("+"),
+          slot: (slots === "ALL" ? item.slots.slice(0, pairCountForMode(mode)) : this.fixedTrainSlots())
+            .map(slot => this.z2On ? slotToPhysical(slot) : slot).join("+"),
           formula: item.moves.map(move => this.z2On ? z2Move(move) : move).join(" "),
           steps: item.moves.length, available: true,
         }));
     } catch (error) {
       if (reqId === this.bestReqId) console.error("[BleCrossTrainer] 多组求解失败", error);
     } finally {
-      if (reqId === this.bestReqId) this.bestXReady = true;
+      if (reqId === this.bestReqId) {
+        this.bestXReady = true;
+        this.invalidateVisibilityTargets();
+        this.applyVisibility();
+      }
     }
   }
 
@@ -2108,6 +2127,7 @@ export default class BleCrossTrainer extends Vue {
       this.recommendationFull = false;
     }
     this.selectedRecommendationId = null;
+    this.visibilityPreviewSlots = null;
   }
 
   closeRecommendations(): void {
@@ -2225,6 +2245,7 @@ export default class BleCrossTrainer extends Vue {
       this.bestStepPos = { ...this.bestStepPos, [this.previewKey(item.physicalMoves.join(" "), item)]: 0 };
     }
     this.selectedRecommendationId = item.id;
+    this.visibilityPreviewSlots = null;
     this.invalidateVisibilityTargets();
     this.applyVisibility();
   }
@@ -2317,13 +2338,16 @@ export default class BleCrossTrainer extends Vue {
           });
         }
         if (generation !== this.recommendationRequestId) return;
-        raw = raw.filter(item => item.slots.length === pairCountForMode(mode) &&
+        raw = raw.filter(item => item.slots.length >= pairCountForMode(mode) &&
           (selection === "ALL" || fixed.every(slot => item.slots.indexOf(slot) >= 0)) &&
           item.moves.every(move => /^[URFDLB](2|'|)$/.test(move)) &&
           verifySolvedTargets(applyFormulaFrom(solverState, item.moves.join(" ")), item.slots).ok);
         const coreCandidates = raw.map(item => ({
           moves: item.moves.map(move => white ? z2Move(move) : move),
-          slots: item.slots.map(slot => white ? slotToPhysical(slot) : slot),
+          // WASM 可返回顺带多完成一槽的解法；XX/XXXCross 的显示与追踪
+          // 仍仅取该模式要求的两／三组，指定模式优先使用所选目标槽位。
+          slots: (selection === "FIXED" ? fixed : item.slots.slice(0, pairCountForMode(mode)))
+            .map(slot => white ? slotToPhysical(slot) : slot),
         }));
         const screenCandidates = coreCandidates.map(item => ({
           moves: item.moves.map(move => this.displayMoveWithOps(move, this.effectiveViewOps())),
@@ -2995,25 +3019,46 @@ export default class BleCrossTrainer extends Vue {
     // 不能用世界帧 s[31]: 持握 (z2/y) 会改世界帧中心分布, 与训练目标底色无关
     const core = this.mapStateForJudge(s);
     const bottom = this.z2On ? core[4] : core[31];
-    // 所需块颜色签名: 十字 = 底色与 4 个侧色组成的棱；XCross 再加当前槽位棱角。
+    // 所需块颜色签名: 十字 = 底色与 4 个侧色组成的棱；X/XX/XXXCross 再加目标组棱角。
     // 签名缓存建立后，整体拖动和普通层转只按颜色组合追踪同一批实体块，不重新按
     // 屏幕中心选块。仅显式按钮/设置变更会 invalidate 后按新视角重建。
     if (active && this.visibilityNeededSignatures === null) {
       const needed = new Set<string>();
-      for (const side of [s[13], s[22], s[40], s[49]]) {
+      for (const side of [core[13], core[22], core[40], core[49]]) {
         needed.add(this.pieceColorSignature([bottom, side]));
       }
       if (this.trainMode !== "cross") {
-        const front = s[22];
+        // 推荐结果的 physicalSlots 和指定槽位均属核心物理帧，不可再按当前屏幕
+        // s 的中心色查找；拖动 x/y/z 或白底 z2 后屏幕槽位与物理槽位并不相同。
+        const multi = pairCountForMode(this.trainMode) > 1;
+        const previewSlots = this.visibilityPreviewSlots?.length === pairCountForMode(this.trainMode)
+          ? this.visibilityPreviewSlots : null;
+        const selectedSlots = this.selectedRecommendation?.physicalSlots.length === pairCountForMode(this.trainMode)
+          ? this.selectedRecommendation.physicalSlots : null;
+        const centers = multi || this.solveSlotMode === "FIXED" || previewSlots || selectedSlots ? core : s;
+        const front = centers[22];
         const pairs: { [slot: string]: string[] } = {
-          FL: [front, s[40]],
-          FR: [front, s[13]],
-          BL: [s[49], s[40]],
-          BR: [s[49], s[13]],
+          FL: [front, centers[40]],
+          FR: [front, centers[13]],
+          BL: [centers[49], centers[40]],
+          BR: [centers[49], centers[13]],
         };
-        const targets = this.solveSlotMode === "FIXED"
-          ? this.fixedTrainSlots().map(slot => this.slotDisplayName(this.z2On ? slotToPhysical(slot) : slot))
-          : this.selectedRecommendation?.physicalSlots.map(slot => this.slotDisplayName(slot)) || [this.visSlot];
+        // 任意槽位且未手选推荐时，跟随正在展示的首条最优解；z2/y 重算后
+        // 它可能与上轮保存的 selectedSolveSlots 不同。
+        const targets = multi
+          ? this.solveSlotMode === "FIXED"
+            ? this.fixedTrainSlots().map(slot => this.z2On ? slotToPhysical(slot) : slot)
+            : previewSlots
+              ? previewSlots
+            : selectedSlots
+              ? selectedSlots
+              : this.bestXReady && this.bestX[0]?.available &&
+                this.bestX[0].slot.split("+").length === pairCountForMode(this.trainMode)
+                ? this.bestX[0].slot.split("+")
+                : this.fixedTrainSlots().map(slot => this.z2On ? slotToPhysical(slot) : slot)
+          : this.solveSlotMode === "FIXED"
+            ? this.fixedTrainSlots().map(slot => this.z2On ? slotToPhysical(slot) : slot)
+            : previewSlots || selectedSlots || [this.visSlot];
         for (const slot of targets) {
           const pair = pairs[slot] || pairs.FL;
           needed.add(this.pieceColorSignature(pair));

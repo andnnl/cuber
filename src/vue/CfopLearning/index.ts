@@ -7,7 +7,7 @@ import tweener from '../../cuber/tweener';
 import {PreferanceData, PaletteData, PRESET_PALETTES} from '../../data';
 import {CubeSession, SessionSnapshot} from '../../ble/cube-session';
 import {LinkEvent} from '../../ble/types';
-import {FACELET_TARGETS} from '../BleCrossTrainer/visibility';
+import {FACELET_TARGETS, paintCubeVisibility} from '../BleCrossTrainer/visibility';
 import {HIGHLIGHT_COLORS, clearAllHighlights, highlightPiece, tickHighlights} from '../CrossF2LTrainer/highlight';
 import Viewport from '../Viewport';
 import Setting from '../Setting';
@@ -18,11 +18,14 @@ import {confirmView, FollowState, pauseFollow, reduceFollow, startFollow} from '
 import {CFOP_THEME_CSS} from './theme';
 import {findSlotPieces, trackedSlots, trackingGroupNumber} from './tracking';
 import {hasInitialZ2, relabelZ2Colors} from './frame-colors';
+import {normalizeCfopScramble} from './scramble';
+import {visiblePieceSignatures} from './visibility-targets';
 
 interface Candidate {target?: string; moves: string[]; completed_slots?: string[]; segments?: CfopStage['segments'];}
 const DEFAULT_ACTIONS = ['U', "U'", 'U2', 'D', "D'", 'D2', 'R', "R'", 'R2', 'L', "L'", 'L2',
   'F', "F'", 'F2', 'y', "y'"];
 const OPTIONAL_ACTIONS = ['S', "S'"];
+const FACELET_POSITIONS = FACELET_TARGETS.map(([position]) => position);
 
 @Component({template: require('./index.html'), components: {viewport: Viewport, setting: Setting}})
 export default class CfopLearning extends Vue {
@@ -46,6 +49,8 @@ export default class CfopLearning extends Vue {
   autoCross = false;
   autoF2l = false;
   bottomColorZ2 = false;
+  ghost = false;
+  hideUnrelated = false;
   snapshot: SessionSnapshot = {status:'disconnected', deviceName:'', battery:null,
     facelets:null, lastMoveSerial:null, generation:0, error:''};
   route: CfopRoute | null = null;
@@ -137,6 +142,7 @@ export default class CfopLearning extends Vue {
     this.rejectFrame(new Error('已离开 CFOP 学习页'));
     this.follow = null;
     clearAllHighlights(this.world);
+    paintCubeVisibility(this.world, null, false, false, false);
     if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame);
     this.viewFrame = null;
   }
@@ -246,6 +252,7 @@ export default class CfopLearning extends Vue {
     this.follow = null;
     this.route = null;
     clearAllHighlights(this.world);
+    paintCubeVisibility(this.world, null, false, false, false);
     this.stages = [];
     this.options = [];
     this.cursor = 0;
@@ -270,6 +277,20 @@ export default class CfopLearning extends Vue {
     this.world.scene.updateMatrix();
     this.world.dirty = true;
     this.status = '已随机打乱，点击“搜索首阶段”生成解法';
+    if (this.autoCross) void this.runAutoCross();
+  }
+  applyInputScramble(): void {
+    let input: string;
+    try { input = normalizeCfopScramble(this.input); }
+    catch (error) { this.error = String(error); return; }
+    this.invalidate();
+    this.input = input;
+    if (/^[URFDLB]{54}$/.test(input)) this.paintFrame(input);
+    else this.world.cube.twister.setup(input);
+    this.world.scene.rotation.y = this.baseSceneY;
+    this.world.scene.updateMatrix();
+    this.world.dirty = true;
+    this.status = '已按公式打乱，点击“搜索首阶段”生成解法';
     if (this.autoCross) void this.runAutoCross();
   }
   private async runAutoCross(): Promise<void> {
@@ -394,15 +415,19 @@ export default class CfopLearning extends Vue {
   }
   private refreshTracking(): void {
     clearAllHighlights(this.world);
-    if (!this.route) return;
+    if (!this.route) {
+      paintCubeVisibility(this.world, null, false, false, false);
+      return;
+    }
+    const needed = visiblePieceSignatures(this.route, this.cursor, FACELET_POSITIONS);
+    paintCubeVisibility(this.world, needed, this.ghost, this.hideUnrelated, false);
     const physicalFacelets = this.world.cube.serialize();
     const facelets = hasInitialZ2(this.route.input) ? relabelZ2Colors(physicalFacelets) : physicalFacelets;
-    const targets = FACELET_TARGETS.map(([position]) => position);
     const {current, next} = this.tracking;
     for (const slot of [next, current]) {
       if (!slot) continue;
       const color = this.trackingColor(slot);
-      const positions = findSlotPieces(facelets, targets, slot);
+      const positions = findSlotPieces(facelets, FACELET_POSITIONS, slot);
       if (!positions) continue;
       for (const position of [positions.cornerIndex, positions.edgeIndex]) {
         const piece = this.world.cube.cubelets[position];

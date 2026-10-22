@@ -10,7 +10,7 @@ export class CrossAnalysisClient {
   private ensureWorker(): Worker {
     if (this.disposed) throw new Error('指法推荐已关闭');
     if (this.worker) return this.worker;
-    const worker = new Worker('cube_cross_analysis_worker.js?v=20261020-wide-91d2825', { type: 'module' });
+    const worker = new Worker('cube_cross_analysis_worker.js?v=20261022-xxcross', { type: 'module' });
     worker.onmessage = event => {
       if (this.worker !== worker) return;
       const message = event.data || {};

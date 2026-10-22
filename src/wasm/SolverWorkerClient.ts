@@ -10,7 +10,7 @@ export class SolverWorkerClient {
   private pending = new Map<number, PendingRequest>();
   private closed = false;
 
-  constructor(url: string = "cube_cross_worker.js") {
+  constructor(url: string = "cube_cross_worker.js?v=20261022-xxcross") {
     this.worker = new Worker(url, { type: "module" });
     this.worker.onmessage = event => this.handleMessage(event.data);
     this.worker.onerror = event => {

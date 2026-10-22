@@ -1,10 +1,10 @@
-import init, * as wasm from './cube_cross_solve.js';
+import init, * as wasm from './cube_cross_solve.js?v=20261022-xxcross';
 
 let ready;
 let jointReady;
 function initialize() {
   if (!ready) ready = (async () => {
-    await init(new URL('./cube_cross_solve_bg.wasm', import.meta.url));
+    await init(new URL('./cube_cross_solve_bg.wasm?v=20261022-xxcross', import.meta.url));
     const response = await fetch(new URL('./cube_cross_table.bin', import.meta.url));
     if (!response.ok) throw new Error(`十字表加载失败：HTTP ${response.status}`);
     wasm.load_table_from_bytes(new Uint8Array(await response.arrayBuffer()));
@@ -37,7 +37,7 @@ self.onmessage = async ({data}) => {
     switch (operation) {
       case 'start': result = wasm.cfop_start_js(payload.input, payload.mode, payload.maxSolutions, payload.maxDepth); break;
       case 'stages': result = wasm.cfop_stages_js(payload.input, payload.prefix, payload.maxDepth, payload.perSlot); break;
-      case 'full': result = wasm.cfop_auto_f2l_js(payload.input, payload.prefix, payload.maxDepth, payload.allowedActions); break;
+      case 'full': result = wasm.cfop_auto_f2l_js(payload.input, payload.prefix, payload.maxDepth, payload.allowedActions, false); break;
       case 'verify': result = wasm.cfop_verify_js(payload.input, payload.prefix); break;
       default: throw new Error(`未知 CFOP 操作：${operation}`);
     }

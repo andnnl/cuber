@@ -41,8 +41,8 @@ assert.match(wasmSolver, /client\?\.terminate\(\)/);
 assert.match(solverWorkerClient, /catch \(error\) \{[\s\S]*this\.pending\.delete\(id\)/);
 assert.match(bleTrainer, /requestAnimationFrame\(this\.loopFrame\)/);
 assert.match(bleTrainer, /cancelAnimationFrame\(this\.animationFrameId\)/);
-assert.match(gradle, /versionCode\s*=\s*10/);
-assert.match(gradle, /versionName\s*=\s*"1\.0\.9"/);
+assert.match(gradle, /versionCode\s*=\s*11/);
+assert.match(gradle, new RegExp(`versionName\\s*=\\s*"${require('../package.json').version.replaceAll('.', '\\.')}"`));
 assert.match(gradle, /buildFeatures\s*\{[\s\S]*buildConfig\s*=\s*true[\s\S]*\}/);
 
 for (const permission of ["BLUETOOTH_SCAN", "BLUETOOTH_CONNECT", "ACCESS_FINE_LOCATION"]) {
