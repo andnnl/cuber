@@ -57,6 +57,7 @@ export class GanCubeLink {
   private closed = false;
   /** 通知帧串行队列: 协议驱动含异步补历史请求，共享 serial/buffer 状态不可并发改写 */
   private notificationQueue: Promise<void> = Promise.resolve();
+  private resolveProtocol: (() => void) | null = null;
 
   constructor(transport: BleTransport, brand = "GAN") {
     this.transport = transport;
@@ -86,7 +87,7 @@ export class GanCubeLink {
    *     原生 = 扫描到的蓝牙地址; Mock = 内置 MAC。
    *   - opts.mac (用户原始输入, 兜底: 传输层未归一化成功时由 macToSalt 再校验)
    */
-  async connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo> {
+  async connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string }): Promise<DeviceInfo> {
     this.closed = false;
     const info = await this.transport.connect(opts);
     // 传输层负责把 opts.mac / 广播 / 扫描地址归一化为 "AA:BB:CC:DD:EE:FF" 后放入 info.mac。
@@ -121,7 +122,19 @@ export class GanCubeLink {
       }
     });
     // 初始状态 + 电量请求 (facelets 必须先到, MOVE 事件才会被接受)
-    await this.requestFacelets();
+    const verificationMs = this.transport.verificationTimeoutMs?.() || 0;
+    const firstProtocol = verificationMs ? new Promise<void>(resolve => { this.resolveProtocol = resolve; }) : null;
+    try {
+      await this.requestFacelets();
+      if (firstProtocol) {
+        let timer: ReturnType<typeof setTimeout>;
+        try {
+          await Promise.race([firstProtocol, new Promise<void>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("未收到可解密的魔方状态，请确认自动识别的 MAC 或点「MAC」手动填写")), verificationMs);
+          })]);
+        } finally { clearTimeout(timer!); }
+      }
+    } finally { this.resolveProtocol = null; }
     this.requestBattery().catch(() => undefined);
     return this.info;
   }
@@ -198,9 +211,11 @@ export class GanCubeLink {
         return;
       }
       const link = toLinkEvent(e);
-      if (link && this.eventCb) {
-        this.eventCb(link);
+      if (link?.type === "facelets" || link?.type === "move") {
+        this.resolveProtocol?.();
+        this.transport.confirmMac?.();
       }
+      if (link) this.eventCb?.(link);
     }
   }
 }

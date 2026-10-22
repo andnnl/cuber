@@ -18,9 +18,9 @@
     "test:android": "node scripts/test-android-app.js",
     "test:desktop": "node desktop/desktop.test.cjs",
     "desktop:dev": "electron .",
-    "desktop:build": "npm run build && node scripts/gen-table.mjs dist && electron-builder --linux AppImage --win nsis",
+    "desktop:build": "npm run build && node scripts/gen-table.mjs dist && electron-builder --linux AppImage && node scripts/require-windows-scanner.cjs && electron-builder --win nsis",
     "desktop:linux": "npm run build && node scripts/gen-table.mjs dist && electron-builder --linux AppImage",
-    "desktop:win": "npm run build && node scripts/gen-table.mjs dist && electron-builder --win nsis"
+    "desktop:win": "node scripts/require-windows-scanner.cjs && npm run build && node scripts/gen-table.mjs dist && electron-builder --win nsis"
   },
   "build": {
     "appId": "com.cuber.trainer.desktop",
@@ -57,7 +57,14 @@
       "target": [
         "nsis"
       ],
-      "icon": "resource/icon.png"
+      "icon": "resource/icon.png",
+      "extraResources": [
+        {
+          "from": "desktop/windows-ble-scanner/publish",
+          "to": "windows-ble-scanner",
+          "filter": ["CuberBleScanner.exe"]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

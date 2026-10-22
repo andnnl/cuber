@@ -25,6 +25,7 @@ const registry = req("protocols/registry.js");
 const vendorCore = req("protocols/vendor/gan-protocol-core.js");
 const { MockGanCubeTransport } = req("mock-transport.js");
 const { NativeBridgeTransport } = req("transport/native.js");
+const webTransport = req("transport/web.js");
 
 let passed = 0;
 let failed = 0;
@@ -59,6 +60,35 @@ function bufferedMove(serial) {
 }
 
 async function main() {
+  await test("Windows 地址查询以手填为先且按设备 ID 隔离", async () => {
+    const queried = [];
+    const bridge = { macForDevice: async id => { queried.push(id); return id === "cube-a" ? "AA:BB:CC:DD:EE:FF" : null; } };
+    assert.strictEqual(await webTransport.resolveDesktopMac("cube-a", "00:11:22:33:44:55", bridge), "00:11:22:33:44:55");
+    assert.deepStrictEqual(queried, []);
+    assert.strictEqual(await webTransport.resolveDesktopMac("cube-b", null, bridge), null);
+    assert.strictEqual(await webTransport.resolveDesktopMac("cube-a", null, bridge), "AA:BB:CC:DD:EE:FF");
+  });
+  await test("Windows 重连必须按设备 ID 精确匹配，不按相同名称猜设备", () => {
+    const known = [{ id: "cube-b", name: "GAN 12" }, { id: "cube-a", name: "GAN 12" }];
+    assert.strictEqual(webTransport.selectKnownDevice(known, "cube-a", "GAN 12", true), known[1]);
+    assert.throws(() => webTransport.selectKnownDevice(known, "cube-c", "GAN 12", true), /设备 ID/);
+  });
+  await test("桌面网页连接返回时不提前保存未经协议帧验证的 MAC", async () => {
+    const { CubeSession } = req("cube-session.js");
+    const previous = global.window;
+    const values = new Map();
+    global.window = { cuberDesktopBluetooth: {}, localStorage: {
+      getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value),
+    } };
+    const session = new CubeSession(new CubeLink(() => new MockGanCubeTransport()));
+    try {
+      await session.connect("web");
+      assert.strictEqual(values.has("bleLastMac"), false);
+    } finally {
+      session.dispose();
+      global.window = previous;
+    }
+  });
   console.log("== move-diff ==");
 
   await test("solved → F R 与 Kociemba 官方样例一致 (vendor utils.ts 注释)", () => {
@@ -690,6 +720,25 @@ async function main() {
   });
 
   console.log("== GAN Gen2 全链路 (Mock) ==");
+
+  await test("桌面候选地址若未解出首帧须限时失败并提示手填", async () => {
+    class SilentCube extends MockGanCubeTransport {
+      verificationTimeoutMs() { return 20; }
+      async write() { /* Do not return an encrypted state notification. */ }
+    }
+    const link = new gan.GanCubeLink(new SilentCube());
+    await assert.rejects(link.connect(), /未收到可解密的魔方状态.*MAC/);
+    await link.disconnect();
+  });
+  await test("桌面候选地址收到有效首帧后正常完成连接", async () => {
+    class ResponsiveCube extends MockGanCubeTransport {
+      verificationTimeoutMs() { return 50; }
+    }
+    const link = new gan.GanCubeLink(new ResponsiveCube());
+    const info = await link.connect();
+    assert.strictEqual(info.brand, "GAN");
+    await link.disconnect();
+  });
 
   await test("连接后 REQUEST_FACELETS 返回复原态", async () => {
     const transport = new MockGanCubeTransport();

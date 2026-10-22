@@ -35,12 +35,47 @@ interface NBAdvertisingEvent extends Event {
   manufacturerData?: Map<number, DataView> | DataView;
 }
 interface NBDevice extends EventTarget {
+  id?: string;
   name?: string;
   gatt?: NBLikeGatt;
   watchAdvertisements?(options?: { signal?: AbortSignal }): Promise<void>;
 }
 interface NavigatorBluetooth {
   requestDevice(options: unknown): Promise<NBDevice>;
+}
+
+interface DesktopBluetoothBridge {
+  macForDevice(id: string): Promise<string | null>;
+  confirmMac(id: string, mac: string): Promise<boolean>;
+}
+
+export function selectKnownDevice<T extends { id?: string; name?: string }>(known: T[],
+  id: string | undefined, name: string, strict: boolean): T {
+  if (strict) {
+    const exact = id && known.find(device => device.id === id);
+    if (!exact) throw new Error("未找到上次授权的魔方设备 ID，请点「连接魔方」重新选择");
+    return exact;
+  }
+  const found = known.find(device => !!device.name && device.name === name) ||
+    known.find(device => !!device.name && /^(GAN|MG|AiCube)/.test(device.name));
+  if (!found) throw new Error("未找到上次授权的魔方，请点「连接魔方」重新选择一次");
+  return found;
+}
+
+function desktopBridge(): DesktopBluetoothBridge | null {
+  return typeof window === "undefined" ? null :
+    (window as unknown as { cuberDesktopBluetooth?: DesktopBluetoothBridge }).cuberDesktopBluetooth || null;
+}
+
+/** Manual input never triggers native IPC; a candidate is scoped to Web Bluetooth's device ID. */
+export async function resolveDesktopMac(id: string | undefined, manual: string | null,
+  bridge: Pick<DesktopBluetoothBridge, "macForDevice"> | null): Promise<string | null> {
+  if (manual) return manual;
+  if (!id || !bridge) return null;
+  try {
+    const mac = await bridge.macForDevice(id);
+    return mac ? normalizeMac(mac) : null;
+  } catch { return null; }
 }
 
 /** 浏览器是否支持 Web Bluetooth */
@@ -170,25 +205,35 @@ export class WebBluetoothTransport implements BleTransport {
   private commandChar: NBCharacteristic | null = null;
   private bytesCb: ((data: Uint8Array) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
+  private selectedMac: string | null = null;
+  private selectedDeviceId: string | null = null;
+  private confirmationPending = false;
+  private confirmedMac = false;
 
-  async connect(opts?: { mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo> {
+  async connect(opts?: { mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string }): Promise<DeviceInfo> {
     const bt = bluetooth();
     // autoReconnect: 经 getDevices 免弹窗找回上次授权的设备 (刷新后自动重连);
     // 常规路径: requestDevice 系统选择弹窗 (需用户手势)
     const device = opts?.autoReconnect
-      ? await this.reconnectKnown(bt, opts.knownName || "")
+      ? await this.reconnectKnown(bt, opts.knownName || "", opts.knownDeviceId)
       : await bt.requestDevice({
           filters: [{ namePrefix: "GAN" }, { namePrefix: "MG" }, { namePrefix: "AiCube" }],
           optionalServices: [GAN_GEN2_SERVICE, GAN_GEN3_SERVICE, GAN_GEN4_SERVICE],
         });
     this.device = device;
+    this.selectedDeviceId = device.id || null;
+    this.selectedMac = null;
+    this.confirmationPending = false;
+    this.confirmedMac = false;
     // 手动填写的 MAC 优先: 跳过 watchAdvertisements, 直接用用户提供的 MAC
     let mac: string | null = opts?.mac ? normalizeMac(opts.mac) : null;
+    mac = await resolveDesktopMac(device.id, mac, desktopBridge());
     if (!mac) {
       mac = await autoRetrieveMacAddress(device);
     } else {
-      console.info("[WebBluetooth] 使用手动填写的 MAC:", mac, "(跳过 watchAdvertisements)");
+      console.info("[WebBluetooth] 已获得 MAC (跳过 watchAdvertisements)");
     }
+    this.selectedMac = mac;
     const gatt = device.gatt!;
     await gatt.connect();
     const services = await gatt.getPrimaryServices();
@@ -213,28 +258,50 @@ export class WebBluetoothTransport implements BleTransport {
     device.addEventListener("gattserverdisconnected", this.handleGattDisconnect);
     return {
       name: device.name || "GAN Cube",
+      deviceId: device.id,
       brand: "GAN",
       mac: mac || undefined,
       serviceUuids: services.map((s) => s.uuid),
     };
   }
 
+  confirmMac(): void {
+    if (!this.selectedDeviceId || !this.selectedMac || this.confirmationPending || this.confirmedMac) return;
+    const bridge = desktopBridge();
+    if (!bridge) return;
+    this.confirmationPending = true;
+    const deviceId = this.selectedDeviceId;
+    const mac = this.selectedMac;
+    const deviceName = this.device?.name || "GAN Cube";
+    bridge.confirmMac(deviceId, mac)
+      .then(confirmed => {
+        if (this.selectedDeviceId !== deviceId || this.selectedMac !== mac) return;
+        this.confirmedMac = confirmed;
+        if (confirmed) {
+          try {
+            window.localStorage.setItem("bleLastKind", "web");
+            window.localStorage.setItem("bleLastMac", mac);
+            window.localStorage.setItem("bleLastName", deviceName);
+            window.localStorage.setItem("bleLastDeviceId", deviceId);
+          } catch { /* Disabled storage does not break the active connection. */ }
+        }
+      })
+      .catch(() => undefined)
+      .then(() => { this.confirmationPending = false; });
+  }
+
+  verificationTimeoutMs(): number { return desktopBridge() ? 5000 : 0; }
+
   /** 刷新后自动重连: 经 getDevices 免弹窗找回上次授权的设备 (Chrome 114+)。
    * requestDevice 必须用户手势且每次弹窗, 无法后台重连; getDevices 返回用户曾授权过的设备,
    * 按上次记忆的设备名匹配, 其次按 GAN/MG/AiCube 前缀兜底 */
-  private async reconnectKnown(bt: NavigatorBluetooth, knownName: string): Promise<NBDevice> {
+  private async reconnectKnown(bt: NavigatorBluetooth, knownName: string, knownDeviceId?: string): Promise<NBDevice> {
     const btx = bt as unknown as { getDevices?: () => Promise<NBDevice[]> };
     if (typeof btx.getDevices !== "function") {
       throw new Error("当前浏览器不支持免弹窗重连, 请点「连接魔方」重新选择一次 (授权后下次刷新可自动重连)");
     }
     const known: NBDevice[] = (await btx.getDevices()) || [];
-    const found =
-      known.find((d) => !!d.name && d.name === knownName) ||
-      known.find((d) => !!d.name && /^(GAN|MG|AiCube)/.test(d.name));
-    if (!found) {
-      throw new Error("未找到上次授权的魔方, 请点「连接魔方」重新选择一次 (授权后下次刷新可自动重连)");
-    }
-    return found;
+    return selectKnownDevice(known, knownDeviceId, knownName, !!desktopBridge());
   }
 
   async disconnect(): Promise<void> {

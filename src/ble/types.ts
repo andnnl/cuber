@@ -14,6 +14,8 @@ export type CubeBrand = "GAN" | "GAN Gen1";
 
 export interface DeviceInfo {
   name: string;
+  /** Web Bluetooth 授权后的不透明设备 ID，仅用于同一浏览器授权记录的精确关联。 */
+  deviceId?: string;
   brand: string;
   /** 媒体访问控制地址 (Gen2+ 加密 salt 需要; 原生传输直接取自广播, Web 侧靠 watchAdvertisements) */
   mac?: string;
@@ -32,12 +34,16 @@ export interface DeviceInfo {
  */
 export interface BleTransport {
   readonly kind: "web" | "native" | "mock";
-  connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo>;
+  connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string }): Promise<DeviceInfo>;
   disconnect(): Promise<void>;
   onBytes(cb: (data: Uint8Array) => void): void;
   onDisconnect(cb: () => void): void;
   /** 写特征 (协议命令帧, 协议层负责加密) */
   write(bytes: Uint8Array): Promise<void>;
+  /** 有效协议事件确认 MAC 后允许桌面版保存当前设备地址。 */
+  confirmMac?(): void;
+  /** 桌面版自动识别地址后，等首个可解密状态帧的上限；普通浏览器不改变连接节奏。 */
+  verificationTimeoutMs?(): number;
   /** 仅原生: 扫描请求与扫描结果 (WebView 无系统选择器, 设备列表由 JS 弹窗展示) */
   requestScan?(timeoutMs: number): Promise<void>;
   onScan?(cb: (devices: { address: string; name: string }[]) => void): void;

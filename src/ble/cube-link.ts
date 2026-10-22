@@ -73,7 +73,7 @@ export class CubeLink {
    * native: 需先经传输层 startScan 扫描, opts.address 指定所选设备。
    * autoReconnect: 刷新界面后自动重连 (免手势/弹窗), 配合 opts.mac/opts.address/opts.knownName。
    */
-  async connect(kind: CubeLinkKind, opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string }): Promise<DeviceInfo> {
+  async connect(kind: CubeLinkKind, opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string }): Promise<DeviceInfo> {
     if (this.status !== "disconnected") {
       throw new Error("已连接或连接中");
     }

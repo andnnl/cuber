@@ -12,7 +12,7 @@ export type SessionSnapshot = {
   error: string;
 };
 
-type ConnectOptions = { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string };
+type ConnectOptions = { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string };
 type SnapshotCallback = (snapshot: SessionSnapshot) => void;
 type EventCallback = (event: LinkEvent) => void;
 
@@ -81,7 +81,8 @@ export class CubeSession {
       this.state.deviceName = info.name || opts?.knownName || "";
       this.state.error = "";
       const address = info.mac || opts?.mac || opts?.address;
-      if (kind !== "mock" && address && typeof window !== "undefined") {
+      if (kind !== "mock" && address && typeof window !== "undefined" &&
+        !(kind === "web" && (window as unknown as { cuberDesktopBluetooth?: unknown }).cuberDesktopBluetooth)) {
         try {
           window.localStorage.setItem("bleLastKind", kind);
           window.localStorage.setItem("bleLastMac", address);
@@ -105,18 +106,23 @@ export class CubeSession {
     let kind: string | null;
     let address: string | null;
     let name: string | null;
+    let deviceId: string | null;
     try {
       kind = window.localStorage.getItem("bleLastKind");
       address = window.localStorage.getItem("bleLastMac");
       name = window.localStorage.getItem("bleLastName");
+      deviceId = window.localStorage.getItem("bleLastDeviceId");
     } catch {
       return;
     }
     if (!address || (kind !== "web" && kind !== "native")) return;
+    const desktopWeb = kind === "web" && !!(window as unknown as { cuberDesktopBluetooth?: unknown }).cuberDesktopBluetooth;
+    if (desktopWeb && !deviceId) return;
     try {
       await this.connect(kind, kind === "native"
         ? { address, knownName: name || "" }
-        : { mac: address, knownName: name || "", autoReconnect: true });
+        : desktopWeb ? { knownDeviceId: deviceId!, knownName: name || "", autoReconnect: true }
+          : { mac: address, knownName: name || "", autoReconnect: true });
       if (name && this.state.deviceName === address) {
         this.state.deviceName = name;
         this.publishSnapshot();

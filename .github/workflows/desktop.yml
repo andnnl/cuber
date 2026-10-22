@@ -25,7 +25,20 @@ jobs:
           node-version: '22'
       - run: npm install --legacy-peer-deps
       - run: npm run test:desktop
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build Windows Bluetooth scanner
+        if: runner.os == 'Windows'
+        run: dotnet publish desktop/windows-ble-scanner/CuberBleScanner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o desktop/windows-ble-scanner/publish
+      - name: Require Windows scanner in package
+        if: runner.os == 'Windows'
+        run: if (!(Test-Path desktop/windows-ble-scanner/publish/CuberBleScanner.exe)) { throw 'Windows BLE scanner missing' }
       - run: npm run ${{ matrix.command }} -- --publish never
+      - name: Verify scanner embedded in Windows package
+        if: runner.os == 'Windows'
+        run: if (!(Test-Path desktop-release/win-unpacked/resources/windows-ble-scanner/CuberBleScanner.exe)) { throw 'Built Windows package omitted BLE scanner' }
       - uses: actions/upload-artifact@v4
         with:
           name: cuber-${{ runner.os }}
