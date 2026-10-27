@@ -16,7 +16,7 @@
     "verify:crossf2l": "playwright-cli -s=crossf2l open && playwright-cli -s=crossf2l run-code --filename scripts/verify-crossf2l-analysis.js",
     "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js",
     "test:pll": "tsc -p tsconfig.ble.json && node scripts/test-pll-training.cjs && node scripts/test-pll-six-sticker.cjs",
-    "test:op": "tsc -p tsconfig.ble.json && node scripts/test-op-formula.cjs && node scripts/test-op-case.cjs",
+    "test:op": "tsc -p tsconfig.ble.json && node scripts/test-op-formula.cjs && node scripts/test-op-case.cjs && node scripts/test-op-trace.cjs",
     "test:android": "node scripts/test-android-app.js",
     "test:desktop": "node desktop/desktop.test.cjs",
     "test:linux-scanner": "sh scripts/build-linux-scanner.sh && node scripts/test-linux-scanner.cjs",
