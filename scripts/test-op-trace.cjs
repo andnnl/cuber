@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 global.requestAnimationFrame = () => 0;
 const Cube = require('../.tmp/cuber/cube.js').default;
 const { traceOpStickers, applyStickerPermutation } = require('../.tmp/ble/op-sticker-trace.js');
-const { opWindow, opWindowIndices } = require('../.tmp/ble/op-window.js');
+const { opWindow, opWindowIndices, recommendOpWindow } = require('../.tmp/ble/op-window.js');
 const { parseOpFormula } = require('../.tmp/ble/op-formula.js');
 const { validateOpCase } = require('../.tmp/ble/op-case.js');
 const algs = require('../src/vue/Algs/algs.json');
@@ -22,6 +22,12 @@ for (const view of ['FR', 'LF']) {
   assert.equal(row.six, opWindowIndices(view).map(i => after[i]).join(''));
   assert.deepEqual(row.sources.map(i => trace.positions.at(-1)[i]), row.indices);
 }
+assert.equal(recommendOpWindow({ unique: true, visibleSources: 4, relationCount: 2 },
+  { unique: false, visibleSources: 6, relationCount: 1 }).view, 'FR');
+assert.equal(recommendOpWindow({ unique: false, visibleSources: 4, relationCount: 2 },
+  { unique: true, visibleSources: 3, relationCount: 3 }).view, 'LF');
+assert.match(recommendOpWindow({ unique: false, visibleSources: 3, relationCount: 2 },
+  { unique: false, visibleSources: 4, relationCount: 3 }).message, /两窗口/);
 for (const move of new Set(algs.find(group => group.name === 'OLL').items.flatMap(item => parseOpFormula(item.origin).moves))) {
   const one = traceOpStickers([move]);
   assert.equal(new Set(one.positions[1]).size, 54, move);

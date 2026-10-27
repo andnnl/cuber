@@ -1,0 +1,38 @@
+const assert = require('node:assert/strict');
+const { OpTraining } = require('../.tmp/ble/op-training.js');
+const sample = { targetPll: '无 PLL', ollName: 'OLL-01', ollFormula: 'R U', y: 'y',
+  scramble: 'y U\' R\'', moves: ['R', 'U'], openingAuf: null,
+  pllFormula: '', beforeFacelets: 'U'.repeat(54), afterFacelets: 'R'.repeat(54) };
+let generated = 0;
+const storage = new Map();
+const store = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) };
+const training = new OpTraining(() => { generated++; return { ...sample }; }, store, () => 1000);
+assert.equal(generated, 1);
+assert.equal(training.hintsVisible, false);
+training.switchView('LF');
+assert.equal(training.view, 'LF');
+assert.equal(generated, 1);
+assert.equal(training.answer('Aa', 1400), false);
+assert.equal(training.records.length, 1);
+assert.equal(training.records[0].durationMs, 400);
+assert.deepEqual(training.records[0].moves, ['R', 'U']);
+assert.equal(training.answer('无 PLL', 1600), true);
+assert.equal(training.revealed, true);
+assert.equal(training.records.length, 2);
+training.retry();
+assert.equal(training.hintsVisible, false);
+assert.equal(training.revealed, false);
+assert.equal(training.current.scramble, sample.scramble);
+assert.equal(generated, 1);
+training.showHints();
+assert.equal(training.hintsVisible, true);
+training.replay(training.records[0]);
+assert.equal(training.readOnly, true);
+assert.deepEqual(training.current.moves, ['R', 'U']);
+assert.equal(training.answer('无 PLL', 2000), false);
+assert.equal(training.records.length, 2);
+training.next();
+assert.equal(generated, 2);
+assert.equal(training.readOnly, false);
+assert.equal(new OpTraining(() => sample, store, () => 1000).records.length, 2);
+console.log('无缝 OP 训练状态与记录：通过');
