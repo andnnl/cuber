@@ -11,6 +11,7 @@ import BleCrossTrainer from "../BleCrossTrainer";
 import CfopLearning from "../CfopLearning";
 import BleConnectTutorial from "../BleConnectTutorial";
 import PllObservation from "../PllObservation";
+import SeamlessOp from "../SeamlessOp";
 import { CubeSession, SessionSnapshot } from "../../ble/cube-session";
 import { FollowGate } from "../../ble/follow-gate";
 import { AppRoute, parseAppRoute, routeKey, routeUrl } from "../../ble/app-route";
@@ -23,7 +24,7 @@ import "./index.css";
 const views: { [mode: string]: VueConstructor } = {
   playground: Playground, director: Director, player: Player, helper: Helper, algs: Algs,
   f2l: F2LTrainer, crossf2l: CrossF2LTrainer, blecross: BleCrossTrainer, cfop: CfopLearning, bleconnect: BleConnectTutorial,
-  pll6: PllObservation,
+  pll6: PllObservation, seamlessop: SeamlessOp,
 };
 
 @Component({
@@ -58,7 +59,7 @@ export default class AppShell extends Vue {
   get activeMode(): string { return this.route.mode; }
   get currentComponent(): VueConstructor { return views[this.activeMode]; }
   get currentKey(): string { return routeKey(this.route); }
-  get isCubeView(): boolean { return this.activeMode !== "bleconnect"; }
+  get isCubeView(): boolean { return this.activeMode !== "bleconnect" && this.activeMode !== "seamlessop"; }
   get following(): boolean { return this.gate.isEnabled(this.activeMode); }
   get supportsBluetooth(): boolean { return nativeBridgeAvailable() || webBluetoothAvailable(); }
   get nativeBt(): boolean { return nativeBridgeAvailable(); }
@@ -140,6 +141,7 @@ export default class AppShell extends Vue {
   }
 
   private dispatch(event: LinkEvent): void {
+    if (this.activeMode === "seamlessop") return; // Virtual OP cases never follow physical moves.
     const view = this.currentView();
     if (!view) return;
     if (this.activeMode === "pll6") {

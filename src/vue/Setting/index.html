@@ -64,6 +64,12 @@
               <v-icon :size="size * 0.5">visibility</v-icon>
               <span :style="{'font-size': size * 0.22 + 'px'}">PLL六格</span>
             </v-btn>
+            <v-btn :color="mode == 'seamlessop'?'primary':''" depressed
+              class="setting-mode-button setting-mode-button--labeled"
+              @click="tap('seamlessop')" :style="{height: size + 'px'}">
+              <v-icon :size="size * 0.5">remove_red_eye</v-icon>
+              <span :style="{'font-size': size * 0.22 + 'px'}">无缝OP</span>
+            </v-btn>
           </v-flex>
         </v-layout>
         <v-layout row wrap style="padding-bottom: 2%;">

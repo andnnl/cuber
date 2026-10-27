@@ -98,6 +98,7 @@ export default class Setting extends Vue {
       case "blecross":
       case "cfop":
       case "pll6":
+      case "seamlessop":
         this.navigate({ mode: key });
         break;
       default:

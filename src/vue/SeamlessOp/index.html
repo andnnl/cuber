@@ -1,0 +1,85 @@
+<v-app>
+  <div class="op-root" v-resize="resize">
+    <setting />
+    <div class="op-cube" ref="cubeArea">
+      <viewport ref="viewport"></viewport>
+      <svg v-if="hintsVisible && points.length === 54" class="op-arrows" :viewBox="`0 0 ${width} ${cubeHeight}`" aria-label="关注贴纸的移动箭头">
+        <defs><marker id="op-arrow-head" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7 Z" fill="#f39a31"/></marker></defs>
+        <g v-for="line in lines" :key="line.key">
+          <circle :cx="line.source.x" :cy="line.source.y" r="9" class="op-source" />
+          <line :x1="line.source.x" :y1="line.source.y" :x2="line.x" :y2="line.y" marker-end="url(#op-arrow-head)" />
+          <text :x="line.x" :y="line.y - 8">{{line.key + 1}}</text>
+        </g>
+        <circle v-for="item in relatedPoints" :key="'related-' + item.id" :cx="item.point.x" :cy="item.point.y" r="6" class="op-related" />
+      </svg>
+    </div>
+    <main class="op-panel" aria-label="无缝 OP 训练">
+      <h2>无缝 OP 训练</h2>
+      <div class="op-row">
+        <button @click="nextCase">新题</button><button @click="retry">重试同题</button>
+        <button @click="revealHints" :disabled="hintsVisible">显示线索</button>
+        <button @click="switchView('FR')" :class="{active:view === 'FR'}">F/R</button>
+        <button @click="switchView('LF')" :class="{active:view === 'LF'}">L/F</button>
+        <button @click="helpOpen = true">帮助</button>
+      </div>
+      <div class="op-row op-config">
+        <label>出题类型 <select v-model="settings.mode" @change="saveSettings(); nextCase()">
+          <option value="pll">包含 PLL</option><option value="none">不含 PLL（OLL 后还原）</option><option value="mixed">混合</option>
+        </select></label>
+        <button @click="openPicker(false)">选择 PLL · {{settings.pllNames.length || '全部'}}</button>
+        <button @click="openPicker(true)">选择 OLL · {{settings.ollNames.length || '全部'}}</button>
+      </div>
+      <div class="op-row op-config">
+        <label><input type="checkbox" v-model="settings.useCustom" @change="saveSettings(); nextCase()">使用自定义 OLL</label>
+        <input v-model.trim="settings.customOll" @change="saveSettings(); settings.useCustom && nextCase()" aria-label="自定义 OLL 公式" placeholder="输入 OLL，例如 R U R' U R U2 R'">
+      </div>
+      <p v-if="current" class="op-formula">{{current.ollName}}：{{current.ollFormula}}<span v-if="current.openingAuf"> · 起手 {{current.openingAuf}}：先调整 AUF</span></p>
+      <p v-if="current && revealed" class="op-formula">题面构造（揭示后）：{{current.scramble}}</p>
+      <div class="op-row op-play">
+        <button @click="pause(); setStep(0)">回到题面</button><button @click="pause(); setStep(step - 1)" :disabled="step === 0">上一步</button>
+        <button @click="demonstrate" :disabled="!current">{{playing ? '暂停演示' : '演示验证'}}</button>
+        <button @click="pause(); setStep(step + 1)" :disabled="!current || step >= current.moves.length">下一步</button>
+        <span v-if="current">{{step}} / {{current.moves.length}} {{step ? current.moves[step-1] : ''}}</span>
+      </div>
+      <section class="op-predicted" aria-label="预测六格">
+        <h3>预测六格 · {{view === 'FR' ? 'F 面 / R 面' : 'L 面 / F 面'}}</h3>
+        <div class="op-six"><span v-for="n in 6" :key="n" :class="{revealed:revealed}">
+          <b>{{n}}</b><small v-if="revealed && windowData">{{windowData.six[n-1]}}</small><small v-else>?</small>
+        </span></div>
+        <p v-if="hintsVisible && !revealed">橙色箭头：来源贴纸 → OLL 后目标格；细圆圈：同一角块／棱块的其他贴纸。颜色关系请自行判断。</p>
+        <p v-if="hintsVisible">{{recommendation}}</p>
+        <p v-if="revealed && windowData">{{current.targetPll}} · 左{{windowData.description && windowData.description.left || '待核验'}}、右{{windowData.description && windowData.description.right || '待核验'}} · {{windowData.six}}</p>
+      </section>
+      <div class="op-answers" aria-label="选择 PLL 名称"><button v-for="name in choices" :key="name" @click="answer(name)" :disabled="!current || revealed || training.readOnly">{{name}}</button></div>
+      <p role="status" class="op-feedback">{{feedback}}</p>
+      <details class="op-records"><summary>训练记录（{{training ? training.records.length : 0}}）</summary>
+        <label>PLL 筛选 <select v-model="recordFilter"><option value="">全部</option><option v-for="name in choices" :key="name" :value="name">{{name}}</option></select></label>
+        <label>OLL 筛选 <select v-model="recordOllFilter"><option value="">全部</option><option v-for="item in OLL" :key="item.name" :value="item.name">{{item.name}}</option><option value="自定义 OLL">自定义 OLL</option></select></label>
+        <label>结果 <select v-model="recordResultFilter"><option value="">全部</option><option value="correct">正确</option><option value="wrong">错误</option></select></label>
+        <div v-for="(record, index) in records" :key="record.at + '-' + index" class="op-record">
+          <span>{{new Date(record.at).toLocaleString()}} · {{record.selectedName}} {{record.ok ? '正确' : '错误'}} · {{(record.durationMs/1000).toFixed(2)}} 秒 · {{record.ollName}} · {{record.view}}</span>
+          <button @click="replay(record)">复盘题面</button>
+        </div>
+      </details>
+      <small>蓝牙连接保持全局可用，但实体魔方转动不改变虚拟题目，也不计入本题成绩。</small>
+    </main>
+    <div v-if="pickerOpen" class="op-backdrop" @click.self="pickerOpen = false; stopPaint()" @mouseup="stopPaint" @touchend="stopPaint">
+      <section class="op-dialog" role="dialog" :aria-label="ollPickerOpen ? '选择 OLL' : '选择 PLL'">
+        <header><h3>选择 {{ollPickerOpen ? 'OLL' : 'PLL'}} · 空选为全部</h3><button @click="pickerOpen = false; stopPaint()">完成</button></header>
+        <p>鼠标按下拖动可批量选择；手机长按进入划选。</p>
+        <div class="op-choices" @touchmove="onTouchMove">
+          <button v-for="item in ollPickerOpen ? OLL : PLL" :key="item.name" :data-op-choice="item.name"
+            :class="{active:(ollPickerOpen ? settings.ollNames : settings.pllNames).includes(item.name)}"
+            @mousedown.prevent="startPaint(item.name, $event)" @mouseenter="paintChoice(item.name)"
+            @touchstart.passive="onTouchStart(item.name, $event)" @touchend="stopPaint">{{item.name.replace(/^(PLL|OLL)-/, '')}}</button>
+        </div>
+      </section>
+    </div>
+    <div v-if="helpOpen" class="op-backdrop" @click.self="helpOpen = false"><section class="op-dialog" role="dialog" aria-label="无缝 OP 帮助">
+      <header><h3>无缝 OP 如何观察</h3><button @click="helpOpen = false">关闭</button></header>
+      <p>先观察 OLL 前的顶层贴纸；通过公式中的移动，推断 OLL 完成后两相邻侧面六格的颜色关系，并判断 PLL。</p>
+      <p>F/R 和 L/F 是两套六格窗口。显示线索会标出进入目标格的来源贴纸与箭头，不提前显示最终颜色。起手 U 转先做 AUF；播放仍执行完整公式。</p>
+      <p>可选择不含 PLL，此时 OLL 后直接还原，答案选择「无 PLL」。重试保留当前题，新题重新抽取。</p>
+    </section></div>
+  </div>
+</v-app>
