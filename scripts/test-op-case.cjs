@@ -25,6 +25,22 @@ for (const [pick, rotation] of [[0, ''], [0.26, 'y'], [0.51, "y'"], [0.76, 'y2']
 const last = generateOpCase(plls, olls, () => 0.99999, simulate);
 assert.equal(last.targetPll, 'Z');
 assert.equal(matchPllSix(last.afterFacelets).name, 'Z');
+const none = generateOpCase([], olls, () => 0, simulate, 'none');
+assert.equal(none.targetPll, '无 PLL');
+assert.equal(none.pllFormula, '');
+assert.ok([0, 9, 18, 27, 36, 45].every(base =>
+  none.afterFacelets.slice(base, base + 9) === none.afterFacelets[base + 4].repeat(9)));
+assert.equal(simulate(none.scramble.split(' ')), none.beforeFacelets);
+const mixed = generateOpCase(plls, olls, () => 0.99999, simulate, 'mixed');
+assert.equal(mixed.targetPll, '无 PLL');
+let solvedChecked = 0;
+for (const y of ['', 'y', "y'", 'y2']) for (const oll of olls) {
+  const sample = validateOpCase(null, oll, y, simulate);
+  assert.ok([0, 9, 18, 27, 36, 45].every(base =>
+    sample.afterFacelets.slice(base, base + 9) === sample.afterFacelets[base + 4].repeat(9)));
+  solvedChecked++;
+}
+assert.equal(solvedChecked, 57 * 4);
 assert.throws(() => validateOpCase(plls[0], { name: '自定义', origin: 'U' }, '', simulate), /OLL|定向/);
 assert.throws(() => generateOpCase(plls, [], Math.random, simulate), /为空/);
 let checked = 0;
