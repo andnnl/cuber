@@ -5,7 +5,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noImplicitAny": true,
-    "outDir": ".tmp/ble",
+    "outDir": ".tmp",
+    "rootDir": "src",
     "types": []
   },
   "include": ["src/ble/**/*.ts"]

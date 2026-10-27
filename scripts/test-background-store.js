@@ -19,6 +19,7 @@ const bg = new BackgroundStore(storage);
 assert.strictEqual(bg.mode('blecross'), 'custom');
 assert.strictEqual(bg.effective('blecross', '#FFFFFF'), '#AABBCC');
 assert.strictEqual(bg.effective('cfop', '#EEF1F7'), '#EEF1F7');
+assert.strictEqual(bg.effective('pll6', '#FFFFFF'), '#FFFFFF');
 bg.setMode('blecross', 'global');
 assert.strictEqual(new BackgroundStore(storage).effective('blecross', '#FFFFFF'), '#FFFFFF');
 bg.setGlobal('#123456');

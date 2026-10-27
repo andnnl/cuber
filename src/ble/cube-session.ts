@@ -82,7 +82,8 @@ export class CubeSession {
       this.state.error = "";
       const address = info.mac || opts?.mac || opts?.address;
       if (kind !== "mock" && address && typeof window !== "undefined" &&
-        !(kind === "web" && (window as unknown as { cuberDesktopBluetooth?: unknown }).cuberDesktopBluetooth)) {
+        !((kind === "web" || kind === "native") &&
+          (window as unknown as { cuberDesktopBluetooth?: unknown }).cuberDesktopBluetooth)) {
         try {
           window.localStorage.setItem("bleLastKind", kind);
           window.localStorage.setItem("bleLastMac", address);

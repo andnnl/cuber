@@ -1,0 +1,4 @@
+.setting-menu-card { margin:auto; max-height:85vh; max-height:85dvh; overflow-y:auto; }
+.setting-mode-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; width:100%; }
+.setting-mode-grid .setting-mode-button { text-transform:none; min-width:0; min-height:0; width:100%; margin:0; padding:0; }
+.setting-mode-grid .setting-mode-button--labeled .v-btn__content { flex-direction:column; }

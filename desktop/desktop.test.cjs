@@ -1,8 +1,10 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { resolveAsset } = require('./assets.cjs');
 const { normalizeDevices, normalizeMac, matchAddress, AddressSelection } = require('./bluetooth.cjs');
 const { NativeScan, scannerPath, supportsNativeScan } = require('./windows-ble.cjs');
+const { WindowsNativeBridge, validateNativeCommand } = require('./windows-native-bridge.cjs');
 const { startAssetServer } = require('./server.cjs');
 function test(name, fn) { fn(); console.log(`✓ ${name}`); }
 
@@ -130,6 +132,99 @@ test('Linux scanner uses packaged executable while Windows keeps existing path',
   assert.equal(supportsNativeScan('linux'), true);
   assert.equal(supportsNativeScan('win32'), true);
   assert.equal(supportsNativeScan('darwin'), false);
+});
+
+test('Windows native bridge keeps selected device address and its encryption MAC together', () => {
+  const commands = [];
+  const events = [];
+  const listeners = {};
+  const fake = {
+    stdout: { on(name, cb) { listeners[`stdout:${name}`] = cb; } },
+    stderr: { on() {} },
+    stdin: { write(line) { commands.push(JSON.parse(line)); } },
+    on(name, cb) { listeners[name] = cb; },
+    kill() {},
+  };
+  const bridge = new WindowsNativeBridge(() => fake, (type, payload) => events.push({ type, payload }));
+  bridge.start('scanner.exe');
+  bridge.send('scan');
+  listeners['stdout:data'](Buffer.from('{"type":"scan","payload":{"address":"10:20:30:40:50:60","name":"GAN 12","mac":"AA:BB:CC:DD:EE:FF"}}\n'));
+  assert.deepEqual(events[0], { type: 'scan', payload: {
+    address: '10:20:30:40:50:60', name: 'GAN 12', mac: 'AA:BB:CC:DD:EE:FF',
+  } });
+  bridge.send('connect', { address: '10:20:30:40:50:60', generation: 1 });
+  assert.deepEqual(commands, [{ type: 'scan' }, { type: 'connect', address: '10:20:30:40:50:60', generation: 1 }]);
+  bridge.stop();
+});
+
+test('Windows helper requests only GAN GATT services and reports failed connection stage', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'windows-ble-scanner', 'Program.cs'), 'utf8');
+  const definitions = fs.readFileSync(path.join(__dirname, '..', 'src', 'ble', 'protocols', 'vendor', 'gan-cube-definitions.ts'), 'utf8');
+  for (const name of ['GAN_GEN2_SERVICE', 'GAN_GEN3_SERVICE', 'GAN_GEN4_SERVICE',
+    'GAN_GEN2_STATE_CHARACTERISTIC', 'GAN_GEN3_STATE_CHARACTERISTIC', 'GAN_GEN4_STATE_CHARACTERISTIC',
+    'GAN_GEN2_COMMAND_CHARACTERISTIC', 'GAN_GEN3_COMMAND_CHARACTERISTIC', 'GAN_GEN4_COMMAND_CHARACTERISTIC']) {
+    const uuid = definitions.match(new RegExp(`export const ${name} = "([^"]+)"`))?.[1];
+    assert.ok(uuid, `${name} missing`);
+    assert.ok(source.includes(uuid), `${name} missing from Windows GATT allowlist`);
+  }
+  assert.match(source, /GetGattServicesForUuidAsync/);
+  assert.doesNotMatch(source, /\.GetGattServicesAsync\(/);
+  assert.match(source, /阶段.*HResult|stage.*HResult/i);
+});
+
+test('Windows native bridge reports a scanner crash as a visible error', () => {
+  const events = [];
+  const listeners = {};
+  const fake = {
+    stdout: { on(name, cb) { listeners[`stdout:${name}`] = cb; } },
+    stderr: { on() {} }, stdin: { write() {} },
+    on(name, cb) { listeners[name] = cb; }, kill() {},
+  };
+  const bridge = new WindowsNativeBridge(() => fake, (type, payload) => events.push({ type, payload }));
+  bridge.start('scanner.exe');
+  listeners.exit(1);
+  assert.equal(events.at(-1).type, 'error');
+  assert.match(events.at(-1).payload.message, /扫描|蓝牙/);
+});
+
+test('Windows helper exit disconnects an active BLE session', () => {
+  const events = [];
+  const listeners = {};
+  const fake = {
+    stdout: { on(name, cb) { listeners[`stdout:${name}`] = cb; } },
+    stderr: { on() {} }, stdin: { write() {} },
+    on(name, cb) { listeners[name] = cb; }, kill() {},
+  };
+  const bridge = new WindowsNativeBridge(() => fake, (type, payload) => events.push({ type, payload }));
+  bridge.start('scanner.exe');
+  bridge.send('connect', { address: '10:20:30:40:50:60', generation: 2 });
+  listeners['stdout:data'](Buffer.from('{"type":"services","payload":{"generation":2,"services":[]}}\n'));
+  listeners.exit(1);
+  assert.deepEqual(events.at(-1), { type: 'disconnected', payload: { generation: 2 } });
+});
+
+test('scanner crash after disconnect is not hidden by a stale connection generation', () => {
+  const events = [];
+  const listeners = {};
+  const fake = { stdout: { on() {} }, stderr: { on() {} }, stdin: { write() {} },
+    on(name, cb) { listeners[name] = cb; }, kill() {} };
+  const bridge = new WindowsNativeBridge(() => fake, (type, payload) => events.push({ type, payload }));
+  bridge.start('scanner.exe');
+  bridge.send('connect', { address: '10:20:30:40:50:60', generation: 2 });
+  bridge.send('disconnect');
+  listeners.exit(1);
+  assert.equal(events.at(-1).type, 'error');
+  assert.equal(Object.prototype.hasOwnProperty.call(events.at(-1).payload, 'generation'), false);
+});
+
+test('Windows native bridge rejects arbitrary renderer commands and malformed addresses', () => {
+  assert.equal(validateNativeCommand('shell', []), null);
+  assert.equal(validateNativeCommand('connect', ['wrong', 1]), null);
+  assert.equal(validateNativeCommand('write', ['../../secret', 'AA==']), null);
+  assert.deepEqual(validateNativeCommand('connect', ['10:20:30:40:50:60', 3]),
+    { type: 'connect', address: '10:20:30:40:50:60', generation: 3 });
+  assert.deepEqual(validateNativeCommand('write', ['6e400002-b5a3-f393-e0a9-e50e24dc4179', 'AA==']),
+    { type: 'write', charUuid: '6e400002-b5a3-f393-e0a9-e50e24dc4179', base64: 'AA==' });
 });
 
 (async () => {

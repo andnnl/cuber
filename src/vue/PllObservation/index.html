@@ -1,0 +1,142 @@
+<v-app>
+  <div class="pll6-root" v-resize="resize">
+    <setting />
+    <div ref="cubeArea" class="pll6-cube"><viewport ref="viewport"></viewport>
+      <svg v-if="showCurrentFeatures && visualClues.length && stickerPoints.length" class="pll6-visual-overlay"
+        :viewBox="`0 0 ${width} ${Math.max(200, Math.floor(height * .53))}`" preserveAspectRatio="none" aria-hidden="true">
+        <g v-for="edge in shapeEdges" :key="'shape-' + edge.key" class="pll6-visual-edge--shape">
+          <path v-if="edge.bridge" :d="edgeArc(edge.a, edge.b).path" />
+          <line v-else :x1="edge.a.x" :y1="edge.a.y - 4" :x2="edge.b.x" :y2="edge.b.y - 4" />
+        </g>
+        <g v-for="edge in visualEdges" :key="edge.key" :class="['pll6-visual-edge', 'pll6-visual-edge--' + edge.relation]">
+          <path :d="edgeArc(edge.a, edge.b).path" :class="edge.clue.kind === 'confirm' ? 'pll6-visual-arc--confirm' : ''" />
+          <text :x="edgeArc(edge.a, edge.b).x" :y="edgeArc(edge.a, edge.b).y">{{edge.label}}</text>
+        </g>
+        <g v-for="count in visualCounts" :key="'count-' + count.key" class="pll6-visual-count">
+          <text :x="count.x" :y="count.y">{{count.clue.text}}</text>
+        </g>
+      </svg>
+    </div>
+    <section class="pll6-panel" aria-label="PLL 六格观察训练">
+      <h3>PLL 六格观察训练</h3>
+      <div class="pll6-row">
+        <button @click="nextCase" :disabled="!!replayRecord">新案例</button>
+        <button ref="pickerTrigger" @click="openPicker">{{pickerLabel}}</button>
+        <button @click="retry" :disabled="!!replayRecord">清除 / Esc 重试</button>
+        <button @click="showStudy = !showStudy">{{showStudy ? '收起' : '学习九类特征'}}</button>
+        <button ref="helpTrigger" type="button" @click="openHelp">术语帮助</button>
+        <button @click="openConnection" v-if="!snapshot || snapshot.status !== 'connected'">连接蓝牙魔方</button>
+      </div>
+      <div v-if="replayRecord" class="pll6-replay-banner" role="status">
+        <b>正在复盘 {{displayCaseName}}</b> · {{recordLabel(replayRecord)}}
+        <span v-if="replayRecord.selectedName"> · 曾选择 {{replayRecord.selectedName.slice(4)}}</span>
+        <button @click="exitReplay">返回训练</button>
+      </div>
+      <p class="pll6-timer">{{replayRecord ? '复盘中 · 计时暂停' : elapsed}}</p>
+      <label class="pll6-feature-toggle"><input type="checkbox" v-model="useZ2" @change="saveZ2Preference">出题前 z2（切换后重置当前案例）</label><br>
+      <label class="pll6-feature-toggle"><input type="checkbox" v-model="showCurrentFeatures" @change="saveFeaturePreference">显示当前特征</label>
+      <details v-if="showCurrentFeatures" class="pll6-feature-hint" open>
+        <template v-if="actualFeature && actualStudyRows.length === 1">
+          <summary><b>六格观察线索 · F 面 / R 面</b></summary>
+          <p class="pll6-feature-step"><strong>① {{visualClues[0].text}}</strong><span v-if="visualClues.every(item => item.kind === 'shape' || item.kind === 'same')"> · 形态已足以区分</span></p>
+          <p v-for="clue in visualClues.filter(item => item.kind !== 'shape' && item.kind !== 'confirm')" :key="clue.order" class="pll6-feature-step">
+            <strong>{{['','①','②','③','④','⑤','⑥'][clue.order] || clue.order}} {{clue.text}}</strong>
+          </p>
+          <p v-if="visualClues.some(item => item.kind === 'confirm')" class="pll6-feature-confirm">
+            <strong>原图关系印证：</strong>{{visualClues.filter(item => item.kind === 'confirm').map(item => item.text).join(' · ')}}
+          </p>
+          <small class="pll6-feature-reference">参考：六格共 {{actualFeature.colorCount}} 色（不参与判别）</small>
+          <p class="pll6-feature-original"><strong>原图核对稿（原文，可能含其他 U 朝向）：</strong>{{originalFeatureCells.join(' · ')}}</p>
+          <small v-if="actualStudyDifferences.length" class="pll6-study-warning">原图资料不适用本朝向／待复核：{{actualStudyDifferences.join('；')}}。请以当前计算关系为准。</small>
+          <small v-else>原图明确关系与当前朝向吻合；未标注的关系仍需自行观察。</small>
+          <details v-if="showAnswer || replayRecord"><summary>展开原图完整资料行</summary><p>{{actualStudyCells.join(' · ')}}</p></details>
+        </template>
+        <template v-else>
+          <summary><b>当前六格未能唯一匹配已核验分类</b></summary>
+          <small>请确认画面是 PLL 案例且 F、R 两面可见；不会按预设答案猜测特征。</small>
+        </template>
+      </details>
+      <div class="pll6-answers" aria-label="选择 PLL 名称">
+        <button v-for="item in choices" :key="item.name" @click="answer(item.name.slice(4))" :disabled="!!replayRecord">{{item.name.slice(4)}}</button>
+      </div>
+      <p class="pll6-feedback" role="status">{{feedback}}</p>
+      <details><summary>揭示本题公式（学习时使用）</summary>
+        <button @click="showAnswer = !showAnswer">{{showAnswer ? '隐藏答案' : '显示答案'}}</button>
+        <p v-if="showAnswer">{{displayCaseName}}：{{displayOrigin}}<br>案例打乱：{{displayScramble}}</p>
+      </details>
+      <section v-if="showStudy" class="pll6-study">
+        <h4>九类判断特征</h4>
+        <p>当前案例 {{displayCaseName}} 在资料中的观察角度（学习提示，不参与自动判题）：</p>
+        <p v-for="(row, i) in caseStudyRows" :key="i"><b>{{row.chapter}}</b> · {{row.cells.join(' · ')}}</p>
+        <details v-for="chapter in chapters" :key="chapter">
+          <summary>{{chapter}}</summary>
+          <p v-for="(row, i) in rowsForChapter(chapter)" :key="i">{{row.cells.join(' · ')}}</p>
+        </details>
+        <details><summary>查看完整核对稿与读图约定</summary><pre class="pll6-source">{{studySource}}</pre></details>
+      </section>
+      <details class="pll6-records"><summary>训练记录（{{records.length}}）</summary>
+        <div class="pll6-record-filters">
+          <label>结果 <select v-model="recordTypeFilter" aria-label="结果筛选">
+            <option value="all">全部</option><option value="correct">判断正确</option><option value="incorrect">判断错误</option><option value="bluetooth">蓝牙还原</option>
+          </select></label>
+          <label>PLL <select v-model="recordPllFilter" aria-label="PLL 筛选">
+            <option value="all">全部</option><option v-for="item in choices" :key="item.name" :value="item.name">{{item.name.slice(4)}}</option>
+          </select></label>
+        </div>
+        <div v-for="(record, i) in filteredRecords" :key="record.at + '-' + i" class="pll6-record-row">
+          <span>{{formatDate(record)}} · {{record.name.slice(4)}} · {{recordLabel(record)}}<template v-if="record.selectedName">（选择 {{record.selectedName.slice(4)}}）</template> · {{timeLabel(record)}} {{formatTime(record)}}</span>
+          <button @click="replay(record)" :disabled="!record.scramble" :title="record.scramble ? '恢复当时屏幕 3D 魔方状态' : '旧记录没有保存案例状态，无法复盘'">复盘</button>
+        </div>
+        <p v-if="records.length && !filteredRecords.length">当前筛选下没有记录</p>
+        <p v-if="!records.length">还没有训练记录</p>
+      </details>
+    </section>
+    <div v-if="helpOpen" class="pll6-help-overlay" @click.self="closeHelp">
+      <section class="pll6-help-dialog" role="dialog" aria-modal="true" aria-label="六格观察术语">
+        <header class="pll6-help-header">
+          <h4>六格观察术语</h4>
+          <button ref="helpClose" type="button" aria-label="关闭术语帮助" @click="closeHelp">✕</button>
+        </header>
+        <div class="pll6-help-content">
+          <p>只观察顶层的六格：<strong>左侧 F 面是 1、2、3</strong>，<strong>右侧 R 面是 4、5、6</strong>。两侧都按观察面从左到右编号。</p>
+          <div class="pll6-help-position" aria-label="F 面 1 2 3，R 面 4 5 6">
+            <div><b>左 · F 面</b><span>1</span><span>2</span><span>3</span></div>
+            <div><b>右 · R 面</b><span>4</span><span>5</span><span>6</span></div>
+          </div>
+          <p class="pll6-help-note">下图 A、B、C 只代表不同颜色，并非固定的魔方配色。左／右形态都按相应面的三格判断。</p>
+          <div class="pll6-term-grid">
+            <article v-for="term in termShapes" :key="term.name" class="pll6-term-card" :data-pattern="term.pattern">
+              <div class="pll6-term-tiles" :aria-label="term.name + '：' + term.pattern">
+                <span v-for="(color, i) in term.pattern.split('')" :key="i" class="pll6-term-tile" :class="'pll6-term-tile--' + color">{{color}}</span>
+              </div>
+              <div><b>{{term.name}}</b><p>{{term.description}}</p></div>
+            </article>
+          </div>
+          <p class="pll6-help-note">例如“左眼、右灯”：左边 1＝3、2 不同色；右边 4、5、6 两两不同色。再看跨面同色／对色／邻色关系来区分具体 PLL。</p>
+        </div>
+      </section>
+    </div>
+    <div v-if="pickerOpen" class="pll6-picker-overlay" @click.self="cancelPicker">
+      <section class="pll6-picker-dialog" role="dialog" aria-modal="true" aria-label="选择随机公式">
+        <header class="pll6-picker-header">
+          <div><b>选择随机公式</b><small>{{touchPainting || mousePainting ? ((touchPainting ? touchPaintValue : mousePaintValue) ? '划选中 · 批量选中' : '划选中 · 批量取消') : pickerCountLabel + ' · 下轮生效'}}</small></div>
+          <button ref="pickerClose" type="button" aria-label="关闭公式选择" @click="cancelPicker">✕</button>
+        </header>
+        <div class="pll6-picker-actions">
+          <button type="button" @click="setPickerAll">全选</button>
+          <button type="button" @click="clearPicker">清空（全部随机）</button>
+        </div>
+        <small class="pll6-picker-instruction">点击切换；鼠标按住拖动或手指长按后滑过可批量选／取消。上下滑动可浏览。</small>
+        <div ref="pickerList" class="pll6-picker-list" @mousedown="onPickerMouseDown" @dragstart.prevent @touchstart="onPickerTouchStart" @touchmove="onPickerTouchMove" @touchend="onPickerTouchEnd" @touchcancel="onPickerTouchEnd">
+          <button v-for="item in choices" :key="item.name" type="button" class="pll6-picker-chip"
+            :data-pll-name="item.name" :aria-pressed="draftNames.indexOf(item.name) >= 0 ? 'true' : 'false'"
+            @click="onPickerChoiceClick($event, item.name)" @contextmenu.prevent>{{item.name.slice(4)}}</button>
+        </div>
+        <footer class="pll6-picker-footer">
+          <button type="button" @click="cancelPicker">取消</button>
+          <button type="button" class="pll6-picker-save" @click="savePicker">保存选择</button>
+        </footer>
+      </section>
+    </div>
+  </div>
+</v-app>

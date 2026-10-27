@@ -89,6 +89,19 @@ async function main() {
       global.window = previous;
     }
   });
+  await test("Windows 原生连接不把加密 MAC 缓存成下次扫描地址", async () => {
+    const { CubeSession } = req("cube-session.js");
+    const previous = global.window;
+    const values = new Map();
+    global.window = { __bleNative: {}, cuberDesktopBluetooth: {}, localStorage: {
+      getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value),
+    } };
+    const session = new CubeSession(new CubeLink(() => new MockGanCubeTransport()));
+    try {
+      await session.connect("native", { address: "10:20:30:40:50:60" });
+      assert.strictEqual(values.has("bleLastMac"), false);
+    } finally { session.dispose(); global.window = previous; }
+  });
   console.log("== move-diff ==");
 
   await test("solved → F R 与 Kociemba 官方样例一致 (vendor utils.ts 注释)", () => {
@@ -879,6 +892,44 @@ async function main() {
     }
   });
 
+  await test("Windows 原生桥从选中的广播地址连接，并将制造商 MAC 交给 GAN 解密", async () => {
+    let dispatch;
+    const calls = [];
+    global.window = {
+      __bleNative: { scan() {}, stopScan() {}, connect(address, generation) { calls.push({ address, generation }); },
+        disconnect() {}, write() {}, onEvent(fn) { dispatch = fn; } },
+      setTimeout, clearTimeout,
+    };
+    try {
+      const transport = new NativeBridgeTransport();
+      assert.strictEqual(transport.verificationTimeoutMs(), 5000);
+      dispatch("scan", JSON.stringify({ address: "10:20:30:40:50:60", mac: "AA:BB:CC:DD:EE:FF", name: "GAN 12" }));
+      const connecting = transport.connect({ address: "10:20:30:40:50:60" });
+      const meta = registry.PROTOCOLS[0];
+      dispatch("services", JSON.stringify({ generation: calls[0].generation,
+        services: [{ uuid: meta.serviceUuid, notify: meta.notifyUuids, write: [meta.writeUuid] }] }));
+      const info = await connecting;
+      assert.strictEqual(calls[0].address, "10:20:30:40:50:60");
+      assert.strictEqual(info.mac, "AA:BB:CC:DD:EE:FF");
+    } finally {
+      delete global.window;
+    }
+  });
+  await test("原生通知订阅失败时拒绝连接而非静默显示已连接", async () => {
+    global.window = {
+      __bleNative: { scan() {}, stopScan() {}, connect() {}, disconnect() {}, write() {} },
+      setTimeout, clearTimeout,
+    };
+    try {
+      const transport = new NativeBridgeTransport();
+      const connecting = transport.connect({ address: "10:20:30:40:50:60" });
+      const meta = registry.PROTOCOLS[0];
+      global.window.__ble.dispatch("services", JSON.stringify({ generation: 1,
+        services: [{ uuid: meta.serviceUuid, notify: [], write: [meta.writeUuid] }] }));
+      await assert.rejects(connecting, /通知/);
+    } finally { delete global.window; }
+  });
+
   await test("原生扫描监听取消后不再接收设备，避免切换界面重复注册", () => {
     global.window = {
       __bleNative: { scan() {}, stopScan() {}, connect() {}, disconnect() {}, write() {} },
@@ -895,6 +946,22 @@ async function main() {
     } finally {
       delete global.window;
     }
+  });
+
+  await test("原生扫描超时且没有设备时向连接面板报告", () => {
+    let timeout;
+    global.window = {
+      __bleNative: { scan() {}, stopScan() {}, connect() {}, disconnect() {}, write() {} },
+      setTimeout(fn) { timeout = fn; return 1; }, clearTimeout() {},
+    };
+    try {
+      const transport = new NativeBridgeTransport();
+      let message = "";
+      transport.onError(error => { message = error; });
+      transport.startScan();
+      timeout();
+      assert.match(message, /未发现.*设备/);
+    } finally { delete global.window; }
   });
 
   await test("原生连接 A 的迟到服务和通知不能污染连接 B", async () => {

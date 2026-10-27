@@ -11,52 +11,58 @@
   <palette v-if="mode !== 'cfop'" v-model="items['palette'].value"></palette>
   <about v-model="items['about'].value"></about>
   <v-bottom-sheet v-model="menu">
-    <v-card text style="margin: auto;">
+    <v-card text class="setting-menu-card">
       <v-container fluid grid-list-md text-xs-center :style="{width:Math.min(size * 8, width) + 'px'}">
         <v-layout row wrap style="padding-top: 2%; padding-bottom: 5%;">
-          <v-flex xs12 style="display: flex;">
+          <v-flex xs12 class="setting-mode-grid" data-main-mode-grid>
             <v-btn :color="mode == 'playground'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1;"
+              class="setting-mode-button"
               @click="tap('playground')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">games</v-icon>
             </v-btn>
             <v-btn :color="mode == 'helper'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1;"
+              class="setting-mode-button"
               @click="tap('helper')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">assistant</v-icon>
             </v-btn>
             <v-btn :color="mode == 'algs'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1;"
+              class="setting-mode-button"
               @click="tap('algs')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">school</v-icon>
             </v-btn>
             <v-btn :color="mode == 'director'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1;"
+              class="setting-mode-button"
               @click="tap('director')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">movie</v-icon>
             </v-btn>
             <v-btn :color="mode == 'f2l'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1;"
+              class="setting-mode-button"
               @click="tap('f2l')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">fitness_center</v-icon>
             </v-btn>
             <v-btn :color="mode == 'crossf2l'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1; flex-direction: column;"
+              class="setting-mode-button setting-mode-button--labeled"
               @click="tap('crossf2l')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.5">track_changes</v-icon>
               <span :style="{'font-size': size * 0.22 + 'px'}">F2L预判</span>
             </v-btn>
             <v-btn :color="mode == 'blecross'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1; flex-direction: column;"
+              class="setting-mode-button setting-mode-button--labeled"
               @click="tap('blecross')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.5">bluetooth_searching</v-icon>
               <span :style="{'font-size': size * 0.22 + 'px'}">蓝牙十字</span>
             </v-btn>
             <v-btn :color="mode == 'cfop'?'primary':''" depressed
-              style="text-transform: none; min-width: 0%; min-height: 0%; margin: 0%; padding: 0%; flex: 1; flex-direction: column;"
+              class="setting-mode-button setting-mode-button--labeled"
               @click="tap('cfop')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.5">school</v-icon>
               <span :style="{'font-size': size * 0.22 + 'px'}">CFOP学习</span>
+            </v-btn>
+            <v-btn :color="mode == 'pll6'?'primary':''" depressed
+              class="setting-mode-button setting-mode-button--labeled"
+              @click="tap('pll6')" :style="{height: size + 'px'}">
+              <v-icon :size="size * 0.5">visibility</v-icon>
+              <span :style="{'font-size': size * 0.22 + 'px'}">PLL六格</span>
             </v-btn>
           </v-flex>
         </v-layout>

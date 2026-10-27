@@ -1,4 +1,4 @@
-// Android WebView 原生蓝牙桥传输层 (对应 android/.../BleBridge.java)
+// Android WebView / Windows Electron 原生蓝牙桥传输层
 //
 // 桥协议:
 //   JS → Java: window.__bleNative 的 5 个 @JavascriptInterface 方法
@@ -35,14 +35,18 @@ function bytesToBase64(bytes: Uint8Array): string {
 export class NativeBridgeTransport implements BleTransport {
   readonly kind = "native" as const;
 
-  private bridge: { scan(): void; stopScan(): void; connect(address: string, generation: number): void; disconnect(): void; write(charUuid: string, base64: string): void };
+  /** Windows scanner candidates must prove that their manufacturer MAC decrypts a real frame. */
+  verificationTimeoutMs(): number { return this.bridge.onEvent ? 5000 : 0; }
+
+  private bridge: { scan(): void; stopScan(): void; connect(address: string, generation: number): void; disconnect(): void; write(charUuid: string, base64: string): void;
+    onEvent?(cb: (type: string, payloadJson: string) => void): void };
   private generation = 0;
 
   private bytesCb: ((data: Uint8Array) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
   private scanCbs: ((devices: { address: string; name: string }[]) => void)[] = [];
   private errorCbs: ((message: string) => void)[] = [];
-  private devices = new Map<string, { address: string; name: string }>();
+  private devices = new Map<string, { address: string; name: string; mac?: string }>();
   private scanTimer: any = null;
 
   // connect 流程 pending 状态 (services/disconnected/error 事件消费)
@@ -50,6 +54,7 @@ export class NativeBridgeTransport implements BleTransport {
   private connectReject: ((err: Error) => void) | null = null;
   private connectTimer: any = null;
   private pendingAddress = "";
+  private pendingMac = "";
   private pendingName = "";
   private serviceUuids: string[] = [];
   private commandChar = "";
@@ -61,6 +66,7 @@ export class NativeBridgeTransport implements BleTransport {
     (window as unknown as { __ble: unknown }).__ble = {
       dispatch: (type: string, payloadJson: string) => this.handleEvent(type, payloadJson),
     };
+    this.bridge.onEvent?.((type, payloadJson) => this.handleEvent(type, payloadJson));
   }
 
   // ---- 扫描 (连接前设备选择, WebView 无系统选择器) ----
@@ -71,7 +77,10 @@ export class NativeBridgeTransport implements BleTransport {
     if (this.scanTimer) {
       window.clearTimeout(this.scanTimer);
     }
-    this.scanTimer = window.setTimeout(() => this.stopScan(), timeoutMs);
+    this.scanTimer = window.setTimeout(() => {
+      this.stopScan();
+      if (this.devices.size === 0) this.emitError("未发现可自动识别 MAC 的蓝牙魔方设备，请重试或手动输入 MAC");
+    }, timeoutMs);
   }
 
   stopScan(): void {
@@ -128,6 +137,7 @@ export class NativeBridgeTransport implements BleTransport {
     }
     this.pendingAddress = address;
     this.pendingName = this.devices.get(address)?.name || address;
+    this.pendingMac = this.devices.get(address)?.mac || address;
     const generation = ++this.generation;
     this.stopScan();
     return new Promise<DeviceInfo>((resolve, reject) => {
@@ -183,7 +193,8 @@ export class NativeBridgeTransport implements BleTransport {
     if (["services", "notify", "disconnected"].indexOf(type) >= 0 && payload.generation === undefined) return;
     switch (type) {
       case "scan": {
-        const dev = { address: String(payload.address || ""), name: String(payload.name || "") };
+        const dev = { address: String(payload.address || ""), name: String(payload.name || ""),
+          mac: typeof payload.mac === "string" ? payload.mac : undefined };
         if (!dev.address || this.devices.has(dev.address)) {
           return;
         }
@@ -209,12 +220,16 @@ export class NativeBridgeTransport implements BleTransport {
           this.failConnect(new Error("找不到 GAN 命令写特征"));
           return;
         }
+        if (!meta.notifyUuids.some(uuid => svc.notify.map(n => n.toLowerCase()).indexOf(uuid.toLowerCase()) >= 0)) {
+          this.failConnect(new Error("无法订阅 GAN 状态通知特征"));
+          return;
+        }
         this.commandChar = meta.writeUuid;
         this.connected = true;
         this.okConnect({
           name: this.pendingName || "GAN Cube",
           brand: "GAN",
-          mac: this.pendingAddress || undefined,
+          mac: this.pendingMac || undefined,
           serviceUuids: this.serviceUuids,
         });
         break;

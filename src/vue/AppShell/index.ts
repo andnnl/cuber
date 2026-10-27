@@ -10,6 +10,7 @@ import CrossF2LTrainer from "../CrossF2LTrainer";
 import BleCrossTrainer from "../BleCrossTrainer";
 import CfopLearning from "../CfopLearning";
 import BleConnectTutorial from "../BleConnectTutorial";
+import PllObservation from "../PllObservation";
 import { CubeSession, SessionSnapshot } from "../../ble/cube-session";
 import { FollowGate } from "../../ble/follow-gate";
 import { AppRoute, parseAppRoute, routeKey, routeUrl } from "../../ble/app-route";
@@ -22,6 +23,7 @@ import "./index.css";
 const views: { [mode: string]: VueConstructor } = {
   playground: Playground, director: Director, player: Player, helper: Helper, algs: Algs,
   f2l: F2LTrainer, crossf2l: CrossF2LTrainer, blecross: BleCrossTrainer, cfop: CfopLearning, bleconnect: BleConnectTutorial,
+  pll6: PllObservation,
 };
 
 @Component({
@@ -85,7 +87,7 @@ export default class AppShell extends Vue {
     Vue.prototype.mode = this.activeMode;
     this.stopSession = this.session.subscribe((snapshot) => {
       this.snapshot = snapshot;
-      if (this.activeMode === "blecross" || this.activeMode === "cfop") this.currentView()?.onSessionSnapshot?.(snapshot);
+      if (this.activeMode === "blecross" || this.activeMode === "cfop" || this.activeMode === "pll6") this.currentView()?.onSessionSnapshot?.(snapshot);
     }, (event) => this.dispatch(event));
     window.addEventListener("popstate", this.onPopState);
     void this.session.tryAutoReconnect();
@@ -140,6 +142,12 @@ export default class AppShell extends Vue {
   private dispatch(event: LinkEvent): void {
     const view = this.currentView();
     if (!view) return;
+    if (this.activeMode === "pll6") {
+      // 训练页的实体动作仅供计时/六面还原判定，绝不转动屏幕随机案例。
+      if (event.type === "facelets" || event.type === "move" && this.gate.accept(this.activeMode, event))
+        view.handlePhysicalEvent?.(event);
+      return;
+    }
     if (event.type === "move") {
       if (!this.gate.accept(this.activeMode, event)) {
         if (this.activeMode === "cfop" && view.needsFacelets) view.handlePhysicalEvent?.(event);
@@ -181,7 +189,7 @@ export default class AppShell extends Vue {
   startScan(): void {
     this.closeScan();
     this.scanDevices = [];
-    this.scanMessage = "扫描中，请打开魔方并靠近手机…";
+    this.scanMessage = "扫描中，请打开魔方并靠近设备…";
     this.stopScan = this.session.scanNative((devices) => {
       this.scanDevices = devices;
       if (devices.length) this.scanMessage = "请选择魔方";

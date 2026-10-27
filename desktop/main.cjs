@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const { startAssetServer } = require('./server.cjs');
 const { normalizeDevices, matchAddress, AddressSelection } = require('./bluetooth.cjs');
 const { NativeScan, scannerPath, supportsNativeScan } = require('./windows-ble.cjs');
+const { WindowsNativeBridge, validateNativeCommand } = require('./windows-native-bridge.cjs');
 
 // Electron does not expose navigator.bluetooth on Linux without this Chromium feature.
 app.commandLine.appendSwitch('enable-features', 'WebBluetooth');
@@ -14,6 +15,7 @@ let chooser;
 let finishChooser;
 let assetServer;
 let scan;
+let nativeBridge;
 let selectedAddresses;
 let currentDevices = [];
 let selectionExpires = 0;
@@ -100,6 +102,13 @@ ipcMain.handle('bluetooth-confirm-mac', (event, id, mac) => {
   if (confirmed) saveVerified();
   return confirmed;
 });
+ipcMain.on('native-ble-command', (event, type, ...args) => {
+  if (process.platform !== 'win32' || !trustedMain(event)) return;
+  const command = validateNativeCommand(type, args);
+  if (!command) return;
+  const { type: action, ...fields } = command;
+  nativeBridge?.send(action, fields);
+});
 
 app.whenReady().then(async () => {
   if (!app.hasSingleInstanceLock()) return;
@@ -110,6 +119,13 @@ app.whenReady().then(async () => {
   try { selectedAddresses = new AddressSelection(JSON.parse(fs.readFileSync(verifiedFile(), 'utf8'))); }
   catch { selectedAddresses = new AddressSelection(); }
   scan = new NativeScan();
+  if (process.platform === 'win32') {
+    nativeBridge = new WindowsNativeBridge(undefined, (type, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed())
+        mainWindow.webContents.send('native-ble-event', type, JSON.stringify(payload));
+    });
+    nativeBridge.start(scannerPath(app));
+  }
 
   const ses = session.defaultSession;
   ses.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
@@ -138,7 +154,7 @@ app.whenReady().then(async () => {
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (new URL(url).origin !== origin) event.preventDefault();
   });
-  mainWindow.on('closed', () => { closeChooser(); selectedAddresses.clear(); mainWindow = null; });
+  mainWindow.on('closed', () => { closeChooser(); nativeBridge?.stop(); selectedAddresses.clear(); mainWindow = null; });
   mainWindow.loadURL(`${baseUrl}?mode=blecross`);
 }).catch(error => {
   console.error('[desktop] 启动失败:', error);
@@ -148,5 +164,5 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { if (assetServer) assetServer.close().catch(console.error); });
+app.on('before-quit', () => { nativeBridge?.stop(); if (assetServer) assetServer.close().catch(console.error); });
 app.on('second-instance', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });

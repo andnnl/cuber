@@ -9,6 +9,7 @@ import Palette from "../Menu/Palette";
 import About from "../Menu/About";
 import { BackgroundMode, BackgroundStore } from "../background-store";
 import { BACKGROUND_PRESETS } from "../background-presets";
+import './index.css';
 
 export class SettingItem {
   label: string;
@@ -96,6 +97,7 @@ export default class Setting extends Vue {
       case "crossf2l":
       case "blecross":
       case "cfop":
+      case "pll6":
         this.navigate({ mode: key });
         break;
       default:

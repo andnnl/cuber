@@ -1,6 +1,6 @@
 export type BackgroundMode = 'global' | 'custom';
 
-const SCOPES = ['playground', 'director', 'player', 'helper', 'algs', 'f2l', 'crossf2l', 'blecross', 'cfop'];
+const SCOPES = ['playground', 'director', 'player', 'helper', 'algs', 'f2l', 'crossf2l', 'blecross', 'cfop', 'pll6'];
 const GLOBAL_KEY = 'cubeBackground.global';
 
 export function normalize(value: string | null): string | null {
