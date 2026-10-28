@@ -2,7 +2,7 @@ import { Component, Provide, Ref, Vue } from 'vue-property-decorator';
 import Cube from '../../cuber/cube';
 import World from '../../cuber/world';
 import { PreferanceData, PaletteData, PRESET_PALETTES } from '../../data';
-import { generateOpCase, validateOpCase, OpCase, OpCaseMode, OpItem } from '../../ble/op-case';
+import { generateOpCase, validateOpCase, switchOpPll, OpCase, OpCaseMode, OpItem } from '../../ble/op-case';
 import { OpTraining, OpRecord } from '../../ble/op-training';
 import { traceOpStickers, OpTrace, applyStickerPermutation } from '../../ble/op-sticker-trace';
 import { previewOllFacelets } from '../../ble/op-oll-preview';
@@ -26,8 +26,8 @@ const simulate = (moves: string[]): string => {
 };
 const SETTINGS = 'seamlessOpSettings';
 const DESTINATION_FACES: OpDestinationFace[] = ['L', 'F', 'R', 'B'];
-type Settings = { mode: OpCaseMode; pllNames: string[]; ollNames: string[]; customOll: string; useCustom: boolean; customOlls: CustomOll[]; z2: boolean; showHints: boolean; allTrajectories: boolean; focusLevel: FocusLevel; destinationFaces: OpDestinationFace[] };
-const defaults = (): Settings => ({ mode: 'pll', pllNames: [], ollNames: [], customOll: '', useCustom: false, customOlls: [], z2: false, showHints: false, allTrajectories: false, focusLevel: 'beginner', destinationFaces: DESTINATION_FACES.slice() });
+type Settings = { mode: OpCaseMode; pllNames: string[]; ollNames: string[]; customOll: string; useCustom: boolean; customOlls: CustomOll[]; z2: boolean; showHints: boolean; hidePrediction: boolean; allTrajectories: boolean; focusLevel: FocusLevel; destinationFaces: OpDestinationFace[] };
+const defaults = (): Settings => ({ mode: 'pll', pllNames: [], ollNames: [], customOll: '', useCustom: false, customOlls: [], z2: false, showHints: false, hidePrediction: false, allTrajectories: false, focusLevel: 'beginner', destinationFaces: DESTINATION_FACES.slice() });
 
 @Component({ template: require('./index.html'), components: { viewport: Viewport, setting: Setting } })
 export default class SeamlessOp extends Vue {
@@ -160,6 +160,7 @@ export default class SeamlessOp extends Vue {
           typeof saved.customOll === 'string' ? saved.customOll : '',
         z2: saved.z2 === true,
         showHints: saved.showHints === true,
+        hidePrediction: saved.hidePrediction === true,
         allTrajectories: saved.allTrajectories === true,
         focusLevel: ['beginner', 'intermediate', 'all'].indexOf(saved.focusLevel) >= 0 ? saved.focusLevel : 'beginner',
         destinationFaces: Array.isArray(saved.destinationFaces) ?
@@ -254,6 +255,16 @@ export default class SeamlessOp extends Vue {
     catch (error) { this.feedback = (error as Error).message; }
   }
   retry(): void { this.training?.retry(); this.feedback = ''; this.loadCase(); }
+  switchPllAndRetry(): void {
+    if (!this.training || !this.current) return;
+    const plls = this.settings.pllNames.length ? PLL.filter(item => this.settings.pllNames.indexOf(item.name) >= 0) : PLL;
+    try {
+      const next = switchOpPll(this.current, plls, Math.random, simulate);
+      this.training.replace(next);
+      this.feedback = '';
+      this.loadCase();
+    } catch (error) { this.feedback = `换 PLL 失败：${(error as Error).message}`; }
+  }
   resetVisualCube(): void { this.retry(); }
   toggleHints(): void {
     this.training?.setHintsVisible(this.settings.showHints);

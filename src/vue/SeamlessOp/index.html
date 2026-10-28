@@ -28,8 +28,10 @@
         <small v-if="hintsVisible">{{settings.allTrajectories ? '全部轨迹' : '当前 ' + (focus && focus.view === 'BL' ? 'B/L' : focus && focus.view === 'RB' ? 'R/B' : focus && focus.view === 'LF' ? 'L/F' : 'F/R') + ' 六格'}} · {{netArrows.length}} 条箭头<span v-if="focus && focus.missing && !settings.allTrajectories"> · {{focus.missing}} 格来源在不可见面，不画箭头</span><span v-if="netArrows.length">；点色块聚焦</span></small>
       </div>
       <div class="op-net-panel op-net-after">
-        <h3>OLL 后 · 预测结果</h3>
-        <div class="op-net" aria-label="OLL 后顶层与四侧面">
+        <header><h3>OLL 后 · 预测结果</h3>
+          <label><input type="checkbox" v-model="settings.hidePrediction" @change="saveSettings" aria-label="隐藏预测结果">隐藏</label>
+        </header>
+        <div v-if="!settings.hidePrediction" class="op-net" aria-label="OLL 后顶层与四侧面">
           <button v-for="cell in afterCells" :key="cell.index" type="button" class="op-net-cell" :class="{'op-net-focus': hintsVisible && !settings.allTrajectories && focus && focus.indices.indexOf(cell.index) >= 0, 'op-net-selected': hintsVisible && activeNetArrow && activeNetArrow.to === cell.index}" :data-index="cell.index"
             data-revealed="true" :style="netStyle(cell, current.afterFacelets)" :aria-label="'预测贴纸 ' + (cell.index + 1)" @click="selectNetTarget(cell.index)"></button>
         </div>
@@ -44,7 +46,7 @@
     <main class="op-panel" aria-label="无缝 OP 训练">
       <h2>无缝 OP 训练</h2>
       <div class="op-row">
-        <button @click="nextCase">新题</button><button @click="retry">重试同题</button>
+        <button @click="nextCase">新题</button><button @click="retry">重试同题</button><button @click="switchPllAndRetry">换 PLL 重试同题</button>
         <button @click="helpOpen = true">帮助</button>
       </div>
       <div class="op-row op-config">
