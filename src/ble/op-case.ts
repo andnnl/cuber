@@ -43,6 +43,21 @@ export function validateOpCase(pll: OpItem | null, oll: OpItem, y: string, simul
     beforeFacelets, afterFacelets };
 }
 
+/** Keep the OLL and orientation while replacing only the target PLL. */
+export function switchOpPll(current: OpCase, plls: OpItem[], random: () => number,
+  simulate: OpSimulator): OpCase {
+  const candidates = plls.filter(pll => (pll.name.startsWith('PLL-') ? pll.name.slice(4) : pll.name) !== current.targetPll);
+  if (!candidates.length) throw Error('没有可更换的 PLL');
+  const start = Math.min(candidates.length - 1, Math.floor(random() * candidates.length));
+  const oll = { name: current.ollName, origin: current.ollFormula };
+  let lastError: Error | null = null;
+  for (let offset = 0; offset < candidates.length; offset++) {
+    try { return validateOpCase(candidates[(start + offset) % candidates.length], oll, current.y, simulate, current.z2); }
+    catch (error) { lastError = error as Error; }
+  }
+  throw Error(`换 PLL 失败：无可用组合（${lastError?.message || '未知错误'}）`);
+}
+
 export function generateOpCase(plls: OpItem[], olls: OpItem[], random: () => number,
   simulate: OpSimulator, mode: OpCaseMode = 'pll', z2 = false): OpCase {
   if ((mode !== 'none' && !plls.length) || !olls.length) throw Error('PLL 或 OLL 公式池为空');
