@@ -8,6 +8,7 @@ import { traceOpStickers, OpTrace, applyStickerPermutation } from '../../ble/op-
 import { previewOllFacelets } from '../../ble/op-oll-preview';
 import { CustomOll, restoreCustomOlls, selectedOllPool, customOllItem } from '../../ble/op-custom-oll';
 import { loadCustomOllLibrary, saveCustomOllLibrary } from '../../ble/op-oll-library';
+import { exportCustomOlls, mergeCustomOlls, OllTransferFormat } from '../../ble/op-oll-transfer';
 import { topNetCells, topObservationArrows, filterOpDestinationArrows, OpDestinationFace, TopNetCell, TopNetArrow } from '../../ble/op-top-net';
 import { calculateOpFocus, focusDifficulty, selectFocusedCase, opWindowCoverage, FocusLevel, OpFocus, OpCoverage } from '../../ble/op-focus';
 import { OpView } from '../../ble/op-window';
@@ -65,6 +66,7 @@ export default class SeamlessOp extends Vue {
   customFormula = '';
   customEditingId: string | null = null;
   customError = '';
+  transferFeedback = '';
   helpOpen = false;
   recordFilter = '';
   recordOllFilter = '';
@@ -299,7 +301,41 @@ export default class SeamlessOp extends Vue {
     this.ollPickerGroup = 'builtin';
     this.customError = this.settings.customOll && this.customFormula === this.settings.customOll ?
       '旧公式未通过校验，请修改后保存到自定义分组' : '';
+    this.transferFeedback = '';
     this.pickerOpen = true;
+  }
+  exportOllLibrary(format: OllTransferFormat): void {
+    const content = exportCustomOlls(this.settings.customOlls, format);
+    const url = URL.createObjectURL(new Blob([content], { type: format === 'json' ? 'application/json;charset=utf-8' : 'text/plain;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `cuber-oll-custom.${format}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async importOllLibrary(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.transferFeedback = '';
+    this.customError = '';
+    const extension = /\.(json|txt)$/i.exec(file.name)?.[1]?.toLowerCase() as OllTransferFormat | undefined;
+    if (!extension) { this.customError = '导入失败：请选择 .json 或 .txt 文件'; return; }
+    if (file.size > 1024 * 1024) { this.customError = '导入失败：文件过大（上限 1 MiB）'; return; }
+    try {
+      const result = mergeCustomOlls(this.settings.customOlls, await file.text(), extension,
+        item => { validateOpCase(null, item, '', simulate); });
+      const previews: Record<string, string> = {};
+      for (const item of result.items.slice(this.settings.customOlls.length))
+        previews[item.id] = previewOllFacelets(customOllItem(item), simulate);
+      if (result.added) saveCustomOllLibrary(localStorage, result.items);
+      this.settings.customOlls = result.items;
+      for (const id of Object.keys(previews)) this.$set(this.ollPreviews, id, previews[id]);
+      this.transferFeedback = `导入完成：新增 ${result.added}，跳过重复 ${result.skipped}，自动改名 ${result.renamed}`;
+    } catch (error) { this.customError = `导入失败：${(error as Error).message}`; }
   }
   editCustomOll(item: CustomOll): void {
     this.customEditingId = item.id;

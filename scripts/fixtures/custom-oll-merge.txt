@@ -1,0 +1,2 @@
+重复|F R U R' U' F'
+旧公式|(RU'R2'D') (rU'r'D) R2UR'

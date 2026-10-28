@@ -84,6 +84,14 @@
         <p>鼠标按下拖动可批量选择；手机长按进入划选。</p>
         <div v-if="ollPickerOpen" class="op-picker-groups" aria-label="OLL 分组"><button type="button" :class="{active:ollPickerGroup === 'builtin'}" @click="ollPickerGroup = 'builtin'">内置分组</button><button type="button" :class="{active:ollPickerGroup === 'custom'}" @click="ollPickerGroup = 'custom'">自定义分组 · {{settings.customOlls.length}}</button></div>
         <div v-if="ollPickerOpen" class="op-picker-groups" aria-label="当前 OLL 分组批量选择"><button type="button" @click="selectAllOlls">全选</button><button type="button" @click="clearOllSelection">取消选择</button><small v-if="!settings.ollNames.length">未指定公式，默认使用全部内置</small></div>
+        <div v-if="ollPickerOpen && ollPickerGroup === 'custom'" class="op-custom-transfer" aria-label="自定义 OLL 导入导出">
+          <button type="button" @click="exportOllLibrary('json')">导出 JSON</button>
+          <button type="button" @click="exportOllLibrary('txt')">导出纯文本</button>
+          <button type="button" @click="$refs.ollImportFile.click()">导入文件</button>
+          <input ref="ollImportFile" type="file" accept=".json,.txt,application/json,text/plain" aria-label="导入 OLL 文件" @change="importOllLibrary">
+          <small>纯文本每行：名称|公式（也可只写公式）；导入会合并并跳过重复。</small>
+          <p v-if="transferFeedback" role="status">{{transferFeedback}}</p>
+        </div>
         <form v-if="ollPickerOpen && ollPickerGroup === 'custom'" class="op-custom-editor" @submit.prevent="saveCustomOll">
           <label>名称 <input aria-label="自定义名称" v-model="customName" maxlength="40" placeholder="例如：我的 OLL 01"></label>
           <label>公式 <input aria-label="自定义公式" v-model="customFormula" placeholder="例如：R U R' U R U2 R'"></label>
