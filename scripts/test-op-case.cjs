@@ -51,4 +51,15 @@ for (const y of ['', 'y', "y'", 'y2']) for (const pll of plls) for (const oll of
   checked++;
 }
 assert.equal(checked, 21 * 57 * 4);
+for (const y of ['', 'y', "y'", 'y2']) for (const pll of plls) for (const oll of olls) {
+  const rotated = validateOpCase(pll, oll, y, simulate, true);
+  assert.equal(rotated.z2, true);
+  assert.equal(rotated.scramble.split(' ')[0], 'z2');
+  assert.equal(simulate(rotated.scramble.split(' ')), rotated.beforeFacelets);
+  assert.equal(simulate([...rotated.scramble.split(' '), ...rotated.moves]), rotated.afterFacelets);
+}
+for (const y of ['', 'y', "y'", 'y2']) for (const oll of olls) {
+  const rotated = validateOpCase(null, oll, y, simulate, true);
+  assert.equal(rotated.targetPll, '无 PLL');
+}
 console.log('无缝 OP 组合案例：通过');

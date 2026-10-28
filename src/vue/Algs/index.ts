@@ -6,6 +6,7 @@ import Playbar from "../Playbar";
 import World from "../../cuber/world";
 import Capture from "./capture";
 import { PreferanceData, PaletteData } from "../../data";
+import { loadCustomOllLibrary } from "../../ble/op-oll-library";
 
 export class AlgItem {
   name: string;
@@ -23,7 +24,8 @@ export class AlgGroup {
 }
 
 export class AlgsData {
-  algs: AlgGroup[] = require("./algs.json");
+  algs: AlgGroup[] = (require("./algs.json") as AlgGroup[]).map(group =>
+    ({ ...group, items: group.items.map(item => ({ ...item })) }));
   private values: {
     version: string;
     position: { group: number; index: number };
@@ -36,6 +38,17 @@ export class AlgsData {
 
   constructor() {
     this.load();
+    this.refreshCustomOlls();
+  }
+
+  refreshCustomOlls(): void {
+    const builtin = this.algs[1];
+    const items = loadCustomOllLibrary(window.localStorage, builtin.items).map(item => ({
+      name: item.name, origin: item.origin, exp: item.origin, order: 3, scramble: false,
+    }));
+    this.algs.splice(3, 1, { name: "自定义 OLL", strip: builtin.strip, mutable: false, items });
+    if (!this.algs[this.values.position.group]?.items[this.values.position.index])
+      this.values.position = { group: 0, index: 0 };
   }
 
   load(): void {
@@ -48,7 +61,7 @@ export class AlgsData {
         this.values = data;
       }
     }
-    for (let i = 0; i < this.algs.length; i++) {
+    for (let i = 0; i < 3; i++) {
       const group = this.algs[i];
       const modify = this.values.modify[i];
       for (let j = 0; j < group.items.length; j++) {
@@ -93,7 +106,15 @@ export default class Algs extends Vue {
   private appActive = true;
   private viewFrame: number | null = null;
   onAppDeactivate(): void { this.appActive = false; if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame); this.viewFrame = null; }
-  onAppActivate(): void { if (this.appActive) return; this.appActive = true; this.resize(); this.loop(); }
+  onAppActivate(): void {
+    if (this.appActive) return;
+    this.data.refreshCustomOlls();
+    this.pics[3] = [];
+    this.appActive = true;
+    this.resize();
+    this.reload();
+    this.loop();
+  }
   beforeDestroy(): void { this.onAppDeactivate(); }
   @Provide("world")
   world: World = new World();
@@ -163,7 +184,7 @@ export default class Algs extends Vue {
     if (this.viewport.draw()) {
       return;
     }
-    for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 2; i++) {
       this.pics.some((pics, i) => {
         const group = this.data.algs[i];
         if (pics.length >= group.items.length) {
@@ -237,10 +258,12 @@ export default class Algs extends Vue {
   @Watch("action")
   onActionChange(): void {
     const pos = this.data.position;
-    this.data.modify(pos.group, pos.index, this.action);
-    this.data.save();
-    if (this.pics[pos.group][pos.index]) {
-      this.pics[pos.group][pos.index] = this.snap(pos.group, pos.index);
+    if (pos.group < 3) {
+      this.data.modify(pos.group, pos.index, this.action);
+      this.data.save();
+      if (this.pics[pos.group]?.[pos.index]) {
+        this.pics[pos.group][pos.index] = this.snap(pos.group, pos.index);
+      }
     }
     this.playbar.action = this.action;
   }

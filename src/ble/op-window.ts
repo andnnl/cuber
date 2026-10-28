@@ -2,7 +2,7 @@ import { describePllSix, matchPllSix, distinguishingRelations, PllSixDescription
 import { PLL_SIX_CATALOG } from './pll-six-sticker-catalog';
 import { applyStickerPermutation, traceOpStickers } from './op-sticker-trace';
 
-export type OpView = 'FR' | 'LF';
+export type OpView = 'FR' | 'RB' | 'BL' | 'LF';
 export type OpWindow = { indices: number[]; six: string; sources: number[]; related: number[];
   description: PllSixDescription | null; match: PllSixMatch | null };
 export type OpWindowScore = { unique: boolean; visibleSources: number; relationCount: number };
@@ -26,10 +26,19 @@ export function scoreOpWindow(window: OpWindow, view: OpView): OpWindowScore {
 }
 
 export function opWindowIndices(view: OpView): number[] {
-  return view === 'FR' ? [18, 19, 20, 9, 10, 11] : [36, 37, 38, 18, 19, 20];
+  switch (view) {
+    case 'FR': return [18, 19, 20, 9, 10, 11];
+    case 'RB': return [9, 10, 11, 45, 46, 47];
+    case 'BL': return [45, 46, 47, 36, 37, 38];
+    case 'LF': return [36, 37, 38, 18, 19, 20];
+  }
 }
 
-const rotateToLF = traceOpStickers(["y'"]).positions[1];
+const rotations: Partial<Record<OpView, number[]>> = {
+  RB: traceOpStickers(['y']).positions[1],
+  BL: traceOpStickers(['y2']).positions[1],
+  LF: traceOpStickers(["y'"]).positions[1],
+};
 
 export function opWindow(before: string, positions: number[][], view: OpView,
   pieceIds?: number[]): OpWindow {
@@ -41,7 +50,7 @@ export function opWindow(before: string, positions: number[][], view: OpView,
   if (sources.some(id => id < 0) || new Set(sources).size !== 6) throw Error('六格来源不唯一');
   const keyPieces = new Set(sources.map(id => pieceIds?.[id]).filter((id): id is number => id !== undefined));
   const related = pieceIds ? pieceIds.map((piece, id) => keyPieces.has(piece) ? id : -1).filter(id => id >= 0) : [];
-  const observed = view === 'LF' ? applyStickerPermutation(after, rotateToLF) : after;
+  const observed = rotations[view] ? applyStickerPermutation(after, rotations[view]!) : after;
   return { indices, six: indices.map(i => after[i]).join(''), sources, related,
     description: describePllSix(observed), match: matchPllSix(observed) };
 }

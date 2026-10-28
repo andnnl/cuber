@@ -10,8 +10,8 @@ android {
         applicationId = "com.cuber.trainer"
         minSdk = 24
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.0.11"
+        versionCode = 13
+        versionName = "1.0.12"
     }
 
     buildFeatures {

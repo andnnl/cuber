@@ -41,7 +41,7 @@ assert.match(wasmSolver, /client\?\.terminate\(\)/);
 assert.match(solverWorkerClient, /catch \(error\) \{[\s\S]*this\.pending\.delete\(id\)/);
 assert.match(bleTrainer, /requestAnimationFrame\(this\.loopFrame\)/);
 assert.match(bleTrainer, /cancelAnimationFrame\(this\.animationFrameId\)/);
-assert.match(gradle, /versionCode\s*=\s*12/);
+assert.match(gradle, /versionCode\s*=\s*13/);
 assert.match(gradle, new RegExp(`versionName\\s*=\\s*"${JSON.parse(fs.readFileSync('package.json', 'utf8')).version.replaceAll('.', '\\.')}"`));
 assert.match(gradle, new RegExp(`versionName\\s*=\\s*"${require('../package.json').version.replaceAll('.', '\\.')}"`));
 assert.match(gradle, /buildFeatures\s*\{[\s\S]*buildConfig\s*=\s*true[\s\S]*\}/);

@@ -6,7 +6,7 @@ export type OpSimulator = (moves: string[]) => string;
 export type OpCaseMode = 'pll' | 'none' | 'mixed';
 export type OpCase = {
   targetPll: string; pllFormula: string; ollName: string; ollFormula: string;
-  y: string; scramble: string; moves: string[]; openingAuf: string | null;
+  y: string; z2: boolean; scramble: string; moves: string[]; openingAuf: string | null;
   beforeFacelets: string; afterFacelets: string;
 };
 
@@ -24,11 +24,11 @@ function fullySolved(facelets: string): boolean {
     facelets.slice(base, base + 9) === facelets[base + 4].repeat(9));
 }
 
-export function validateOpCase(pll: OpItem | null, oll: OpItem, y: string, simulate: OpSimulator): OpCase {
+export function validateOpCase(pll: OpItem | null, oll: OpItem, y: string, simulate: OpSimulator, z2 = false): OpCase {
   if (ROTATIONS.indexOf(y) < 0) throw Error('整体朝向不支持');
   const p = pll ? parseOpFormula(pll.origin) : null;
   const o = parseOpFormula(oll.origin);
-  const scrambleMoves = [y, ...(p?.inverse || []), ...o.inverse].filter(Boolean);
+  const scrambleMoves = [z2 ? 'z2' : '', y, ...(p?.inverse || []), ...o.inverse].filter(Boolean);
   const beforeFacelets = simulate(scrambleMoves);
   const afterFacelets = simulate([...scrambleMoves, ...o.moves]);
   const targetPll = pll ? (pll.name.startsWith('PLL-') ? pll.name.slice(4) : pll.name) : '无 PLL';
@@ -39,12 +39,12 @@ export function validateOpCase(pll: OpItem | null, oll: OpItem, y: string, simul
   if (pll ? matchPllSix(afterFacelets)?.name !== targetPll : !fullySolved(afterFacelets))
     throw Error('目标 PLL 校验失败');
   return { targetPll, pllFormula: pll?.origin || '', ollName: oll.name, ollFormula: oll.origin,
-    y, scramble: scrambleMoves.join(' '), moves: o.moves, openingAuf: o.openingAuf,
+    y, z2, scramble: scrambleMoves.join(' '), moves: o.moves, openingAuf: o.openingAuf,
     beforeFacelets, afterFacelets };
 }
 
 export function generateOpCase(plls: OpItem[], olls: OpItem[], random: () => number,
-  simulate: OpSimulator, mode: OpCaseMode = 'pll'): OpCase {
+  simulate: OpSimulator, mode: OpCaseMode = 'pll', z2 = false): OpCase {
   if ((mode !== 'none' && !plls.length) || !olls.length) throw Error('PLL 或 OLL 公式池为空');
   const candidates: Array<OpItem | null> = mode === 'none' ? [null] :
     mode === 'mixed' ? [...plls, null] : plls;
@@ -54,7 +54,7 @@ export function generateOpCase(plls: OpItem[], olls: OpItem[], random: () => num
   const reasons: string[] = [];
   for (let offset = 0; offset < olls.length; offset++) {
     const oll = olls[(index + offset) % olls.length];
-    try { return validateOpCase(pll, oll, y, simulate); }
+    try { return validateOpCase(pll, oll, y, simulate, z2); }
     catch (error) { reasons.push(`${oll.name}：${(error as Error).message}`); }
   }
   throw Error(`${pll?.name || '无 PLL'} 无可用 OLL（${reasons.length} 条已检查）；${reasons[0]}`);

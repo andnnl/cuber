@@ -14,10 +14,12 @@ assert.deepEqual(trace.positions[0], Array.from({ length: 54 }, (_, i) => i));
 for (const step of trace.positions) assert.equal(new Set(step).size, 54);
 assert.deepEqual(opWindowIndices('FR'), [18, 19, 20, 9, 10, 11]);
 assert.deepEqual(opWindowIndices('LF'), [36, 37, 38, 18, 19, 20]);
+assert.deepEqual(opWindowIndices('RB'), [9, 10, 11, 45, 46, 47]);
+assert.deepEqual(opWindowIndices('BL'), [45, 46, 47, 36, 37, 38]);
 const before = simulate(['R', 'F', 'U']);
 const after = simulate(['R', 'F', 'U', 'U', 'R', "U'", "R'"]);
 assert.equal(applyStickerPermutation(before, trace.positions.at(-1)), after);
-for (const view of ['FR', 'LF']) {
+for (const view of ['FR', 'RB', 'BL', 'LF']) {
   const row = opWindow(before, trace.positions, view);
   assert.equal(row.six, opWindowIndices(view).map(i => after[i]).join(''));
   assert.deepEqual(row.sources.map(i => trace.positions.at(-1)[i]), row.indices);
@@ -41,7 +43,7 @@ for (const y of ['', 'y', "y'", 'y2']) for (const pll of plls) for (const oll of
   const sample = validateOpCase(pll, oll, y, simulate);
   const path = traceOpStickers(sample.moves);
   assert.equal(applyStickerPermutation(sample.beforeFacelets, path.positions.at(-1)), sample.afterFacelets);
-  for (const view of ['FR', 'LF']) {
+  for (const view of ['FR', 'RB', 'BL', 'LF']) {
     const row = opWindow(sample.beforeFacelets, path.positions, view, path.pieceIds);
     assert.equal(row.match.name, sample.targetPll, `${pll.name}/${oll.name}/${y}/${view}`);
     assert.equal(row.six, row.indices.map(i => sample.afterFacelets[i]).join(''));

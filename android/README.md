@@ -2,7 +2,7 @@
 
 本文档说明如何将蓝牙魔方十字训练器（BLECrossTrainer）打包为 Android APP。
 
-当前 Android 版本为 **1.0.10（versionCode 11）**。App 安装启动后默认进入
+当前 Android 版本为 **1.0.12（versionCode 13）**。App 安装启动后默认进入
 `mode=blecross`，可直接使用原生 BLE 桥扫描和连接支持的 GAN 蓝牙魔方。
 
 ## 架构说明
