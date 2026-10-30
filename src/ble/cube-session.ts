@@ -1,4 +1,4 @@
-import { CubeLink, CubeLinkKind, CubeLinkStatus } from "./cube-link";
+import { CubeLink, CubeLinkKind, CubeLinkStatus, DisconnectSource } from "./cube-link";
 import { DeviceInfo, LinkEvent } from "./types";
 import { getNativeTransport, NativeBridgeTransport } from "./transport/native";
 
@@ -9,6 +9,7 @@ export type SessionSnapshot = {
   facelets: string | null;
   lastMoveSerial: number | null;
   generation: number;
+  disconnectSource: DisconnectSource | null;
   error: string;
 };
 
@@ -25,12 +26,14 @@ export class CubeSession {
     facelets: null,
     lastMoveSerial: null,
     generation: 0,
+    disconnectSource: null,
     error: "",
   };
   private listeners = new Set<{ snapshot: SnapshotCallback; event: EventCallback }>();
   private stopEvent: () => void;
   private stopStatus: () => void;
   private reconnectStarted = false;
+  private lastKind: CubeLinkKind | null = null;
 
   constructor(private readonly link: CubeLink = new CubeLink(),
     private readonly nativeTransport: () => Pick<NativeBridgeTransport, "onScan" | "onError" | "startScan" | "stopScan"> = getNativeTransport) {
@@ -44,13 +47,23 @@ export class CubeSession {
       for (const listener of [...this.listeners]) listener.event(event);
     });
     this.stopStatus = link.onStatus((status) => {
+      const previous = this.state.status;
       this.state.status = status;
       if (status === "connecting") {
         this.state.generation++;
+        this.state.disconnectSource = null;
         this.state.error = "";
         this.state.lastMoveSerial = null;
       }
       if (status === "disconnected") {
+        this.state.disconnectSource = link.lastDisconnectSource;
+        if (previous === "connected" && this.state.disconnectSource === "transport") {
+          this.state.error = "蓝牙连接意外断开（传输层通知）；请查看控制台 [BLE] 日志";
+          console.warn("[BLE] disconnected", { source: "transport", kind: this.lastKind, generation: this.state.generation });
+        } else if (this.state.disconnectSource === "requested" || this.state.disconnectSource === "page-dispose") {
+          this.state.error = "";
+          if (previous !== "disconnected") console.info("[BLE] disconnected", { source: this.state.disconnectSource, kind: this.lastKind, generation: this.state.generation });
+        }
         this.state.facelets = null;
         this.state.battery = null;
         this.state.lastMoveSerial = null;
@@ -76,6 +89,7 @@ export class CubeSession {
   }
 
   async connect(kind: CubeLinkKind, opts?: ConnectOptions): Promise<DeviceInfo> {
+    this.lastKind = kind;
     try {
       const info = await this.link.connect(kind, opts);
       this.state.deviceName = info.name || opts?.knownName || "";
@@ -161,6 +175,7 @@ export class CubeSession {
     this.stopEvent();
     this.stopStatus();
     this.listeners.clear();
-    this.link.disconnect().catch(() => undefined);
+    if (this.state.status !== "disconnected") console.info("[BLE] disconnected", { source: "page-dispose", kind: this.lastKind, generation: this.state.generation });
+    this.link.disconnect("page-dispose").catch(() => undefined);
   }
 }

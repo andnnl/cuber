@@ -336,6 +336,7 @@ export class WebBluetoothTransport implements BleTransport {
   };
 
   private handleGattDisconnect = (): void => {
+    console.warn("[BLE] WebBluetooth GATT disconnect event", { connected: !!this.device?.gatt?.connected });
     if (this.disconnectCb) {
       this.disconnectCb();
     }

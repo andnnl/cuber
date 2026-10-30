@@ -10,6 +10,7 @@ import { getNativeTransport, nativeBridgeAvailable } from "./transport/native";
 
 export type CubeLinkKind = "web" | "mock" | "native";
 export type CubeLinkStatus = "disconnected" | "connecting" | "connected";
+export type DisconnectSource = "requested" | "page-dispose" | "transport" | "connection-failed";
 export type TransportFactory = (kind: CubeLinkKind) => BleTransport;
 
 export { webBluetoothAvailable, nativeBridgeAvailable, getNativeTransport };
@@ -32,6 +33,7 @@ export class CubeLink {
   private generation = 0;
 
   status: CubeLinkStatus = "disconnected";
+  lastDisconnectSource: DisconnectSource | null = null;
   deviceInfo: DeviceInfo | null = null;
   /** 最新 54 字符状态串 (Kociemba 布局, 与项目 serialize 一致) */
   facelets: string | null = null;
@@ -78,12 +80,14 @@ export class CubeLink {
       throw new Error("已连接或连接中");
     }
     const generation = ++this.generation;
+    this.lastDisconnectSource = null;
     this.setStatus("connecting");
     let transport: BleTransport;
     try {
       transport = this.transportFactory(kind);
     } catch (err) {
       if (generation === this.generation) {
+        this.lastDisconnectSource = "connection-failed";
         this.setStatus("disconnected");
       }
       throw err;
@@ -106,6 +110,7 @@ export class CubeLink {
       this.facelets = null;
       this.battery = null;
       this.hardware = null;
+      this.lastDisconnectSource = "transport";
       this.setStatus("disconnected");
     });
     try {
@@ -122,14 +127,16 @@ export class CubeLink {
       if (generation === this.generation && this.gan === gan) {
         this.transport = null;
         this.gan = null;
+        this.lastDisconnectSource = "connection-failed";
         this.setStatus("disconnected");
       }
       throw err;
     }
   }
 
-  async disconnect(): Promise<void> {
+  async disconnect(source: "requested" | "page-dispose" = "requested"): Promise<void> {
     ++this.generation;
+    this.lastDisconnectSource = source;
     const gan = this.gan;
     this.gan = null;
     this.transport = null;

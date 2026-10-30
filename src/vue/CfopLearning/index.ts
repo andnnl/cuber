@@ -52,7 +52,7 @@ export default class CfopLearning extends Vue {
   ghost = false;
   hideUnrelated = false;
   snapshot: SessionSnapshot = {status:'disconnected', deviceName:'', battery:null,
-    facelets:null, lastMoveSerial:null, generation:0, error:''};
+    facelets:null, lastMoveSerial:null, generation:0, disconnectSource:null, error:''};
   route: CfopRoute | null = null;
   stages: CfopStage[] = [];
   options: Candidate[] = [];

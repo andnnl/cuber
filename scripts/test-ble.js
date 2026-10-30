@@ -60,6 +60,32 @@ function bufferedMove(serial) {
 }
 
 async function main() {
+  await test("主动断开与底层失联分别标记来源，不暴露设备地址", async () => {
+    const { CubeSession } = req("cube-session.js");
+    let transport;
+    const link = new CubeLink(() => (transport = new MockGanCubeTransport()));
+    const session = new CubeSession(link);
+    try {
+      await session.connect("mock");
+      await session.disconnect();
+      assert.strictEqual(session.snapshot.disconnectSource, "requested");
+      assert.strictEqual(session.snapshot.error, "");
+      await session.connect("mock");
+      await transport.disconnect();
+      assert.strictEqual(session.snapshot.status, "disconnected");
+      assert.strictEqual(session.snapshot.disconnectSource, "transport");
+      assert.match(session.snapshot.error, /意外断开/);
+      assert.doesNotMatch(session.snapshot.error, /AA:BB:CC:DD:EE:FF/);
+    } finally { session.dispose(); }
+  });
+  await test("页面销毁的断连与主动断开分开标记", async () => {
+    const { CubeSession } = req("cube-session.js");
+    const link = new CubeLink(() => new MockGanCubeTransport());
+    const session = new CubeSession(link);
+    await session.connect("mock");
+    session.dispose();
+    assert.strictEqual(link.lastDisconnectSource, "page-dispose");
+  });
   await test("Windows 地址查询以手填为先且按设备 ID 隔离", async () => {
     const queried = [];
     const bridge = { macForDevice: async id => { queried.push(id); return id === "cube-a" ? "AA:BB:CC:DD:EE:FF" : null; } };

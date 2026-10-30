@@ -247,6 +247,7 @@ export class NativeBridgeTransport implements BleTransport {
         break;
       }
       case "disconnected": {
+        console.warn("[BLE] native bridge disconnect event", { generation: this.generation, wasConnected: this.connected });
         this.connected = false;
         if (this.connectReject) {
           this.failConnect(new Error("连接已断开"));
