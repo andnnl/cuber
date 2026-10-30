@@ -78,7 +78,7 @@
           <button @click="replay(record)">复盘题面</button>
         </div>
       </details>
-      <small>蓝牙连接保持全局可用，但实体魔方转动不改变虚拟题目，也不计入本题成绩。</small>
+      <small>跟随实体魔方仅将新转动叠加到 3D 题面作预览；实体无需与题面同步，不改变虚拟题目，也不计入本题成绩。重试可恢复题面。</small>
     </main>
     <div v-if="pickerOpen" class="op-backdrop" @click.self="pickerOpen = false; stopPaint()" @mouseup="stopPaint" @touchend="stopPaint">
       <section class="op-dialog" role="dialog" :aria-label="ollPickerOpen ? '选择 OLL' : '选择 PLL'">

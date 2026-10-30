@@ -59,7 +59,7 @@ export default class AppShell extends Vue {
   get activeMode(): string { return this.route.mode; }
   get currentComponent(): VueConstructor { return views[this.activeMode]; }
   get currentKey(): string { return routeKey(this.route); }
-  get isCubeView(): boolean { return this.activeMode !== "bleconnect" && this.activeMode !== "seamlessop"; }
+  get isCubeView(): boolean { return this.activeMode !== "bleconnect"; }
   get following(): boolean { return this.gate.isEnabled(this.activeMode); }
   get supportsBluetooth(): boolean { return nativeBridgeAvailable() || webBluetoothAvailable(); }
   get nativeBt(): boolean { return nativeBridgeAvailable(); }
@@ -141,13 +141,17 @@ export default class AppShell extends Vue {
   }
 
   private dispatch(event: LinkEvent): void {
-    if (this.activeMode === "seamlessop") return; // Virtual OP cases never follow physical moves.
     const view = this.currentView();
     if (!view) return;
     if (this.activeMode === "pll6") {
-      // 训练页的实体动作仅供计时/六面还原判定，绝不转动屏幕随机案例。
-      if (event.type === "facelets" || event.type === "move" && this.gate.accept(this.activeMode, event))
-        view.handlePhysicalEvent?.(event);
+      // 计时与六面还原判定不依赖画面跟随开关；仅实时 MOVE 的动画受开关控制。
+      if (event.type === "facelets" || event.type === "move")
+        view.handlePhysicalEvent?.(event, this.gate.accept(this.activeMode, event));
+      return;
+    }
+    if (this.activeMode === "seamlessop") {
+      if (event.type === "move" && this.gate.accept(this.activeMode, event) &&
+        !view.playing && view.step === 0 && view.world?.cube) view.world.cube.twister.push(event.move);
       return;
     }
     if (event.type === "move") {

@@ -74,6 +74,8 @@ export default class PllObservation extends Vue {
   private frame: number | null = null;
   private clock: number | null = null;
   private nextFeaturePoll = 0;
+  private caseFeatureFacelets: string | null = null;
+  private physicalPreviewMoved = false;
   private touchStart: { x: number; y: number; name: string } | null = null;
   private touchTimer: number | null = null;
   private touchPainting = false;
@@ -247,7 +249,7 @@ export default class PllObservation extends Vue {
     this.updateVisualOverlay();
   }
   private updateVisualOverlay(): void {
-    if (!this.active || !this.showCurrentFeatures || !this.actualFeature || this.actualStudyRows.length !== 1 ||
+    if (!this.active || this.physicalPreviewMoved || !this.showCurrentFeatures || !this.actualFeature || this.actualStudyRows.length !== 1 ||
       [...this.world.cube.locks.values()].some(lock => lock.size > 0)) {
       if (this.stickerPoints.length) this.stickerPoints = [];
       return;
@@ -259,10 +261,12 @@ export default class PllObservation extends Vue {
     this.showAnswer = false;
     this.feedback = '';
     this.world.cube.twister.setup(this.scramble);
+    this.caseFeatureFacelets = this.world.cube.serialize();
+    this.physicalPreviewMoved = false;
     this.refreshActualFeature();
   }
   private refreshActualFeature(): void {
-    const feature = matchPllSix(this.world.cube.serialize());
+    const feature = matchPllSix(this.caseFeatureFacelets || this.world.cube.serialize());
     if (this.actualFeature?.signature !== feature?.signature || this.actualFeature?.six !== feature?.six) this.actualFeature = feature;
     this.updateVisualOverlay();
   }
@@ -285,6 +289,8 @@ export default class PllObservation extends Vue {
     this.showAnswer = false;
     this.feedback = '';
     this.world.cube.twister.setup(record.scramble);
+    this.caseFeatureFacelets = this.world.cube.serialize();
+    this.physicalPreviewMoved = false;
     this.refreshActualFeature();
   }
   exitReplay(): void {
@@ -432,9 +438,16 @@ export default class PllObservation extends Vue {
     }
   }
   onSessionSnapshot(snapshot: SessionSnapshot): void { this.snapshot = snapshot; }
-  handlePhysicalEvent(event: LinkEvent): void {
+  handlePhysicalEvent(event: LinkEvent, followVisual = false): void {
     if (!this.active || this.replayRecord || this.snapshot?.status !== 'connected') return;
-    if (event.type === 'move') this.training.move(Date.now(), event.serial, event.recovered);
+    if (event.type === 'move') {
+      this.training.move(Date.now(), event.serial, event.recovered);
+      if (followVisual && !event.recovered) {
+        this.physicalPreviewMoved = true;
+        this.updateVisualOverlay();
+        this.world.cube.twister.push(event.move);
+      }
+    }
     if (event.type === 'facelets' && this.training.facelets(event.facelets, Date.now(), event.serial)) {
       const result = this.training.lastResult!;
       this.saveResult();

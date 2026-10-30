@@ -33,6 +33,7 @@
         <button @click="exitReplay">返回训练</button>
       </div>
       <p class="pll6-timer">{{replayRecord ? '复盘中 · 计时暂停' : elapsed}}</p>
+      <small>实体转动从当前题面叠加到 3D 画面，仅用于预览；题目线索和答案不变，关闭“跟随实体魔方”仍可计时、六面还原判定。重试可恢复题面。</small><br>
       <label class="pll6-feature-toggle"><input type="checkbox" v-model="useZ2" @change="saveZ2Preference">出题前 z2（切换后重置当前案例）</label><br>
       <label class="pll6-feature-toggle"><input type="checkbox" v-model="showCurrentFeatures" @change="saveFeaturePreference">显示当前特征</label>
       <details v-if="showCurrentFeatures" class="pll6-feature-hint" open>
