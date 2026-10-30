@@ -77,15 +77,15 @@ export class FormulaTimerStore {
 
   使用独立的版本化 localStorage 键；加载时校验类型与范围，坏数据退回默认并显示 warning；保存返回错误供界面显示，不能吞掉错误。
 - [x] **步骤 4：运行测试通过。** 同步骤 2，另外运行 `npm run test:ble`。
-- [ ] **步骤 5：提交。** `git add src/ble/formula-timer-store.ts scripts/test-formula-timer-store.cjs && git commit -m "feat(公式训练): 保存筛选设置与成绩"`。
+- [x] **步骤 5：提交。** `git add src/ble/formula-timer-store.ts scripts/test-formula-timer-store.cjs && git commit -m "feat(公式训练): 保存筛选设置与成绩"`。
 
 ## 任务 3：复用现有公式并生成题面
 
 **文件：** 创建 `src/ble/formula-timer-formula.ts`、`src/vue/FormulaTimer/formulas.ts`、`scripts/test-formula-timer-formulas.cjs`。纯解析逻辑放前者，交互与公式库读取放后者。
 
-- [ ] **步骤 1：编写失败测试。** 分别取 `src/vue/Algs/algs.json` 的 F2L／OLL／PLL 内置条目以及自定义 OLL 条目，校验括号、重复次数、宽转／整体转体的逆序；不合法公式明确报错，题面不能是还原态；原公式作用于题面应回到目标状态。
-- [ ] **步骤 2：确认失败。** 运行 `npx tsc -p tsconfig.ble.json && node scripts/test-formula-timer-formulas.cjs`，预期缺少案例生成接口。
-- [ ] **步骤 3：实现适配。**
+- [x] **步骤 1：编写失败测试。** 分别取 `src/vue/Algs/algs.json` 的 F2L／OLL／PLL 内置条目以及自定义 OLL 条目，校验括号、重复次数、宽转／整体转体的逆序；不合法公式明确报错，题面不能是还原态；原公式作用于题面应回到目标状态。
+- [x] **步骤 2：确认失败。** 运行 `npx tsc -p tsconfig.ble.json && node scripts/test-formula-timer-formulas.cjs`，预期缺少案例生成接口。
+- [x] **步骤 3：实现适配。**
 
 ```ts
 export interface FormulaItem { id: string; category: FormulaCategory; name: string; formula: string }
@@ -94,8 +94,8 @@ export function makeFormulaCase(item: FormulaItem): FormulaCase;
 ```
 
   读取用户在公式库修改的 `exp`，OLL 自定义源复用 `loadCustomOllLibrary`。生成失败返回可见错误，不进入随机池，避免在计时路径频繁模拟。
-- [ ] **步骤 4：运行测试通过，并运行 `npm run verify`。**
-- [ ] **步骤 5：提交。** `git add src/vue/FormulaTimer/formulas.ts src/ble/formula-timer-formula.ts scripts/test-formula-timer-formulas.cjs && git commit -m "feat(公式训练): 从公式库生成有效题面"`。
+- [x] **步骤 4：运行测试通过，并运行 `npm run verify -- test`。**
+- [x] **步骤 5：提交。** `git add src/vue/FormulaTimer/formulas.ts src/ble/formula-timer-formula.ts scripts/test-formula-timer-formulas.cjs && git commit -m "feat(公式训练): 从公式库生成有效题面"`。
 
 ## 任务 4：页面、选择弹窗、记录与慢公式筛选
 
@@ -131,7 +131,7 @@ handlePhysicalEvent(event: LinkEvent, live: boolean): void {
 ## 任务 6：验收与清理
 
 - [ ] 核查规格的每一项：题面与实体不要求同步、首转起表、OLL 特殊目标、停转 1 秒、自动下一题、轮次清理、慢公式无样本和空池、异常断连；必要时补测试而非只补注释。
-- [ ] `git diff --check`；运行 `npm run test:ble && npm run test:pll && npm run test:op && npm run verify && npm run build`。对无法在 CI 模拟的真实蓝牙设备验证，明确在交接中告知用户需要本机手测。
+- [ ] `git diff --check`；运行 `npm run test:ble && npm run test:pll && npm run test:op && npm run verify -- test && npm run build`。对无法在 CI 模拟的真实蓝牙设备验证，明确在交接中告知用户需要本机手测。
 - [ ] `git status --short`，只保留用户原有未跟踪文件；不删除 `.superpowers/`、`.trae/` 或历史计划。
 
 ## 规格自检映射

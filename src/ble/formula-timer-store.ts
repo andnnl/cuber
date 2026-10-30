@@ -20,7 +20,7 @@ function defaults(): FormulaTimerSettings {
 }
 
 function validRecord(value: any): value is FormulaRecord {
-  return value && CATEGORIES.includes(value.category) && RESULTS.includes(value.result) &&
+  return value && CATEGORIES.indexOf(value.category) >= 0 && RESULTS.indexOf(value.result) >= 0 &&
     ['id', 'name', 'formula', 'initialFacelets'].every(key => typeof value[key] === 'string') &&
     Number.isFinite(value.at) && Number.isFinite(value.durationMs) && value.durationMs >= 0;
 }
@@ -35,7 +35,7 @@ export class FormulaTimerStore {
       const data = JSON.parse(raw);
       if (data.version !== 1 || !data.settings || !Array.isArray(data.records)) throw Error('版本或结构不匹配');
       const value = data.settings;
-      if (!CATEGORIES.includes(value.category) || !['repeat', 'random'].includes(value.nextMode) ||
+      if (CATEGORIES.indexOf(value.category) < 0 || ['repeat', 'random'].indexOf(value.nextMode) < 0 ||
           typeof value.slowOnly !== 'boolean' || !Number.isFinite(value.slowSeconds) ||
           value.slowSeconds <= 0 || !value.selectedIds ||
           !CATEGORIES.every(category => Array.isArray(value.selectedIds[category]) &&
