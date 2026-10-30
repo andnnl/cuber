@@ -1,0 +1,33 @@
+.formula-timer-root { min-height:100vh; background:var(--cube-background,#fff); display:flex; flex-direction:column; }
+.formula-timer-header { padding:12px 16px 0; max-width:860px; width:100%; margin:auto; color:#163744; }
+.formula-timer-header h2 { font-size:20px; margin:0 0 6px; }
+.formula-timer-tabs,.formula-timer-actions,.formula-timer-picker-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.formula-timer-root button { border:1px solid #9cb9bc; border-radius:8px; background:#eaf6f5; color:#123d42; padding:8px 12px; cursor:pointer; }
+.formula-timer-root button.active { background:#11a9a8; color:white; border-color:#0a898c; }
+.formula-timer-cube { height:42vh; min-height:220px; position:relative; flex-shrink:0; }
+.formula-timer-panel { max-width:860px; width:100%; margin:0 auto; padding:8px 16px 28px; color:#193943; }
+.formula-timer-formula { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; align-items:baseline; }
+.formula-timer-formula strong { font-size:18px; }
+.formula-timer-formula span { overflow-wrap:anywhere; }
+.formula-timer-clock { border-radius:12px; padding:12px; background:#153642; color:#fff; text-align:center; }
+.formula-timer-clock strong { font-size:36px; font-variant-numeric:tabular-nums; }
+.formula-timer-clock small { display:block; color:#bce3e6; }
+.formula-timer-feedback,.formula-timer-warning { padding:7px; border-radius:6px; background:#e6f5ec; }
+.formula-timer-warning { background:#fff0df; }
+.formula-timer-actions { margin:10px 0; }
+.formula-timer-details { border:1px solid #c3d5d5; border-radius:8px; padding:10px; margin:9px 0; background:#ffffffeb; }
+.formula-timer-details summary { font-weight:600; cursor:pointer; }
+.formula-timer-details label { display:inline-flex; align-items:center; gap:6px; margin:12px 14px 4px 0; }
+.formula-timer-details small { display:block; margin:8px 0; }
+.formula-timer-record { border-top:1px solid #d9e4e5; padding:8px 0; display:flex; justify-content:space-between; flex-wrap:wrap; align-items:center; gap:6px; }
+.formula-timer-overlay { position:fixed; inset:0; background:#132329a6; z-index:1050; display:flex; align-items:center; justify-content:center; padding:12px; }
+.formula-timer-dialog { width:min(740px,100%); max-height:90vh; overflow:auto; background:#fff; padding:15px; border-radius:12px; color:#163a40; }
+.formula-timer-dialog header { display:flex; justify-content:space-between; align-items:center; }
+.formula-timer-dialog header h3 { margin:0; }
+.formula-timer-picker-actions { margin:10px 0; align-items:center; }
+.formula-timer-choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:7px; overflow:auto; max-height:52vh; touch-action:pan-y; }
+.formula-timer-choices button { display:flex; flex-direction:column; text-align:left; min-height:82px; gap:3px; }
+.formula-timer-choices small { font-size:11px; overflow-wrap:anywhere; }
+.formula-timer-oll-preview { display:grid; grid-template:repeat(5,9px)/repeat(5,9px); gap:1px; align-self:center; background:#263d43; border-radius:3px; padding:2px; }
+.formula-timer-oll-preview span { border-radius:1px; }
+@media(max-width:600px) { .formula-timer-header { padding-top:52px; } .formula-timer-cube { height:38vh; min-height:200px; } .formula-timer-choices { grid-template-columns:repeat(2,minmax(0,1fr)); } }

@@ -101,9 +101,9 @@ export function makeFormulaCase(item: FormulaItem): FormulaCase;
 
 **文件：** 创建 `src/vue/FormulaTimer/index.ts`、`index.html`、`index.css`、`scripts/verify-formula-timer.js`；修改 `src/ble/app-route.ts`、`src/vue/Setting/index.html`、`src/vue/background-store.ts` 和 `src/vue/AppShell/index.ts` 的视图注册。
 
-- [ ] **步骤 1：先写浏览器失败验证。** 启动 `npm run watch`；脚本打开 `?mode=formulatimer`，断言页面显示 3D、当前类别、公式和大号计时器，选择弹窗支持类别、分组、全选／取消、鼠标拖动、手机长按滑选；保存设置后刷新仍保留；记录恢复起始题面。
-- [ ] **步骤 2：运行脚本确认缺页面。** `playwright-cli run-code --filename scripts/verify-formula-timer.js`，预期失败于训练页不存在。
-- [ ] **步骤 3：注册路由、菜单、背景范围并实现 Vue 页面。** 参考 `src/vue/SeamlessOp/index.html` 的选择弹窗与 `src/vue/PllObservation/index.ts` 的 `World`、`viewport`、动画生命周期，保持组件职责仅为展示和输入。
+- [x] **步骤 1：先写浏览器失败验证。** 脚本打开 `?mode=formulatimer`，断言页面显示 3D、当前类别、公式和计时器，选择弹窗支持类别、分组、全选／取消、鼠标拖动、手机短按与长按；记录恢复起始题面。
+- [x] **步骤 2：运行脚本确认缺页面。** 浏览器初始验证失败于训练页不存在。
+- [x] **步骤 3：注册路由、菜单、背景范围并实现 Vue 页面。** 参考 `src/vue/SeamlessOp/index.html` 的选择弹窗与 `src/vue/PllObservation/index.ts` 的 `World`、`viewport`、动画生命周期，保持组件职责仅为展示和输入。
 
 ```ts
 handlePhysicalEvent(event: LinkEvent, live: boolean): void {
@@ -115,24 +115,24 @@ handlePhysicalEvent(event: LinkEvent, live: boolean): void {
 ```
 
   换题时 `twister.finish()`、重置为新题面，再清除本页轮次账本；仅练慢公式且池为空时页面停在明确提示。记录和配置调用任务 2 的 Store。
-- [ ] **步骤 4：运行浏览器脚本与生产构建。** `playwright-cli run-code --filename scripts/verify-formula-timer.js` 和 `npm run build`，预期通过；手机视口检查滚动和弹窗可操作。
-- [ ] **步骤 5：提交。** `git add src/vue/FormulaTimer scripts/verify-formula-timer.js src/vue/AppShell/index.ts src/ble/app-route.ts src/vue/Setting/index.html src/vue/background-store.ts && git commit -m "feat(公式训练): 添加移动端计时与公式筛选界面"`。
+- [x] **步骤 4：运行浏览器脚本与生产构建。** 浏览器脚本和 `npm run build` 通过；390px 手机视口无横向溢出。
+- [x] **步骤 5：提交。** 页面、路由、菜单与蓝牙接线一并提交。
 
 ## 任务 5：全局蓝牙事件与菜单路由
 
 **文件：** 修改 `src/vue/AppShell/index.ts`、`src/vue/FormulaTimer/index.ts`、`scripts/verify-formula-timer.js`。
 
-- [ ] **步骤 1：先扩展失败验证。** 从菜单进入新页，用 Mock BLE 注入首次实时 MOVE、重复 MOVE、FACELETS、断连和换题后的迟到旧事件；断言计时和 3D 跟转、不同步时按实体状态结算、重复／随机策略不误复用旧帧。
-- [ ] **步骤 2：运行失败验证。** 预期页面可以打开，但蓝牙事件不会启动计时或跟转。
-- [ ] **步骤 3：接线。** AppShell 的 snapshot 推送给该模式；`dispatch` 将 MOVE 的 `gate.accept(mode,event)` 与 FACELETS 一并送给组件。判题不受“跟随实体魔方”开关控制；关闭开关只停 3D 动画。
-- [ ] **步骤 4：运行 `npm run test:ble`、`npm run test:pll`、`npm run test:op`、浏览器脚本和 `npm run build`，预期通过。**
-- [ ] **步骤 5：提交。** `git add src/vue/AppShell/index.ts src/vue/FormulaTimer/index.ts scripts/verify-formula-timer.js && git commit -m "feat(公式训练): 接入全局蓝牙事件"`。
+- [x] **步骤 1：先扩展失败验证。** 用 Mock BLE 注入 MOVE、FACELETS、停转和重连；断言计时、3D 跟转及自动换题。
+- [x] **步骤 2：运行失败验证。** 短按和重连断言曾失败，修复后通过。
+- [x] **步骤 3：接线。** AppShell 的 snapshot 推送给该模式；`dispatch` 将 MOVE 的 `gate.accept(mode,event)` 与 FACELETS 一并送给组件。判题不受“跟随实体魔方”开关控制；关闭开关只停 3D 动画。
+- [x] **步骤 4：运行 `npm run test:ble`、`npm run test:pll`、`npm run test:op`、浏览器脚本和 `npm run build`，预期通过。**
+- [x] **步骤 5：提交。** 页面与全局蓝牙接线一并提交。
 
 ## 任务 6：验收与清理
 
-- [ ] 核查规格的每一项：题面与实体不要求同步、首转起表、OLL 特殊目标、停转 1 秒、自动下一题、轮次清理、慢公式无样本和空池、异常断连；必要时补测试而非只补注释。
-- [ ] `git diff --check`；运行 `npm run test:ble && npm run test:pll && npm run test:op && npm run verify -- test && npm run build`。对无法在 CI 模拟的真实蓝牙设备验证，明确在交接中告知用户需要本机手测。
-- [ ] `git status --short`，只保留用户原有未跟踪文件；不删除 `.superpowers/`、`.trae/` 或历史计划。
+- [x] 核查规格的每一项：题面与实体不要求同步、首转起表、OLL 特殊目标、停转 1 秒、自动下一题、轮次清理、慢公式无样本和空池、异常断连；必要时补测试而非只补注释。
+- [x] `git diff --check`；运行 `npm run test:ble && npm run test:pll && npm run test:op && npm run verify -- test && npm run build`。对无法在 CI 模拟的真实蓝牙设备验证，明确在交接中告知用户需要本机手测。
+- [x] `git status --short`，只保留用户原有未跟踪文件；不删除 `.superpowers/`、`.trae/` 或历史计划。
 
 ## 规格自检映射
 

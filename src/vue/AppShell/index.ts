@@ -12,6 +12,7 @@ import CfopLearning from "../CfopLearning";
 import BleConnectTutorial from "../BleConnectTutorial";
 import PllObservation from "../PllObservation";
 import SeamlessOp from "../SeamlessOp";
+import FormulaTimerView from "../FormulaTimer";
 import { CubeSession, SessionSnapshot } from "../../ble/cube-session";
 import { FollowGate } from "../../ble/follow-gate";
 import { AppRoute, parseAppRoute, routeKey, routeUrl } from "../../ble/app-route";
@@ -24,7 +25,7 @@ import "./index.css";
 const views: { [mode: string]: VueConstructor } = {
   playground: Playground, director: Director, player: Player, helper: Helper, algs: Algs,
   f2l: F2LTrainer, crossf2l: CrossF2LTrainer, blecross: BleCrossTrainer, cfop: CfopLearning, bleconnect: BleConnectTutorial,
-  pll6: PllObservation, seamlessop: SeamlessOp,
+  pll6: PllObservation, seamlessop: SeamlessOp, formulatimer: FormulaTimerView,
 };
 
 @Component({
@@ -88,7 +89,7 @@ export default class AppShell extends Vue {
     Vue.prototype.mode = this.activeMode;
     this.stopSession = this.session.subscribe((snapshot) => {
       this.snapshot = snapshot;
-      if (this.activeMode === "blecross" || this.activeMode === "cfop" || this.activeMode === "pll6") this.currentView()?.onSessionSnapshot?.(snapshot);
+      if (this.activeMode === "blecross" || this.activeMode === "cfop" || this.activeMode === "pll6" || this.activeMode === "formulatimer") this.currentView()?.onSessionSnapshot?.(snapshot);
     }, (event) => this.dispatch(event));
     window.addEventListener("popstate", this.onPopState);
     void this.session.tryAutoReconnect();
@@ -145,6 +146,11 @@ export default class AppShell extends Vue {
     if (!view) return;
     if (this.activeMode === "pll6") {
       // 计时与六面还原判定不依赖画面跟随开关；仅实时 MOVE 的动画受开关控制。
+      if (event.type === "facelets" || event.type === "move")
+        view.handlePhysicalEvent?.(event, this.gate.accept(this.activeMode, event));
+      return;
+    }
+    if (this.activeMode === "formulatimer") {
       if (event.type === "facelets" || event.type === "move")
         view.handlePhysicalEvent?.(event, this.gate.accept(this.activeMode, event));
       return;
