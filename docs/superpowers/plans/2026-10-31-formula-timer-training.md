@@ -54,15 +54,15 @@ export class FormulaTimer {
 
   `FormulaTimer` 注入 `now`、`setTimeout`、`clearTimeout` 和 `requestFacelets`，使用轮次代号及 MOVE 序号门控旧帧。首转前忽略已完成快照；停转边界先请求最新 FACELETS，新 MOVE 可取消结算；请求失败进入中断而非失败。
 - [x] **步骤 4：验证通过。** 运行相同命令，预期全部断言通过；`npm run test:pll` 和 `npm run test:op` 仍通过。
-- [ ] **步骤 5：仅提交本任务文件。** `git add src/ble/formula-timer.ts scripts/test-formula-timer.cjs && git commit -m "feat(公式训练): 添加蓝牙计时判定状态机"`。
+- [x] **步骤 5：仅提交本任务文件。** `git add src/ble/formula-timer.ts scripts/test-formula-timer.cjs && git commit -m "feat(公式训练): 添加蓝牙计时判定状态机"`。
 
 ## 任务 2：版本化设置与成绩存储
 
 **文件：** 创建 `src/ble/formula-timer-store.ts`、`scripts/test-formula-timer-store.cjs`。
 
-- [ ] **步骤 1：写失败测试。** 用内存 Storage 验证默认值、三类独立选择、随机／重复、阈值 3 秒、慢公式开关、历史保留、坏 JSON 回退和写失败提示；不得触碰既有 `algs`、`pll6Records` 等键。
-- [ ] **步骤 2：确认失败。** 运行 `npx tsc -p tsconfig.ble.json && node scripts/test-formula-timer-store.cjs`，预期缺少模块。
-- [ ] **步骤 3：实现接口。**
+- [x] **步骤 1：写失败测试。** 用内存 Storage 验证默认值、三类独立选择、随机／重复、阈值 3 秒、慢公式开关、历史保留、坏 JSON 回退和写失败提示；不得触碰既有 `algs`、`pll6Records` 等键。
+- [x] **步骤 2：确认失败。** 运行 `npx tsc -p tsconfig.ble.json && node scripts/test-formula-timer-store.cjs`，预期缺少模块。
+- [x] **步骤 3：实现接口。**
 
 ```ts
 export interface FormulaTimerSettings {
@@ -76,7 +76,7 @@ export class FormulaTimerStore {
 ```
 
   使用独立的版本化 localStorage 键；加载时校验类型与范围，坏数据退回默认并显示 warning；保存返回错误供界面显示，不能吞掉错误。
-- [ ] **步骤 4：运行测试通过。** 同步骤 2，另外运行 `npm run test:ble`。
+- [x] **步骤 4：运行测试通过。** 同步骤 2，另外运行 `npm run test:ble`。
 - [ ] **步骤 5：提交。** `git add src/ble/formula-timer-store.ts scripts/test-formula-timer-store.cjs && git commit -m "feat(公式训练): 保存筛选设置与成绩"`。
 
 ## 任务 3：复用现有公式并生成题面
