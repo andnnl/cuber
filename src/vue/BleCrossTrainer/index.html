@@ -36,7 +36,7 @@
               color="primary"
               @click="onConnectTap"
               :disabled="!webBt && !nativeBt"
-              :title="nativeBt ? '扫描附近的 GAN 魔方 (练习中随时可连)' : '通过 Web Bluetooth 连接 (练习中随时可连)'"
+              :title="nativeBt ? '扫描附近的蓝牙魔方 (练习中随时可连)' : '通过 Web Bluetooth 连接 (练习中随时可连)'"
               :style="{height: size * 0.55 + 'px'}"
             >{{ status === 'connected' ? '已连接' : status === 'connecting' ? '连接中' : '连接魔方' }}</v-btn>
             <v-btn
@@ -80,7 +80,7 @@
             />
             <v-btn
               x-small
-              @click="connect('web')"
+              @click="connect('web', {mac: manualMac.trim()})"
               :style="{height: size * 0.5 + 'px'}"
               title="用填写的 MAC 连接 (跳过 watchAdvertisements)"
             >用 MAC 连接</v-btn>
@@ -656,7 +656,7 @@
           <div>&nbsp;&nbsp;4 条棱围住同色中心、侧面贴纸与相邻中心对齐 (姿态无关)</div>
           <div>· 屏幕中的 3D 魔方实时镜像你的实体魔方</div>
           <div style="margin-top: 8px;"><b>设备支持</b></div>
-          <div>· GAN Gen2/3/4 (356i / i2 / i Carry / M 系列智能魔方)</div>
+          <div>· GAN Gen2/3/4、MoYu32、QYSC / Tornado V4 智能魔方（连接兼容性以设备实测为准）</div>
           <div>· 上次连接过的魔方自动重连: App 内刷新界面即连;</div>
           <div>&nbsp;&nbsp;浏览器刷新后经已授权设备找回 (Chrome 114+), 魔方开机即可</div>
           <div>· Chrome/Edge 浏览器走 Web Bluetooth; App 内走原生蓝牙</div>

@@ -78,6 +78,7 @@ public class BleBridge {
     private String pendingAction = "";
     /** JS 发起的连接代际；回调入队时固定，防止旧 evaluateJavascript 落到新连接。 */
     private volatile int connectionGeneration = 0;
+    private boolean mtuDiscoveryStarted;
 
     public BleBridge(Activity activity, WebView webView) {
         this.activity = activity;
@@ -289,6 +290,7 @@ public class BleBridge {
         Log.i(TAG, "connect starting: " + address);
         stopScanInternal();
         closeGatt();
+        mtuDiscoveryStarted = false;
         try {
             BluetoothDevice device = adapter.getRemoteDevice(address);
             gatt = device.connectGatt(activity, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
@@ -314,7 +316,13 @@ public class BleBridge {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "GATT connected; discovering services");
                 try {
-                    g.discoverServices();
+                    String name = g.getDevice().getName();
+                    boolean qiyi = name != null && (name.startsWith("QY-QYSC") || name.startsWith("XMD-TornadoV4-i"));
+                    if (qiyi && g.requestMtu(100)) {
+                        activity.runOnUiThread(() -> webView.postDelayed(() -> discoverAfterMtu(g), 2500));
+                    } else {
+                        discoverAfterMtu(g);
+                    }
                 } catch (SecurityException e) {
                     dispatchError("权限不足: " + e.getMessage());
                 }
@@ -323,6 +331,12 @@ public class BleBridge {
                 closeGatt();
                 dispatch("disconnected", new JSONObject());
             }
+        }
+
+        @Override
+        public void onMtuChanged(BluetoothGatt g, int mtu, int status) {
+            Log.i(TAG, "MTU negotiated: " + mtu + ", status=" + status);
+            discoverAfterMtu(g);
         }
 
         @Override
@@ -410,6 +424,17 @@ public class BleBridge {
             dispatchNotify(value);
         }
     };
+
+    @SuppressLint("MissingPermission")
+    private void discoverAfterMtu(BluetoothGatt g) {
+        if (g != gatt || mtuDiscoveryStarted) return;
+        mtuDiscoveryStarted = true;
+        try {
+            if (!g.discoverServices()) dispatchError("服务发现请求失败");
+        } catch (SecurityException e) {
+            dispatchError("权限不足: " + e.getMessage());
+        }
+    }
 
     /** 串行订阅: setCharacteristicNotification + 写 CCCD, 完成后队列下一个; 空了上报 services */
     @SuppressLint("MissingPermission")

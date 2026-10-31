@@ -41,7 +41,7 @@ assert.match(wasmSolver, /client\?\.terminate\(\)/);
 assert.match(solverWorkerClient, /catch \(error\) \{[\s\S]*this\.pending\.delete\(id\)/);
 assert.match(bleTrainer, /requestAnimationFrame\(this\.loopFrame\)/);
 assert.match(bleTrainer, /cancelAnimationFrame\(this\.animationFrameId\)/);
-assert.match(gradle, /versionCode\s*=\s*13/);
+assert.match(gradle, /versionCode\s*=\s*14/);
 assert.match(gradle, new RegExp(`versionName\\s*=\\s*"${JSON.parse(fs.readFileSync('package.json', 'utf8')).version.replaceAll('.', '\\.')}"`));
 assert.match(gradle, new RegExp(`versionName\\s*=\\s*"${require('../package.json').version.replaceAll('.', '\\.')}"`));
 assert.match(gradle, /buildFeatures\s*\{[\s\S]*buildConfig\s*=\s*true[\s\S]*\}/);
@@ -60,5 +60,7 @@ assert.match(bleTemplate, /closeScanDialog/);
 assert.match(bleBridge, /Log\.i\(TAG, "scan requested"\)/);
 assert.match(bleBridge, /Log\.i\(TAG, "scan started"\)/);
 assert.match(bleBridge, /Log\.i\(TAG, "connect requested:/);
+assert.match(bleBridge, /requestMtu\((?:64|\d{3})\)/, "QiYi 完整状态帧需协商较大的 ATT MTU");
+assert.match(bleBridge, /onMtuChanged\(/, "MTU 回调后继续发现 GATT 服务");
 
 console.log("Android app configuration tests passed");

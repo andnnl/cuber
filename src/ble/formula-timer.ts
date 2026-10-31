@@ -3,7 +3,7 @@ import { isSolvedFacelets } from './pll-training';
 export type FormulaCategory = 'f2l' | 'oll' | 'pll';
 export type FormulaResult = 'success' | 'idle-failure' | 'interrupted';
 export interface FormulaCase { id: string; category: FormulaCategory; name: string; formula: string; initialFacelets: string; scramble?: string }
-export interface FormulaRecord extends FormulaCase { at: number; durationMs: number; result: FormulaResult }
+export interface FormulaRecord extends FormulaCase { at: number; durationMs: number; reactionMs?: number; result: FormulaResult }
 
 export function isFormulaGoal(category: FormulaCategory, facelets: string): boolean {
   if (category !== 'oll') return isSolvedFacelets(facelets);
@@ -30,6 +30,8 @@ export interface FormulaTimerClock {
 
 export class FormulaTimer {
   current: FormulaCase | null = null;
+  presentedAt: number | null = null;
+  reactionMs: number | null = null;
   startedAt: number | null = null;
   lastMoveAt: number | null = null;
   private generation = 0;
@@ -42,9 +44,10 @@ export class FormulaTimer {
 
   constructor(private readonly clock: FormulaTimerClock) {}
 
-  beginCase(item: FormulaCase): number {
+  beginCase(item: FormulaCase, displayedAt = this.clock.now()): number {
     this.cancel();
     this.current = item;
+    this.presentedAt = displayedAt;
     this.startedAt = null;
     this.lastMoveAt = null;
     this.startSerial = this.lastSerial;
@@ -58,6 +61,7 @@ export class FormulaTimer {
     if (!this.current || recovered || (serial !== undefined && serial > 0 && serial <= this.lastSerial)) return false;
     if (serial !== undefined && serial > 0) this.lastSerial = serial;
     if (this.startedAt === null) {
+      this.reactionMs = Math.max(0, at - this.presentedAt!);
       this.startedAt = at;
       this.startSerial = serial && serial > 0 ? serial : 0;
       this.seenUnfinished = !!this.baseline && !isFormulaGoal(this.current.category, this.baseline);
@@ -89,6 +93,8 @@ export class FormulaTimer {
     this.generation++;
     this.clearJob();
     this.current = null;
+    this.presentedAt = null;
+    this.reactionMs = null;
     this.startedAt = null;
     this.lastMoveAt = null;
     this.lastFreshFacelets = '';
@@ -118,7 +124,8 @@ export class FormulaTimer {
 
   private finish(result: FormulaResult, at: number): void {
     if (!this.current || this.startedAt === null) return;
-    const record: FormulaRecord = { ...this.current, result, at, durationMs: Math.max(0, at - this.startedAt) };
+    const record: FormulaRecord = { ...this.current, result, at, durationMs: Math.max(0, at - this.startedAt),
+      reactionMs: this.reactionMs! };
     this.cancel();
     this.clock.onResult(record);
   }

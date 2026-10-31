@@ -1,7 +1,7 @@
 {
   "name": "cuber",
   "description": "Rubik's Cube toolbox using Javascript for 100% client side single page application using Vue and Vuetify.",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "author": "huazhechen",
   "license": "MIT",
   "private": true,
@@ -17,7 +17,7 @@
     "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js",
     "test:pll": "tsc -p tsconfig.ble.json && node scripts/test-pll-training.cjs && node scripts/test-pll-six-sticker.cjs",
     "test:op": "tsc -p tsconfig.ble.json && node scripts/test-op-formula.cjs && node scripts/test-op-preview.cjs && node scripts/test-op-case.cjs && node scripts/test-op-trace.cjs && node scripts/test-op-top-net.cjs && node scripts/test-op-focus.cjs && node scripts/test-op-training.cjs && node scripts/test-op-custom-oll.cjs && node scripts/test-op-oll-library.cjs && node scripts/test-op-oll-transfer.cjs",
-    "test:formula-timer": "tsc -p tsconfig.ble.json && node scripts/test-formula-timer.cjs && node scripts/test-formula-timer-store.cjs && node scripts/test-formula-timer-formulas.cjs",
+    "test:formula-timer": "tsc -p tsconfig.ble.json && node scripts/test-formula-timer.cjs && node scripts/test-formula-timer-store.cjs && node scripts/test-formula-timer-formulas.cjs && node scripts/test-formula-timer-preview.cjs",
     "test:android": "node scripts/test-android-app.js",
     "test:desktop": "node desktop/desktop.test.cjs",
     "test:linux-scanner": "sh scripts/build-linux-scanner.sh && node scripts/test-linux-scanner.cjs",

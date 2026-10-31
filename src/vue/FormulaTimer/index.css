@@ -10,25 +10,34 @@
 .formula-timer-formula strong { font-size:18px; }
 .formula-timer-formula span { overflow-wrap:anywhere; }
 .formula-timer-scramble { margin:4px 0 8px; font-size:13px; overflow-wrap:anywhere; }
+.formula-timer-clocks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 .formula-timer-clock { border-radius:12px; padding:12px; background:#153642; color:#fff; text-align:center; }
 .formula-timer-clock strong { font-size:36px; font-variant-numeric:tabular-nums; }
 .formula-timer-clock small { display:block; color:#bce3e6; }
+.formula-timer-status { display:block; margin-top:5px; color:#405d65; }
 .formula-timer-feedback,.formula-timer-warning { padding:7px; border-radius:6px; background:#e6f5ec; }
 .formula-timer-warning { background:#fff0df; }
 .formula-timer-actions { margin:10px 0; }
+.formula-timer-z2 { display:inline-flex; align-items:center; gap:6px; cursor:pointer; }
+.formula-timer-z2 input { width:18px; height:18px; margin:0; accent-color:#0a898c; }
 .formula-timer-details { border:1px solid #c3d5d5; border-radius:8px; padding:10px; margin:9px 0; background:#ffffffeb; }
 .formula-timer-details summary { font-weight:600; cursor:pointer; }
 .formula-timer-details label { display:inline-flex; align-items:center; gap:6px; margin:12px 14px 4px 0; }
 .formula-timer-details small { display:block; margin:8px 0; }
 .formula-timer-record { border-top:1px solid #d9e4e5; padding:8px 0; display:flex; justify-content:space-between; flex-wrap:wrap; align-items:center; gap:6px; }
 .formula-timer-overlay { position:fixed; inset:0; background:#132329a6; z-index:1050; display:flex; align-items:center; justify-content:center; padding:12px; }
-.formula-timer-dialog { width:min(740px,100%); max-height:90vh; overflow:auto; background:#fff; padding:15px; border-radius:12px; color:#163a40; }
+.formula-timer-dialog { width:min(600px,100%); max-height:85vh; overflow:auto; background:#fff; padding:18px; border-radius:12px; color:#163a40; }
 .formula-timer-dialog header { display:flex; justify-content:space-between; align-items:center; }
 .formula-timer-dialog header h3 { margin:0; }
 .formula-timer-picker-actions { margin:10px 0; align-items:center; }
-.formula-timer-choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:7px; overflow:auto; max-height:52vh; touch-action:pan-y; }
-.formula-timer-choices button { display:flex; flex-direction:column; text-align:left; min-height:82px; gap:3px; }
+.formula-timer-choices { display:flex; flex-wrap:wrap; gap:6px; overflow:auto; max-height:52vh; touch-action:pan-y; }
+.formula-timer-preview-choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(146px,1fr)); align-items:stretch; }
+.formula-timer-choices .formula-timer-preview-choice { display:flex; flex-direction:column; align-items:center; justify-content:flex-start; min-width:0; gap:5px; text-align:center; }
 .formula-timer-choices small { font-size:11px; overflow-wrap:anywhere; }
-.formula-timer-oll-preview { display:grid; grid-template:repeat(5,9px)/repeat(5,9px); gap:1px; align-self:center; background:#263d43; border-radius:3px; padding:2px; }
-.formula-timer-oll-preview span { border-radius:1px; }
-@media(max-width:600px) { .formula-timer-header { padding-top:52px; } .formula-timer-cube { height:38vh; min-height:200px; } .formula-timer-choices { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.formula-timer-oll-preview { --op-preview-cell:18px; display:grid; grid-template-columns:calc(var(--op-preview-cell) / 2) repeat(3,var(--op-preview-cell)) calc(var(--op-preview-cell) / 2); grid-template-rows:calc(var(--op-preview-cell) / 2) repeat(3,var(--op-preview-cell)) calc(var(--op-preview-cell) / 2); gap:2px; margin:auto; pointer-events:none; }
+.formula-timer-oll-preview-cell { border:1px solid #8394a8; border-radius:2px; }
+.formula-timer-f2l-preview { width:90px; height:86px; margin:auto; pointer-events:none; }
+.formula-timer-f2l-picture { width:100%; max-width:146px; aspect-ratio:1; object-fit:contain; margin:auto; pointer-events:none; }
+.formula-timer-f2l-preview polygon { stroke:#27313a; stroke-width:1.7; stroke-linejoin:round; }
+.formula-timer-choice-formula { max-width:100%; font:12px/1.35 monospace; overflow-wrap:anywhere; }
+@media(max-width:600px) { .formula-timer-header { padding-top:52px; } .formula-timer-cube { height:38vh; min-height:200px; } .formula-timer-clock { padding:9px 4px; } .formula-timer-clock strong { font-size:clamp(22px,7vw,36px); } .formula-timer-preview-choices { grid-template-columns:repeat(2,minmax(0,1fr)); } }

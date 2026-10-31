@@ -11,4 +11,7 @@ assert.equal(result.emptyNameIgnored, true);
 assert.equal(result.cachedDeviceIgnored, true);
 assert.equal(result.liveAdvertisementAccepted, true);
 assert.equal(result.unrelatedDeviceIgnored, true);
+assert.equal(result.moyuAccepted, true);
+assert.equal(result.qiyiAccepted, true);
+assert.equal(result.timerIgnored, true);
 console.log('✓ Linux BlueZ scanner manufacturer MAC and fallback');

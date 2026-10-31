@@ -8,6 +8,7 @@ export interface FormulaTimerSettings {
   category: FormulaCategory;
   selectedIds: Record<FormulaCategory, string[]>;
   nextMode: 'repeat' | 'random';
+  beforeZ2: boolean;
   slowOnly: boolean;
   slowSeconds: number;
 }
@@ -16,13 +17,14 @@ export interface StorageLike { getItem(key: string): string | null; setItem(key:
 
 function defaults(): FormulaTimerSettings {
   return { category: 'f2l', selectedIds: { f2l: [], oll: [], pll: [] }, nextMode: 'random',
-    slowOnly: false, slowSeconds: 3 };
+    beforeZ2: false, slowOnly: false, slowSeconds: 3 };
 }
 
 function validRecord(value: any): value is FormulaRecord {
   return value && CATEGORIES.indexOf(value.category) >= 0 && RESULTS.indexOf(value.result) >= 0 &&
     ['id', 'name', 'formula', 'initialFacelets'].every(key => typeof value[key] === 'string') &&
     (value.scramble === undefined || typeof value.scramble === 'string') &&
+    (value.reactionMs === undefined || (Number.isFinite(value.reactionMs) && value.reactionMs >= 0)) &&
     Number.isFinite(value.at) && Number.isFinite(value.durationMs) && value.durationMs >= 0;
 }
 
@@ -37,12 +39,14 @@ export class FormulaTimerStore {
       if (data.version !== 1 || !data.settings || !Array.isArray(data.records)) throw Error('版本或结构不匹配');
       const value = data.settings;
       if (CATEGORIES.indexOf(value.category) < 0 || ['repeat', 'random'].indexOf(value.nextMode) < 0 ||
+          (value.beforeZ2 !== undefined && typeof value.beforeZ2 !== 'boolean') ||
           typeof value.slowOnly !== 'boolean' || !Number.isFinite(value.slowSeconds) ||
           value.slowSeconds <= 0 || !value.selectedIds ||
           !CATEGORIES.every(category => Array.isArray(value.selectedIds[category]) &&
             value.selectedIds[category].every((id: unknown) => typeof id === 'string')) ||
           !data.records.every(validRecord)) throw Error('设置或记录格式无效');
-      return { settings: value as FormulaTimerSettings, records: data.records as FormulaRecord[], warning: '' };
+      return { settings: { ...value, beforeZ2: value.beforeZ2 === true } as FormulaTimerSettings,
+        records: data.records as FormulaRecord[], warning: '' };
     } catch {
       return { settings: defaults(), records: [], warning: '训练设置或记录读取失败，已使用默认值' };
     }

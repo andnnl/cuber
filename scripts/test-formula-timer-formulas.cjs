@@ -17,6 +17,12 @@ assert.equal(new Set(pool.map(item => item.id)).size, pool.length);
 for (const category of ['f2l', 'oll', 'pll']) {
   const item = pool.find(value => value.category === category);
   const generated = makeFormulaCase(item, plls, () => 0.3);
+  const withZ2 = makeFormulaCase(item, plls, () => 0.3, true);
+  const rotated = new Cube(3);
+  rotated.twister.setup(withZ2.scramble);
+  assert.equal(withZ2.scramble, `z2 ${generated.scramble}`, `${category} 出题前 z2 保留原打乱顺序`);
+  assert.equal(withZ2.initialFacelets, rotated.serialize(), `${category} 实际题面同步 z2`);
+  assert.equal(withZ2.initialFacelets[4], 'D', `${category} 黄顶题面`);
   assert.match(generated.initialFacelets, /^[URFDLB]{54}$/);
   assert.notEqual(generated.initialFacelets, 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB');
   assert.equal(generated.id, item.id);

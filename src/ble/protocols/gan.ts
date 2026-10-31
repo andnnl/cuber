@@ -87,9 +87,9 @@ export class GanCubeLink {
    *     原生 = 扫描到的蓝牙地址; Mock = 内置 MAC。
    *   - opts.mac (用户原始输入, 兜底: 传输层未归一化成功时由 macToSalt 再校验)
    */
-  async connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string }): Promise<DeviceInfo> {
+  async connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string }, connectedInfo?: DeviceInfo): Promise<DeviceInfo> {
     this.closed = false;
-    const info = await this.transport.connect(opts);
+    const info = connectedInfo || await this.transport.connect(opts);
     // 传输层负责把 opts.mac / 广播 / 扫描地址归一化为 "AA:BB:CC:DD:EE:FF" 后放入 info.mac。
     // 用户在 UI 填的原始 opts.mac 仅作 fallback (传输层未返回时由 macToSalt 兜底校验)。
     const mac = info.mac || opts?.mac;

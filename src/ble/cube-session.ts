@@ -94,7 +94,7 @@ export class CubeSession {
       const info = await this.link.connect(kind, opts);
       this.state.deviceName = info.name || opts?.knownName || "";
       this.state.error = "";
-      const address = info.mac || opts?.mac || opts?.address;
+      const address = kind === "native" ? opts?.address : info.mac || opts?.mac;
       if (kind !== "mock" && address && typeof window !== "undefined" &&
         !((kind === "web" || kind === "native") &&
           (window as unknown as { cuberDesktopBluetooth?: unknown }).cuberDesktopBluetooth)) {

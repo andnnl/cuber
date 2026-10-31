@@ -11,7 +11,7 @@
 // 用户点选后 connect({address}) 完成 GATT 连接 + 服务发现 + 订阅通知。
 
 import { BleTransport, DeviceInfo } from "../types";
-import { PROTOCOLS } from "../protocols/registry";
+import { findCubeProtocol } from "../protocols/registry";
 
 interface NativeServiceJson {
   uuid: string;
@@ -127,7 +127,7 @@ export class NativeBridgeTransport implements BleTransport {
 
   // ---- BleTransport ----
 
-  async connect(opts?: { address?: string }): Promise<DeviceInfo> {
+  async connect(opts?: { address?: string; knownName?: string }): Promise<DeviceInfo> {
     const address = opts?.address;
     if (!address) {
       throw new Error("请先扫描并选择魔方");
@@ -136,7 +136,7 @@ export class NativeBridgeTransport implements BleTransport {
       throw new Error("已有连接");
     }
     this.pendingAddress = address;
-    this.pendingName = this.devices.get(address)?.name || address;
+    this.pendingName = this.devices.get(address)?.name || opts?.knownName || address;
     this.pendingMac = this.devices.get(address)?.mac || address;
     const generation = ++this.generation;
     this.stopScan();
@@ -195,7 +195,7 @@ export class NativeBridgeTransport implements BleTransport {
       case "scan": {
         const dev = { address: String(payload.address || ""), name: String(payload.name || ""),
           mac: typeof payload.mac === "string" ? payload.mac : undefined };
-        if (!dev.address || this.devices.has(dev.address)) {
+        if (!dev.address || /^(GAN[ -]?(Robot|Bot)|QiYi Smart Timer)/i.test(dev.name) || this.devices.has(dev.address)) {
           return;
         }
         this.devices.set(dev.address, dev);
@@ -208,27 +208,27 @@ export class NativeBridgeTransport implements BleTransport {
         }
         const services: NativeServiceJson[] = payload.services || [];
         this.serviceUuids = services.map((s) => s.uuid);
-        const meta = PROTOCOLS.find(
-          (p) => p.writeUuid && services.some((s) => s.uuid.toLowerCase() === p.serviceUuid.toLowerCase())
-        );
+        const meta = findCubeProtocol({ name: this.pendingName, serviceUuids: this.serviceUuids });
         if (!meta || !meta.writeUuid) {
-          this.failConnect(new Error("设备未提供 GAN 魔方 BLE 服务, 不受支持"));
+          this.failConnect(new Error("设备未提供受支持的魔方 BLE 服务，不受支持"));
           return;
         }
         const svc = services.find((s) => s.uuid.toLowerCase() === meta.serviceUuid.toLowerCase())!;
-        if (svc.write.map((w) => w.toLowerCase()).indexOf(meta.writeUuid.toLowerCase()) < 0) {
-          this.failConnect(new Error("找不到 GAN 命令写特征"));
+        const write = svc.write.find(w => w.toLowerCase() === meta.writeUuid!.toLowerCase()) ||
+          (meta.brand === "QiYi" ? svc.write.find(w => w.toLowerCase() === "0000fff5-0000-1000-8000-00805f9b34fb") : undefined);
+        if (!write) {
+          this.failConnect(new Error(`找不到 ${meta.brand} 命令写特征`));
           return;
         }
         if (!meta.notifyUuids.some(uuid => svc.notify.map(n => n.toLowerCase()).indexOf(uuid.toLowerCase()) >= 0)) {
-          this.failConnect(new Error("无法订阅 GAN 状态通知特征"));
+          this.failConnect(new Error(`无法订阅 ${meta.brand} 状态通知特征`));
           return;
         }
-        this.commandChar = meta.writeUuid;
+        this.commandChar = write;
         this.connected = true;
         this.okConnect({
-          name: this.pendingName || "GAN Cube",
-          brand: "GAN",
+          name: this.pendingName || "Cube",
+          brand: meta.brand,
           mac: this.pendingMac || undefined,
           serviceUuids: this.serviceUuids,
         });

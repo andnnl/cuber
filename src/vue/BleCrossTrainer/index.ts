@@ -607,20 +607,17 @@ export default class BleCrossTrainer extends Vue {
       return;
     }
     // Web 模式: 用户填写了手动 MAC 则优先使用 (兜底 watchAdvertisements 失败)
-    if (kind === "web" && !opts?.mac && this.manualMac.trim()) {
-      opts = { ...(opts || {}), mac: this.manualMac.trim() };
-    }
     try {
       this.statusText = opts?.mac
         ? `连接魔方 (使用手动 MAC ${opts.mac})...`
         : kind === "web"
-        ? "请在弹窗中选择你的 GAN 魔方..."
+        ? "请在弹窗中选择你的蓝牙魔方..."
         : "连接魔方...";
       const info = await this.link.connect(kind, opts);
       this.deviceName = info.name;
       this.isMock = kind === "mock";
       // 记忆本次连接 (mock 不记): 刷新界面后 tryAutoReconnect 免操作重连
-      const lastMac = info.mac || opts?.mac || opts?.address || "";
+      const lastMac = kind === "native" ? opts?.address || "" : info.mac || opts?.mac || "";
       if (kind !== "mock" && lastMac) {
         window.localStorage.setItem("bleLastKind", kind);
         window.localStorage.setItem("bleLastMac", lastMac);
@@ -649,7 +646,7 @@ export default class BleCrossTrainer extends Vue {
     this.statusText = "自动重连上次的魔方" + (name ? ` (${name})` : "") + "...";
     try {
       if (kind === "native") {
-        await this.connect("native", { address: mac });
+        await this.connect("native", { address: mac, knownName: name });
       } else {
         await this.connect("web", { mac, autoReconnect: true, knownName: name });
       }

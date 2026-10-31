@@ -60,6 +60,214 @@ function bufferedMove(serial) {
 }
 
 async function main() {
+  await test("MoYu 与奇艺按服务、名称及特征分型，GAN v4 不误认奇艺", () => {
+    const moyu = registry.findCubeProtocol({ name: "WCU_MY32_A1B2", serviceUuids: ["0783b03e-7735-b5a0-1760-a305d2795cb0"] });
+    assert.strictEqual(moyu.brand, "MoYu32");
+    const qiyi = registry.findCubeProtocol({ name: "XMD-TornadoV4-i-ABCD", serviceUuids: ["0000fff0-0000-1000-8000-00805f9b34fb"], notifyUuids: ["0000fff6-0000-1000-8000-00805f9b34fb"] });
+    assert.strictEqual(qiyi.brand, "QiYi");
+    assert.strictEqual(registry.findCubeProtocol({ name: "GAN12", serviceUuids: ["00000010-0000-fff7-fff6-fff5fff4fff0"] }).brand, "GAN Gen4");
+    assert.strictEqual(registry.findCubeProtocol({ name: "GANBOT-123", serviceUuids: ["0000fff0-0000-1000-8000-00805f9b34fb"] }), null);
+    assert.strictEqual(registry.findCubeProtocol({ name: "GAN Robot", serviceUuids: ["00000010-0000-fff7-fff6-fff5fff4fff0"] }), null);
+  });
+  await test("MoYu32 MAC 加密回环、状态帧和转动帧", async () => {
+    const { Moyu32Cipher, Moyu32CubeLink } = req("protocols/moyu32.js");
+    const mac = "CF:30:16:00:A1:B2";
+    const cipher = new Moyu32Cipher(mac);
+    const sample = new Uint8Array(20);
+    sample[0] = 0xa4;
+    sample[1] = 73;
+    assert.deepStrictEqual(cipher.decode(cipher.encode(sample)), sample);
+    const written = [];
+    let notify;
+    const transport = {
+      kind: "mock",
+      connect: async () => ({ name: "WCU_MY32_A1B2", brand: "MoYu32", mac, serviceUuids: ["0783b03e-7735-b5a0-1760-a305d2795cb0"] }),
+      disconnect: async () => {},
+      onBytes: cb => { notify = cb; },
+      onDisconnect: () => {},
+      write: async data => written.push(cipher.decode(data)[0]),
+    };
+    const link = new Moyu32CubeLink(transport);
+    const events = [];
+    link.onEvent(e => events.push(e));
+    await link.connect();
+    await flush();
+    assert.ok(written.includes(0xa3));
+    notify(cipher.encode(sample));
+    await flush();
+    assert.deepStrictEqual(events.find(e => e.type === "battery"), { type: "battery", level: 73 });
+    const putBits = (data, start, count, value) => {
+      for (let i = 0; i < count; i++) {
+        const offset = start + i;
+        data[offset >> 3] |= ((value >> (count - 1 - i)) & 1) << (7 - (offset & 7));
+      }
+    };
+    const state = new Uint8Array(20);
+    state[0] = 0xa3;
+    const faceOrder = [2, 5, 0, 3, 4, 1];
+    const chars = "FBUDLR";
+    for (let f = 0; f < 6; f++) {
+      for (let sticker = 0; sticker < 8; sticker++) putBits(state, 8 + faceOrder[f] * 24 + sticker * 3, 3, faceOrder[f]);
+    }
+    putBits(state, 152, 8, 42);
+    notify(cipher.encode(state));
+    assert.strictEqual(events.find(e => e.type === "facelets")?.facelets, "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB");
+    const turn = new Uint8Array(20);
+    turn[0] = 0xa5;
+    putBits(turn, 88, 8, 43);
+    putBits(turn, 96, 5, 4); // U (FBUDLR -> index 2)
+    notify(cipher.encode(turn));
+    assert.deepStrictEqual(events.filter(e => e.type === "move"), [{ type: "move", move: "U", serial: 43 }]);
+    notify(cipher.encode(state));
+    assert.strictEqual(events.filter(e => e.type === "facelets").length, 1, "晚到旧状态不得覆盖已转动的魔方");
+  });
+  await test("MoYu32 广播地址与加密地址不同仍能回退设备名地址", async () => {
+    const { Moyu32Cipher, Moyu32CubeLink } = req("protocols/moyu32.js");
+    let notify;
+    const transport = { kind: "mock", connect: async () => ({ name: "WCU_MY32_A1B2", brand: "MoYu32", mac: "AA:BB:CC:DD:EE:FF" }),
+      disconnect: async () => {}, onBytes: cb => { notify = cb; }, onDisconnect: () => {}, write: async () => {} };
+    const link = new Moyu32CubeLink(transport);
+    await link.connect();
+    const frame = new Uint8Array(20); frame[0] = 0xa4; frame[1] = 63;
+    const events = []; link.onEvent(e => events.push(e));
+    notify(new Moyu32Cipher("CF:30:16:00:A1:B2").encode(frame));
+    assert.deepStrictEqual(events.find(e => e.type === "battery"), { type: "battery", level: 63 });
+  });
+  await test("QiYi hello、状态及历史转动去重", async () => {
+    const { QiyiCipher, QiyiCubeLink, buildQiyiMessage } = req("protocols/qiyi.js");
+    const cipher = new QiyiCipher();
+    const writes = [];
+    let notify;
+    const transport = {
+      kind: "mock", connect: async () => ({ name: "QY-QYSC-1234", brand: "QiYi", mac: "CC:A3:00:00:12:34", serviceUuids: ["0000fff0-0000-1000-8000-00805f9b34fb"] }),
+      disconnect: async () => {}, onBytes: cb => { notify = cb; }, onDisconnect: () => {}, write: async data => writes.push(cipher.decrypt(data)),
+    };
+    const link = new QiyiCubeLink(transport);
+    const events = [];
+    link.onEvent(e => events.push(e));
+    await link.connect();
+    assert.strictEqual(writes[0][0], 0xfe);
+    assert.deepStrictEqual([...writes[0].slice(13, 19)], [0x34, 0x12, 0x00, 0x00, 0xa3, 0xcc]);
+    const content = new Uint8Array(34);
+    content[0] = 2; // hello opcode at message offset 2
+    const all = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    for (let i = 0; i < all.length; i++) {
+      const code = "LRDUFB".indexOf(all[i]);
+      content[5 + (i >> 1)] |= code << (i & 1 ? 4 : 0);
+    }
+    content[33] = 85;
+    notify(cipher.encrypt(buildQiyiMessage(content)));
+    assert.strictEqual(events.find(e => e.type === "facelets")?.facelets, all);
+    assert.strictEqual(events.find(e => e.type === "battery")?.level, 85);
+  });
+  await test("QiYi 真实设备时间戳不泄露为训练序号，状态快照晚于当前转动而早于未来步", async () => {
+    const { QiyiCipher, QiyiCubeLink, buildQiyiMessage } = req("protocols/qiyi.js");
+    const cipher = new QiyiCipher(); let notify;
+    const transport = { kind: "mock", connect: async () => ({ name: "QY-QYSC-A1B2", brand: "QiYi", mac: "CC:A3:00:00:A1:B2" }),
+      disconnect: async () => {}, onBytes: cb => { notify = cb; }, onDisconnect: () => {}, write: async () => {} };
+    const link = new QiyiCubeLink(transport); const events = []; link.onEvent(e => events.push(e)); await link.connect();
+    const state = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
+    function message(opcode, at, future) {
+      const body = new Uint8Array(future ? 40 : 34); body[0] = opcode;
+      body[1] = at >>> 24; body[2] = at >>> 16; body[3] = at >>> 8; body[4] = at;
+      for (let i = 0; i < 54; i++) body[5 + (i >> 1)] |= "LRDUFB".indexOf(state[i]) << (i & 1 ? 4 : 0);
+      if (opcode === 3) body[32] = 8; // U'
+      body[33] = 80;
+      if (future) { body[34] = (at + 1) >>> 24; body[35] = (at + 1) >>> 16; body[36] = (at + 1) >>> 8; body[37] = at + 1; body[38] = 2; }
+      return cipher.encrypt(buildQiyiMessage(body));
+    }
+    notify(message(2, 65536));
+    notify(message(3, 65537, true));
+    const moves = events.filter(e => e.type === "move");
+    assert.deepStrictEqual(moves.map(e => e.move), ["U'", "L'"]);
+    assert.ok(moves[0].serial > 0 && moves[0].serial <= 255);
+    assert.ok(events.findIndex(e => e.type === "facelets" && e.serial === moves[0].serial) < events.findIndex(e => e === moves[1]));
+  });
+  await test("CubeLink 对 MoYu32 按协议建会话且只连接传输层一次", async () => {
+    let connected = 0;
+    const transport = {
+      kind: "mock",
+      connect: async () => { connected++; return { name: "WCU_MY32_A1B2", mac: "CF:30:16:00:A1:B2", brand: "MoYu32", serviceUuids: ["0783b03e-7735-b5a0-1760-a305d2795cb0"] }; },
+      disconnect: async () => {}, onBytes: () => {}, onDisconnect: () => {}, write: async () => {},
+    };
+    const link = new CubeLink(() => transport);
+    const info = await link.connect("mock");
+    assert.strictEqual(info.brand, "MoYu32");
+    assert.strictEqual(connected, 1);
+    await link.disconnect();
+  });
+  await test("Web Bluetooth 可选择 QiYi，不能强制 GAN 广播 MAC", async () => {
+    const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const options = [];
+    const characteristic = { addEventListener() {}, startNotifications: async () => {}, writeValue: async () => {} };
+    const device = { name: "QY-QYSC-1234", id: "qiyi-1", addEventListener() {},
+      gatt: { connect: async function () { return this; }, getPrimaryServices: async () => [{ uuid: "0000fff0-0000-1000-8000-00805f9b34fb", getCharacteristic: async () => characteristic }], disconnect() {} } };
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { bluetooth: { requestDevice: async opts => { options.push(opts); return device; } } } });
+    try {
+      const transport = new webTransport.WebBluetoothTransport();
+      const info = await transport.connect();
+      assert.ok(options[0].filters.some(filter => filter.namePrefix === "QY-QYSC"));
+      assert.strictEqual(info.brand, "QiYi");
+      assert.strictEqual(info.mac, undefined);
+    } finally { if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator; }
+  });
+  await test("Web 奇艺通知 fff6 不可写时改选 fff5", async () => {
+    const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const selected = [];
+    const state = { properties: { notify: true }, addEventListener() {}, startNotifications: async () => {} };
+    const command = { properties: { write: true }, writeValue: async () => selected.push("fff5") };
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { bluetooth: { requestDevice: async () => ({ name: "QY-QYSC-1234", id: "q1", addEventListener() {},
+      gatt: { connect: async function () { return this; }, getPrimaryServices: async () => [{ uuid: "0000fff0-0000-1000-8000-00805f9b34fb", getCharacteristic: async uuid => uuid.includes("fff6") ? state : command }], disconnect() {} } }) } } });
+    try {
+      const transport = new webTransport.WebBluetoothTransport();
+      await transport.connect();
+      await transport.write(new Uint8Array([1]));
+      assert.deepStrictEqual(selected, ["fff5"]);
+    } finally { if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator; }
+  });
+  await test("原生桥选择 MoYu/QiYi 的实际通知与写入特征，拒绝计时器", async () => {
+    const oldWindow = global.window;
+    const callbacks = [];
+    global.window = { setTimeout, clearTimeout, __bleNative: {
+      scan() {}, stopScan() {}, connect() {}, disconnect() {}, write(uuid) { callbacks.push(uuid); },
+    } };
+    try {
+      for (const [name, service, notify, write] of [
+        ["WCU_MY32_A1B2", "0783b03e-7735-b5a0-1760-a305d2795cb0", "0783b03e-7735-b5a0-1760-a305d2795cb1", "0783b03e-7735-b5a0-1760-a305d2795cb2"],
+        ["QY-QYSC-1234", "0000fff0-0000-1000-8000-00805f9b34fb", "0000fff6-0000-1000-8000-00805f9b34fb", "0000fff5-0000-1000-8000-00805f9b34fb"],
+      ]) {
+        const transport = new NativeBridgeTransport();
+        global.window.__ble.dispatch("scan", JSON.stringify({ name, address: "AA:BB:CC:DD:EE:FF" }));
+        const connected = transport.connect({ address: "AA:BB:CC:DD:EE:FF" });
+        global.window.__ble.dispatch("services", JSON.stringify({ generation: 1, services: [{ uuid: service, notify: [notify], write: [write] }] }));
+        assert.strictEqual((await connected).brand, name.startsWith("WCU") ? "MoYu32" : "QiYi");
+        await transport.write(new Uint8Array([1]));
+        assert.strictEqual(callbacks.pop(), write);
+        await transport.disconnect();
+      }
+      const transport = new NativeBridgeTransport();
+      global.window.__ble.dispatch("scan", JSON.stringify({ name: "QiYi Smart Timer", address: "AA:BB:CC:DD:EE:FF" }));
+      const connected = transport.connect({ address: "AA:BB:CC:DD:EE:FF" });
+      global.window.__ble.dispatch("services", JSON.stringify({ generation: 1, services: [{ uuid: "0000fff0-0000-1000-8000-00805f9b34fb", notify: ["0000fff6-0000-1000-8000-00805f9b34fb"], write: ["0000fff5-0000-1000-8000-00805f9b34fb"] }] }));
+      await assert.rejects(connected, /不受支持/);
+    } finally { global.window = oldWindow; }
+  });
+  await test("原生重连使用上次设备名判型，地址仍用扫描地址而非协议加密地址", async () => {
+    const { CubeSession } = req("cube-session.js");
+    const oldWindow = global.window;
+    const values = new Map();
+    global.window = { localStorage: { setItem: (k, v) => values.set(k, v), getItem: k => values.get(k) || null } };
+    let selectedName;
+    const transport = { kind: "native", connect: async opts => { selectedName = opts.knownName; return { name: opts.knownName || "WCU_MY32_A1B2", brand: "MoYu32", mac: "CF:30:16:00:A1:B2", serviceUuids: ["0783b03e-7735-b5a0-1760-a305d2795cb0"] }; },
+      disconnect: async () => {}, onBytes: () => {}, onDisconnect: () => {}, write: async () => {} };
+    try {
+      const session = new CubeSession(new CubeLink(() => transport));
+      await session.connect("native", { address: "AA:BB:CC:DD:EE:FF", knownName: "WCU_MY32_A1B2" });
+      assert.strictEqual(values.get("bleLastMac"), "AA:BB:CC:DD:EE:FF");
+      assert.strictEqual(selectedName, "WCU_MY32_A1B2");
+      session.dispose();
+    } finally { global.window = oldWindow; }
+  });
   await test("主动断开与底层失联分别标记来源，不暴露设备地址", async () => {
     const { CubeSession } = req("cube-session.js");
     let transport;
@@ -638,14 +846,14 @@ async function main() {
 
     await link.connect("mock");
     await flush();
-    const oldGan = link.gan;
+    const oldProtocol = link.protocol;
     await link.disconnect();
     await link.connect("mock");
     await flush();
     const count = events.length;
 
-    oldGan.eventCb({ type: "battery", level: 3 });
-    oldGan.disconnectCb();
+    oldProtocol.eventCb({ type: "battery", level: 3 });
+    oldProtocol.disconnectCb();
     await flush();
     assert.strictEqual(link.status, "connected");
     assert.strictEqual(link.battery, 87);

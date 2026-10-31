@@ -99,6 +99,7 @@ export default class Setting extends Vue {
       case "cfop":
       case "pll6":
       case "seamlessop":
+      case "formulatimer":
         this.navigate({ mode: key });
         break;
       default:

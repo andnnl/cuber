@@ -7,7 +7,7 @@
 //   - 订阅 state 特征通知 → onBytes; 写命令走 command 特征
 
 import { BleTransport, DeviceInfo } from "../types";
-import { PROTOCOLS } from "../protocols/registry";
+import { PROTOCOLS, findCubeProtocol, isCubeName } from "../protocols/registry";
 import { GAN_CIC_LIST, GAN_GEN2_SERVICE, GAN_GEN3_SERVICE, GAN_GEN4_SERVICE } from "../protocols/vendor/gan-cube-definitions";
 
 // ---- Web Bluetooth 最小类型声明 (TS DOM lib 不含 navigator.bluetooth) ----
@@ -16,10 +16,12 @@ interface NBCharacteristicEvent extends Event {
 }
 interface NBCharacteristic extends EventTarget {
   value: DataView | null;
+  properties?: { write?: boolean; writeWithoutResponse?: boolean };
   startNotifications(): Promise<NBCharacteristic>;
   stopNotifications(): Promise<NBCharacteristic>;
   writeValue(data: BufferSource): Promise<void>;
   writeValueWithResponse?(data: BufferSource): Promise<void>;
+  writeValueWithoutResponse?(data: BufferSource): Promise<void>;
 }
 interface NBService {
   uuid: string;
@@ -57,7 +59,7 @@ export function selectKnownDevice<T extends { id?: string; name?: string }>(know
     return exact;
   }
   const found = known.find(device => !!device.name && device.name === name) ||
-    known.find(device => !!device.name && /^(GAN|MG|AiCube)/.test(device.name));
+    known.find(device => !!device.name && isCubeName(device.name));
   if (!found) throw new Error("未找到上次授权的魔方，请点「连接魔方」重新选择一次");
   return found;
 }
@@ -217,10 +219,11 @@ export class WebBluetoothTransport implements BleTransport {
     const device = opts?.autoReconnect
       ? await this.reconnectKnown(bt, opts.knownName || "", opts.knownDeviceId)
       : await bt.requestDevice({
-          filters: [{ namePrefix: "GAN" }, { namePrefix: "MG" }, { namePrefix: "AiCube" }],
-          optionalServices: [GAN_GEN2_SERVICE, GAN_GEN3_SERVICE, GAN_GEN4_SERVICE],
+          filters: ["GAN", "MG", "AiCube", "WCU_MY32", "QY-QYSC", "XMD-TornadoV4-i"].map(namePrefix => ({ namePrefix })),
+          optionalServices: PROTOCOLS.map(meta => meta.serviceUuid),
         });
     this.device = device;
+    if (!isCubeName(device.name || "")) throw new Error("所选设备不是受支持的智能魔方（不支持计时器或机器人）");
     this.selectedDeviceId = device.id || null;
     this.selectedMac = null;
     this.confirmationPending = false;
@@ -228,7 +231,7 @@ export class WebBluetoothTransport implements BleTransport {
     // 手动填写的 MAC 优先: 跳过 watchAdvertisements, 直接用用户提供的 MAC
     let mac: string | null = opts?.mac ? normalizeMac(opts.mac) : null;
     mac = await resolveDesktopMac(device.id, mac, desktopBridge());
-    if (!mac) {
+    if (!mac && /^(GAN|MG|AiCube)/i.test(device.name || "")) {
       mac = await autoRetrieveMacAddress(device);
     } else {
       console.info("[WebBluetooth] 已获得 MAC (跳过 watchAdvertisements)");
@@ -239,12 +242,22 @@ export class WebBluetoothTransport implements BleTransport {
     const services = await gatt.getPrimaryServices();
     let matched = false;
     for (const service of services) {
-      const meta = PROTOCOLS.find((p) => p.serviceUuid.toLowerCase() === service.uuid.toLowerCase());
+      const meta = findCubeProtocol({ name: device.name || "", serviceUuids: [service.uuid] });
       if (!meta || !meta.writeUuid) {
         continue;
       }
-      const commandChar = await service.getCharacteristic(meta.writeUuid);
       const stateChar = await service.getCharacteristic(meta.notifyUuids[0]);
+      let commandChar: NBCharacteristic;
+      try {
+        commandChar = await service.getCharacteristic(meta.writeUuid);
+        if (meta.brand === "QiYi" && commandChar.properties &&
+          !commandChar.properties.write && !commandChar.properties.writeWithoutResponse) {
+          commandChar = await service.getCharacteristic("0000fff5-0000-1000-8000-00805f9b34fb");
+        }
+      } catch (err) {
+        if (meta.brand !== "QiYi") throw err;
+        commandChar = await service.getCharacteristic("0000fff5-0000-1000-8000-00805f9b34fb");
+      }
       stateChar.addEventListener("characteristicvaluechanged", this.handleNotify);
       await stateChar.startNotifications();
       this.commandChar = commandChar;
@@ -253,13 +266,13 @@ export class WebBluetoothTransport implements BleTransport {
     }
     if (!matched) {
       gatt.disconnect();
-      throw new Error("设备未提供 GAN 魔方 BLE 服务, 不受支持");
+      throw new Error("设备未提供受支持的魔方 BLE 服务或通知特征");
     }
     device.addEventListener("gattserverdisconnected", this.handleGattDisconnect);
     return {
-      name: device.name || "GAN Cube",
+      name: device.name || "Cube",
       deviceId: device.id,
-      brand: "GAN",
+      brand: findCubeProtocol({ name: device.name || "", serviceUuids: services.map(s => s.uuid) })?.brand || "GAN",
       mac: mac || undefined,
       serviceUuids: services.map((s) => s.uuid),
     };
@@ -320,7 +333,10 @@ export class WebBluetoothTransport implements BleTransport {
     if (!this.commandChar) {
       throw new Error("未连接");
     }
-    if (typeof this.commandChar.writeValueWithResponse === "function") {
+    if (this.commandChar.properties?.write === false && this.commandChar.properties?.writeWithoutResponse &&
+      typeof this.commandChar.writeValueWithoutResponse === "function") {
+      await this.commandChar.writeValueWithoutResponse(bytes);
+    } else if (typeof this.commandChar.writeValueWithResponse === "function") {
       await this.commandChar.writeValueWithResponse(bytes);
     } else {
       await this.commandChar.writeValue(bytes);

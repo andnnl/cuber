@@ -26,7 +26,8 @@ function randomIndex(length: number, random: () => number): number {
   return Math.min(length - 1, Math.max(0, Math.floor(random() * length)));
 }
 
-export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], random: () => number = Math.random): FormulaCase {
+export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], random: () => number = Math.random,
+  beforeZ2 = false): FormulaCase {
   const parsed = parseOpFormula(item.formula);
   let scramble = parsed.inverse.join(' ');
   if (item.category === 'oll') {
@@ -53,6 +54,7 @@ export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], ran
   } else if (item.category === 'pll') {
     scramble = [ROTATIONS[randomIndex(ROTATIONS.length, random)], ...parsed.inverse].filter(Boolean).join(' ');
   }
+  if (beforeZ2) scramble = `z2 ${scramble}`;
   const cube = new Cube(3);
   cube.twister.setup(scramble);
   const initialFacelets = cube.serialize();

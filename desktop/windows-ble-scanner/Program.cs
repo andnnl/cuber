@@ -13,11 +13,13 @@ await bridge.RunAsync();
 sealed class BleBridge
 {
     // Match the Web Bluetooth protocol registry: never enumerate or subscribe to unrelated services.
-    private static readonly (Guid Service, Guid State, Guid Command)[] GanGatt =
+    private static readonly (Guid Service, Guid State, Guid Command, Guid? AltCommand)[] CubeGatt =
     [
-        (Guid.Parse("6e400001-b5a3-f393-e0a9-e50e24dc4179"), Guid.Parse("28be4cb6-cd67-11e9-a32f-2a2ae2dbcce4"), Guid.Parse("28be4a4a-cd67-11e9-a32f-2a2ae2dbcce4")),
-        (Guid.Parse("8653000a-43e6-47b7-9cb0-5fc21d4ae340"), Guid.Parse("8653000b-43e6-47b7-9cb0-5fc21d4ae340"), Guid.Parse("8653000c-43e6-47b7-9cb0-5fc21d4ae340")),
-        (Guid.Parse("00000010-0000-fff7-fff6-fff5fff4fff0"), Guid.Parse("0000fff6-0000-1000-8000-00805f9b34fb"), Guid.Parse("0000fff5-0000-1000-8000-00805f9b34fb")),
+        (Guid.Parse("6e400001-b5a3-f393-e0a9-e50e24dc4179"), Guid.Parse("28be4cb6-cd67-11e9-a32f-2a2ae2dbcce4"), Guid.Parse("28be4a4a-cd67-11e9-a32f-2a2ae2dbcce4"), null),
+        (Guid.Parse("8653000a-43e6-47b7-9cb0-5fc21d4ae340"), Guid.Parse("8653000b-43e6-47b7-9cb0-5fc21d4ae340"), Guid.Parse("8653000c-43e6-47b7-9cb0-5fc21d4ae340"), null),
+        (Guid.Parse("00000010-0000-fff7-fff6-fff5fff4fff0"), Guid.Parse("0000fff6-0000-1000-8000-00805f9b34fb"), Guid.Parse("0000fff5-0000-1000-8000-00805f9b34fb"), null),
+        (Guid.Parse("0783b03e-7735-b5a0-1760-a305d2795cb0"), Guid.Parse("0783b03e-7735-b5a0-1760-a305d2795cb1"), Guid.Parse("0783b03e-7735-b5a0-1760-a305d2795cb2"), null),
+        (Guid.Parse("0000fff0-0000-1000-8000-00805f9b34fb"), Guid.Parse("0000fff6-0000-1000-8000-00805f9b34fb"), Guid.Parse("0000fff6-0000-1000-8000-00805f9b34fb"), Guid.Parse("0000fff5-0000-1000-8000-00805f9b34fb")),
     ];
     private record Candidate(string Name, ulong RadioAddress, BluetoothAddressType AddressType, string Mac);
     private record Pending(string? Name, string? Mac);
@@ -65,19 +67,26 @@ sealed class BleBridge
         try
         {
             var name = args.Advertisement.LocalName;
-            var mac = EncryptionMac(args);
+            var isGan = name?.StartsWith("GAN", StringComparison.OrdinalIgnoreCase) == true ||
+                name?.StartsWith("MG", StringComparison.OrdinalIgnoreCase) == true || name?.StartsWith("AiCube", StringComparison.OrdinalIgnoreCase) == true;
+            var mac = isGan ? EncryptionMac(args) : null;
             var radio = RadioMac(args.BluetoothAddress);
             lock (gate)
             {
                 if (pending.Count >= 128 && !pending.ContainsKey(radio)) return;
                 pending.TryGetValue(radio, out var old);
                 name = !string.IsNullOrWhiteSpace(name) ? name : old?.Name;
+                isGan = name?.StartsWith("GAN", StringComparison.OrdinalIgnoreCase) == true ||
+                    name?.StartsWith("MG", StringComparison.OrdinalIgnoreCase) == true || name?.StartsWith("AiCube", StringComparison.OrdinalIgnoreCase) == true;
                 mac ??= old?.Mac;
                 pending[radio] = new Pending(name, mac);
-                if (string.IsNullOrWhiteSpace(name) || name.Length > 100 || mac == null ||
-                    !(name.StartsWith("GAN", StringComparison.OrdinalIgnoreCase) ||
-                      name.StartsWith("MG", StringComparison.OrdinalIgnoreCase) ||
-                      name.StartsWith("AiCube", StringComparison.OrdinalIgnoreCase))) return;
+                if (string.IsNullOrWhiteSpace(name) || name.Length > 100 ||
+                    name.StartsWith("GAN Robot", StringComparison.OrdinalIgnoreCase) ||
+                    name.StartsWith("GANBOT", StringComparison.OrdinalIgnoreCase) ||
+                    !(isGan || name.StartsWith("WCU_MY32", StringComparison.OrdinalIgnoreCase) ||
+                      name.StartsWith("QY-QYSC", StringComparison.OrdinalIgnoreCase) ||
+                      name.StartsWith("XMD-TornadoV4-i", StringComparison.OrdinalIgnoreCase))) return;
+                mac ??= radio;
                 candidates[radio] = new Candidate(name, args.BluetoothAddress, args.BluetoothAddressType, mac);
             }
             Emit("scan", new { address = radio, name, mac });
@@ -126,16 +135,15 @@ sealed class BleBridge
             device = current;
             current.ConnectionStatusChanged += OnConnectionStatus;
             var services = new List<object>();
-            foreach (var protocol in GanGatt)
+            foreach (var protocol in CubeGatt)
             {
-                stage = $"发现 GAN 服务 {protocol.Service}";
+                stage = $"发现魔方服务 {protocol.Service}";
                 var discovered = await current.GetGattServicesForUuidAsync(protocol.Service, BluetoothCacheMode.Uncached);
                 if (generation != requestedGeneration) return;
-                if (discovered.Status != GattCommunicationStatus.Success)
-                    throw new InvalidOperationException($"GATT 服务发现失败: {discovered.Status}");
+                if (discovered.Status != GattCommunicationStatus.Success) continue;
                 foreach (var service in discovered.Services)
                 {
-                    stage = $"枚举 GAN 特征 {protocol.Service}";
+                    stage = $"枚举魔方特征 {protocol.Service}";
                     var found = await service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
                     if (generation != requestedGeneration) return;
                     if (found.Status != GattCommunicationStatus.Success)
@@ -145,7 +153,7 @@ sealed class BleBridge
                     foreach (var characteristic in found.Characteristics)
                     {
                         var properties = characteristic.CharacteristicProperties;
-                        if (characteristic.Uuid == protocol.Command &&
+                        if ((characteristic.Uuid == protocol.Command || characteristic.Uuid == protocol.AltCommand) &&
                             (properties & (GattCharacteristicProperties.Write | GattCharacteristicProperties.WriteWithoutResponse)) != 0)
                         {
                             write.Add(characteristic.Uuid.ToString());
@@ -166,7 +174,7 @@ sealed class BleBridge
                             Emit("notify", new { generation = requestedGeneration, data = Convert.ToBase64String(bytes) });
                         };
                         characteristic.ValueChanged += handler;
-                        stage = $"订阅 GAN 通知 {characteristic.Uuid}";
+                        stage = $"订阅魔方通知 {characteristic.Uuid}";
                         var subscribed = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(mode);
                         if (generation != requestedGeneration) { characteristic.ValueChanged -= handler; return; }
                         if (subscribed == GattCommunicationStatus.Success)
@@ -179,7 +187,7 @@ sealed class BleBridge
                     services.Add(new { uuid = service.Uuid.ToString(), notify, write });
                 }
             }
-            if (services.Count == 0) throw new InvalidOperationException("设备未提供受支持的 GAN 服务");
+            if (services.Count == 0) throw new InvalidOperationException("设备未提供受支持的魔方服务");
             if (generation == requestedGeneration) Emit("services", new { generation = requestedGeneration, services });
         }
         catch (Exception ex)

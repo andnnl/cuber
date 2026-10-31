@@ -172,6 +172,18 @@ test('Windows helper requests only GAN GATT services and reports failed connecti
   assert.match(source, /阶段.*HResult|stage.*HResult/i);
 });
 
+test('Windows helper scans MoYu/QiYi and allows their GATT characteristics without admitting timer/robot', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'windows-ble-scanner', 'Program.cs'), 'utf8');
+  for (const uuid of ['0783b03e-7735-b5a0-1760-a305d2795cb0', '0783b03e-7735-b5a0-1760-a305d2795cb1',
+    '0783b03e-7735-b5a0-1760-a305d2795cb2', '0000fff0-0000-1000-8000-00805f9b34fb', '0000fff6-0000-1000-8000-00805f9b34fb']) {
+    assert.ok(source.includes(uuid), `${uuid} missing`);
+  }
+  assert.match(source, /WCU_MY3/);
+  assert.match(source, /QY-QYSC/);
+  assert.match(source, /XMD-TornadoV4-i/);
+  assert.match(source, /protocol\.AltCommand/);
+});
+
 test('Windows native bridge reports a scanner crash as a visible error', () => {
   const events = [];
   const listeners = {};

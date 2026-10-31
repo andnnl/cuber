@@ -14,10 +14,14 @@
       <p v-if="current" class="formula-timer-formula"><strong>{{current.name}}</strong><span>{{current.formula}}</span></p>
       <p v-if="current && current.scramble" class="formula-timer-scramble">打乱：{{current.scramble}}</p>
       <p v-else class="formula-timer-formula">{{feedback || '暂无可用公式'}}</p>
-      <div class="formula-timer-clock"><strong data-formula-timer-clock>{{elapsed}}</strong><span>秒</span><small>{{statusLabel}}</small></div>
+      <div class="formula-timer-clocks">
+        <div class="formula-timer-clock"><small>反应时间</small><strong data-formula-timer-reaction-clock>{{reactionElapsed}}</strong><span>秒</span></div>
+        <div class="formula-timer-clock"><small>拧公式时间</small><strong data-formula-timer-clock>{{elapsed}}</strong><span>秒</span></div>
+      </div>
+      <small class="formula-timer-status">{{statusLabel}}</small>
       <p v-if="feedback && current" role="status" class="formula-timer-feedback">{{feedback}}</p>
       <p v-if="warning" role="alert" class="formula-timer-warning">{{warning}}</p>
-      <div class="formula-timer-actions"><button type="button" @click="nextCase">新题</button><button type="button" @click="resetCase">重试同题</button><button v-if="replayRecord" type="button" @click="leaveReplay">退出复盘</button></div>
+      <div class="formula-timer-actions"><button type="button" @click="nextCase">新题</button><button type="button" @click="resetCase">重试同题</button><label class="formula-timer-z2" title="开启后出题前先做 z2，并立即生成新题"><input type="checkbox" :checked="settings.beforeZ2" @change="toggleBeforeZ2">出题前 z2</label><button v-if="replayRecord" type="button" @click="leaveReplay">退出复盘</button></div>
       <details class="formula-timer-details"><summary>训练设置 · 慢公式 {{slowCount}} 条</summary>
         <label>下一题 <select v-model="settings.nextMode" @change="save"><option value="random">随机下一条</option><option value="repeat">重复同一条</option></select></label>
         <label>慢公式阈值 <input type="number" min="0.1" step="0.1" v-model.number="settings.slowSeconds" @change="changeSettings">秒</label>
@@ -27,7 +31,7 @@
       <details class="formula-timer-details"><summary>训练记录 · {{records.length}} 条</summary>
         <label>结果 <select v-model="recordResult"><option value="all">全部</option><option value="success">成功</option><option value="idle-failure">停转失败</option><option value="interrupted">中断</option></select></label>
         <div v-for="(record, index) in filteredRecords" :key="record.at + '-' + index" class="formula-timer-record">
-          <span>{{new Date(record.at).toLocaleString()}} · {{record.name}} · {{record.result === 'success' ? '成功' : record.result === 'idle-failure' ? '停转失败' : '中断'}} · {{(record.durationMs/1000).toFixed(2)}} 秒</span>
+          <span>{{new Date(record.at).toLocaleString()}} · {{record.name}} · {{record.result === 'success' ? '成功' : record.result === 'idle-failure' ? '停转失败' : '中断'}} · 反应 {{formatReaction(record)}} 秒 · 拧公式 {{(record.durationMs/1000).toFixed(2)}} 秒</span>
           <button type="button" @click="replay(record)">复盘题面</button>
         </div>
       </details>
@@ -42,16 +46,21 @@
           <button type="button" :class="{active:pickerGroup === 'custom'}" @click="pickerGroup = 'custom'">自定义 OLL</button>
         </div>
         <div class="formula-timer-picker-actions"><button type="button" @click="selectAll">全选</button><button type="button" @click="clearSelection">取消选择</button><small>已选 {{selectedIds.length}} 条</small></div>
-        <div class="formula-timer-choices" @touchmove="onTouchMove">
+        <div class="formula-timer-choices formula-timer-preview-choices" @touchmove="onTouchMove">
           <button v-for="item in pickerItems" :key="item.id" type="button" :data-formula-choice="item.id"
-            :class="{active:selectedIds.indexOf(item.id) >= 0}"
+            class="formula-timer-preview-choice" :class="{active:selectedIds.indexOf(item.id) >= 0}"
             @mousedown.prevent="startPaint(item.id, $event)" @mouseenter="paintChoice(item.id)"
             @touchstart.passive="onTouchStart(item.id, $event)" @touchend.stop="onTouchEnd" @touchcancel="stopPaint">
-            <strong>{{item.name}}</strong>
-            <span v-if="settings.category === 'oll'" class="formula-timer-oll-preview" :aria-label="item.name + ' 黄顶绿前题面'">
-              <span v-for="cell in previewCells" :key="cell.index" :style="previewStyle(cell, item)"></span>
-            </span>
-            <small>{{item.formula}}</small><small>{{medianLabel(item)}}</small>
+              <strong>{{item.name.replace(/^OLL-/, 'OLL ').replace(/^PLL-/, 'PLL ')}}</strong>
+              <span v-if="settings.category !== 'f2l'" class="formula-timer-oll-preview" :aria-label="item.name + ' 黄顶绿前题面'">
+                <span v-for="cell in previewCells" :key="cell.index" class="formula-timer-oll-preview-cell" :style="previewStyle(cell, item)"></span>
+              </span>
+              <img v-else-if="f2lPictures[item.id]" class="formula-timer-f2l-picture" :src="f2lPictures[item.id]" :alt="item.name + ' 公式库题面'" draggable="false">
+              <svg v-else class="formula-timer-f2l-preview" viewBox="0 0 90 86" role="img" :aria-label="item.name + ' 3D 魔方题面'">
+                <polygon v-for="(tile, index) in (f2lPreviews[item.id] || [])" :key="index" :points="tile.points" :fill="iconColor(tile.color)" />
+              </svg>
+              <small v-if="settings.category !== 'pll'" class="formula-timer-choice-formula">{{item.formula}}</small>
+              <small>{{medianLabel(item)}}</small>
           </button>
         </div>
         <small v-if="invalidItems.length">不可用：{{invalidItems[0]}}</small>

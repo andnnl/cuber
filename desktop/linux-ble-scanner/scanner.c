@@ -80,7 +80,14 @@ static gboolean valid_name(const gchar *name) {
 
 static gboolean should_report_device(const gchar *name, gboolean live) {
   return live && valid_name(name) &&
-    (g_str_has_prefix(name, "GAN") || g_str_has_prefix(name, "MG") || g_str_has_prefix(name, "AiCube"));
+    !g_str_has_prefix(name, "GAN Robot") && !g_str_has_prefix(name, "GANBOT") &&
+    (g_str_has_prefix(name, "GAN") || g_str_has_prefix(name, "MG") || g_str_has_prefix(name, "AiCube") ||
+     g_str_has_prefix(name, "WCU_MY32") || g_str_has_prefix(name, "QY-QYSC") ||
+     g_str_has_prefix(name, "XMD-TornadoV4-i"));
+}
+
+static gboolean gan_name(const gchar *name) {
+  return g_str_has_prefix(name, "GAN") || g_str_has_prefix(name, "MG") || g_str_has_prefix(name, "AiCube");
 }
 
 static gboolean is_advertisement_change(GVariant *changed) {
@@ -105,7 +112,7 @@ static void report_device(GDBusProxy *proxy) {
   if (!address) goto done;
   GVariant *data = g_dbus_proxy_get_cached_property(proxy, "ManufacturerData");
   gboolean from_manufacturer = FALSE;
-  gchar *mac = preferred_mac(data, address, &from_manufacturer);
+  gchar *mac = gan_name(name) ? preferred_mac(data, address, &from_manufacturer) : g_strdup(address);
   gchar *escaped = json_string(name);
   g_print("{\"name\":%s,\"mac\":\"%s\",\"address\":\"%s\",\"source\":\"%s\"}\n",
     escaped, mac, address, from_manufacturer ? "manufacturer" : "radio");
@@ -208,12 +215,15 @@ int main(int argc, char **argv) {
     g_variant_builder_init(&changes, G_VARIANT_TYPE("a{sv}"));
     g_variant_builder_add(&changes, "{sv}", "Connected", g_variant_new_boolean(TRUE));
     GVariant *stale_changes = g_variant_ref_sink(g_variant_builder_end(&changes));
-    g_print("{\"manufacturerMac\":\"%s\",\"shortDataMac\":\"%s\",\"otherVendorMac\":\"%s\",\"emptyNameIgnored\":%s,\"cachedDeviceIgnored\":%s,\"liveAdvertisementAccepted\":%s,\"unrelatedDeviceIgnored\":%s}\n",
+    g_print("{\"manufacturerMac\":\"%s\",\"shortDataMac\":\"%s\",\"otherVendorMac\":\"%s\",\"emptyNameIgnored\":%s,\"cachedDeviceIgnored\":%s,\"liveAdvertisementAccepted\":%s,\"unrelatedDeviceIgnored\":%s,\"moyuAccepted\":%s,\"qiyiAccepted\":%s,\"timerIgnored\":%s}\n",
       mac ? mac : "", short_mac ? short_mac : "", other_mac ? other_mac : "",
       !should_report_device("", TRUE) && !should_report_device(NULL, TRUE) ? "true" : "false",
       !should_report_device("GAN 12", FALSE) && !is_advertisement_change(stale_changes) ? "true" : "false",
       should_report_device("GAN 12", TRUE) && is_advertisement_change(live_changes) ? "true" : "false",
-      !should_report_device("Other", TRUE) ? "true" : "false");
+      !should_report_device("Other", TRUE) ? "true" : "false",
+      should_report_device("WCU_MY32_ABCD", TRUE) ? "true" : "false",
+      should_report_device("QY-QYSC", TRUE) && should_report_device("XMD-TornadoV4-i", TRUE) ? "true" : "false",
+      !should_report_device("QiYi Smart Timer", TRUE) && !should_report_device("GAN Robot", TRUE) ? "true" : "false");
     g_variant_unref(live_changes); g_variant_unref(stale_changes);
     g_free(mac); g_free(short_mac); g_free(other_mac);
     return 0;

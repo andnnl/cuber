@@ -15,7 +15,7 @@ assert.equal(isFormulaGoal('oll', incomplete), false);
 assert.equal(isFormulaGoal('pll', 'U'.repeat(54)), false);
 
 const records = [1000, 8000, 1100, 1200, 1300, 9000].map((durationMs, i) => ({
-  ...sample, at: i, durationMs, result: 'success',
+  ...sample, at: i, durationMs, reactionMs: 30000, result: 'success',
 }));
 records.push({ ...sample, at: 7, durationMs: 500, result: 'idle-failure' });
 assert.equal(recentMedian(records, 'f2l', 'f2l:01'), 1300);
@@ -45,9 +45,13 @@ async function advance(ms) {
   const timer = new FormulaTimer(clock);
   timer.beginCase(sample);
   await advance(2000);
+  assert.equal(timer.presentedAt, 0, '题面显示时开始反应计时');
+  assert.equal(timer.startedAt, null, '首转前拧公式计时尚未开始');
   assert.equal(outcomes.length, 0, '首转前不超时');
   timer.facelets(incomplete, now, 0);
+  assert.equal(timer.move(now, serial, true), false, '历史恢复不结束反应计时');
   timer.move(now, ++serial);
+  assert.equal(timer.reactionMs, 2000, '首个有效转动结束反应计时');
   await advance(900);
   assert.equal(outcomes.length, 0);
   timer.move(now, ++serial);
@@ -56,21 +60,26 @@ async function advance(ms) {
   timer.facelets(solved, now, serial);
   assert.equal(outcomes[0].result, 'success');
   assert.equal(outcomes[0].durationMs, 1800);
+  assert.equal(outcomes[0].reactionMs, 2000);
   await advance(2000);
   assert.equal(outcomes.length, 1, '结算后不能二次结算');
 
   timer.beginCase(sample);
+  assert.equal(timer.reactionMs, null, '新题清空上一题反应时间');
   timer.move(now, ++serial);
+  assert.equal(timer.reactionMs, 0);
   timer.facelets(incomplete, now + 1, serial);
   await advance(1000);
   assert.equal(requestCount, 1, '停转边界先请求实体状态');
   await advance(200);
   assert.equal(outcomes[1].result, 'idle-failure');
+  assert.equal(outcomes[1].reactionMs, 0);
 
   timer.beginCase(sample);
   timer.move(now, ++serial);
   timer.interrupt(now + 50);
   assert.equal(outcomes[2].result, 'interrupted');
+  assert.equal(outcomes[2].reactionMs, 0);
   await advance(1500);
   assert.equal(outcomes.length, 3);
 

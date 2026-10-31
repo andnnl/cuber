@@ -1,7 +1,6 @@
 import { Component, Inject, Provide, Ref, Vue } from 'vue-property-decorator';
 import World from '../../cuber/world';
-import Cube from '../../cuber/cube';
-import { PreferanceData, PaletteData } from '../../data';
+import { PreferanceData, PaletteData, PRESET_PALETTES } from '../../data';
 import { parseOpFormula } from '../../ble/op-formula';
 import { FormulaTimer, FormulaCase, FormulaCategory, FormulaRecord, recentMedian } from '../../ble/formula-timer';
 import { FormulaTimerSettings, FormulaTimerStore } from '../../ble/formula-timer-store';
@@ -9,6 +8,9 @@ import { FormulaItem, makeFormulaCase } from '../../ble/formula-timer-formula';
 import { CubeSession, SessionSnapshot } from '../../ble/cube-session';
 import { LinkEvent } from '../../ble/types';
 import { topNetCells, TopNetCell } from '../../ble/op-top-net';
+import { algsPreviewExpression, cubeIconTiles, CubeIconTile, previewFormulaFacelets } from '../../ble/formula-timer-preview';
+import Capture from '../Algs/capture';
+import { AlgsData, AlgGroup } from '../Algs';
 import Viewport from '../Viewport';
 import Setting from '../Setting';
 import { loadFormulaPool } from './formulas';
@@ -23,11 +25,14 @@ export default class FormulaTimerView extends Vue {
   @Ref('viewport') viewport: Viewport;
 
   settings: FormulaTimerSettings = { category: 'f2l', selectedIds: { f2l: [], oll: [], pll: [] },
-    nextMode: 'random', slowOnly: false, slowSeconds: 3 };
+    nextMode: 'random', beforeZ2: false, slowOnly: false, slowSeconds: 3 };
   records: FormulaRecord[] = [];
   items: FormulaItem[] = [];
   invalidItems: string[] = [];
   ollPreviews: { [id: string]: string } = {};
+  f2lPreviews: { [id: string]: CubeIconTile[] } = {};
+  f2lPictures: { [id: string]: string } = {};
+  readonly previewColors = PRESET_PALETTES['默认'];
   readonly previewCells = topNetCells('after');
   current: FormulaCase | null = null;
   snapshot: SessionSnapshot | null = null;
@@ -38,6 +43,7 @@ export default class FormulaTimerView extends Vue {
   pickerGroup: 'builtin' | 'custom' = 'builtin';
   recordResult = 'all';
   replayRecord: FormulaRecord | null = null;
+  completedRecord: FormulaRecord | null = null;
   private store = new FormulaTimerStore(window.localStorage);
   private active = true;
   private frame: number | null = null;
@@ -48,6 +54,9 @@ export default class FormulaTimerView extends Vue {
   private visited = new Set<string>();
   private touchTimer: number | null = null;
   private touchName = '';
+  private iconFrame: number | null = null;
+  private capture: Capture | null = null;
+  private captureUnavailable = false;
   private readonly training = new FormulaTimer({
     now: () => Date.now(),
     schedule: (fn, ms) => window.setTimeout(fn, ms),
@@ -67,8 +76,18 @@ export default class FormulaTimerView extends Vue {
       record.category === this.settings.category);
   }
   get elapsed(): string {
+    if (this.replayRecord || this.completedRecord) return (((this.replayRecord || this.completedRecord)!.durationMs) / 1000).toFixed(2);
     if (this.training.startedAt === null) return '0.00';
     return ((this.now - this.training.startedAt) / 1000).toFixed(2);
+  }
+  get reactionElapsed(): string {
+    if (this.replayRecord || this.completedRecord) return this.formatReaction((this.replayRecord || this.completedRecord)!);
+    if (this.training.reactionMs !== null) return (this.training.reactionMs / 1000).toFixed(2);
+    if (this.training.presentedAt === null) return '—';
+    return (Math.max(0, this.now - this.training.presentedAt) / 1000).toFixed(2);
+  }
+  formatReaction(record: FormulaRecord): string {
+    return record.reactionMs === undefined ? '—' : (record.reactionMs / 1000).toFixed(2);
   }
   get statusLabel(): string {
     if (this.replayRecord) return '复盘题面 · 计时暂停';
@@ -93,11 +112,13 @@ export default class FormulaTimerView extends Vue {
   }
   beforeDestroy(): void {
     this.onAppDeactivate();
+    if (this.capture) { this.capture.renderer.dispose(); this.capture.renderer.forceContextLoss(); this.capture = null; }
     if (this.clockTick !== null) window.clearInterval(this.clockTick);
     window.removeEventListener('mouseup', this.stopPaint);
   }
   onAppDeactivate(): void {
     this.active = false;
+    this.stopIconRendering();
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
     this.training.cancel();
@@ -138,9 +159,11 @@ export default class FormulaTimerView extends Vue {
     this.nextJob = null;
   }
   private finishRecord(record: FormulaRecord): void {
+    this.completedRecord = record;
     this.records.unshift(record);
-    this.feedback = record.result === 'success' ? `成功 · ${(record.durationMs / 1000).toFixed(2)} 秒` :
-      record.result === 'idle-failure' ? '停转 1 秒 · 本轮失败' : '状态不可验证或连接中断';
+    const times = `反应 ${this.formatReaction(record)} 秒 · 拧公式 ${(record.durationMs / 1000).toFixed(2)} 秒`;
+    this.feedback = record.result === 'success' ? `成功 · ${times}` :
+      record.result === 'idle-failure' ? `停转 1 秒 · 本轮失败 · ${times}` : `状态不可验证或连接中断 · ${times}`;
     this.save();
     this.clearNextJob();
     if (record.result !== 'interrupted') this.nextJob = window.setTimeout(() => {
@@ -156,23 +179,25 @@ export default class FormulaTimerView extends Vue {
     const cases: FormulaCase[] = [];
     for (const item of pool) {
       if (this.settings.slowOnly && !this.isSlow(item)) continue;
-      try { cases.push(makeFormulaCase(item, plls)); }
+      try { cases.push(makeFormulaCase(item, plls, Math.random, this.settings.beforeZ2)); }
       catch (error) { this.invalidItems.push(`${item.name}：${(error as Error).message}`); }
     }
     return cases;
   }
   private showCase(item: FormulaCase): void {
-    this.training.beginCase(item);
+    this.completedRecord = null;
     this.current = item;
     this.replayRecord = null;
     this.world.cube.twister.finish();
     this.world.cube.twister.setup(item.scramble || parseOpFormula(item.formula).inverse.join(' '));
-    this.now = Date.now();
     this.resize();
+    this.now = Date.now();
+    this.training.beginCase(item, this.now);
   }
   nextCase(): void {
     this.clearNextJob();
     this.training.cancel();
+    this.completedRecord = null;
     this.current = null;
     const pool = this.validPool();
     if (!pool.length) {
@@ -191,6 +216,7 @@ export default class FormulaTimerView extends Vue {
   }
   resetVisualCube(): void { this.resetCase(); }
   changeCategory(category: FormulaCategory): void { this.settings.category = category; this.save(); this.nextCase(); }
+  toggleBeforeZ2(): void { this.settings.beforeZ2 = !this.settings.beforeZ2; this.save(); this.nextCase(); }
   changeSettings(): void {
     this.settings.slowSeconds = Math.max(0.1, Number(this.settings.slowSeconds) || 3);
     this.save(); this.nextCase();
@@ -208,22 +234,54 @@ export default class FormulaTimerView extends Vue {
   leaveReplay(): void { this.replayRecord = null; this.resetCase(); }
   openPicker(): void {
     this.pickerGroup = 'builtin';
-    if (this.settings.category === 'oll') for (const item of this.categoryItems) {
-      if (this.ollPreviews[item.id]) continue;
+    for (const item of this.categoryItems) {
+      if (this.ollPreviews[item.id] || this.f2lPreviews[item.id]) continue;
       try {
-        const cube = new Cube(3);
-        cube.twister.setup(['z2', ...parseOpFormula(item.formula).inverse].join(' '));
-        this.$set(this.ollPreviews, item.id, cube.serialize());
-      } catch { this.$set(this.ollPreviews, item.id, ''); }
+        const moves = parseOpFormula(item.formula).inverse.join(' ');
+        const facelets = previewFormulaFacelets(item.category === 'f2l' ? moves : `z2 ${moves}`);
+        if (item.category !== 'f2l') this.$set(this.ollPreviews, item.id, facelets);
+        else this.$set(this.f2lPreviews, item.id, cubeIconTiles(facelets));
+      } catch {
+        if (item.category !== 'f2l') this.$set(this.ollPreviews, item.id, '');
+        else this.$set(this.f2lPreviews, item.id, []);
+      }
     }
     this.pickerOpen = true;
+    if (this.settings.category === 'f2l') this.startIconRendering();
   }
+  private startIconRendering(): void {
+    if (this.iconFrame !== null || this.captureUnavailable) return;
+    const group: AlgGroup = new AlgsData().algs[0];
+    const pending = group.items.filter(item => this.categoryItems.some(choice => choice.name === item.name) &&
+      !Object.prototype.hasOwnProperty.call(this.f2lPictures, `f2l:${item.name}`));
+    if (!pending.length) return;
+    try { if (!this.capture) this.capture = new Capture(); }
+    catch { this.captureUnavailable = true; return; }
+    const renderBatch = (): void => {
+      this.iconFrame = null;
+      if (!this.pickerOpen || this.settings.category !== 'f2l') return;
+      for (let n = 0; n < 2 && pending.length; n++) {
+        const alg = pending.shift()!;
+        const id = `f2l:${alg.name}`;
+        try {
+          this.$set(this.f2lPictures, id, this.capture!.snap(group.strip, algsPreviewExpression(alg), alg.order || 3));
+        } catch { this.$set(this.f2lPictures, id, ''); }
+      }
+      if (pending.length) this.iconFrame = requestAnimationFrame(renderBatch);
+    };
+    this.iconFrame = requestAnimationFrame(renderBatch);
+  }
+  private stopIconRendering(): void {
+    if (this.iconFrame !== null) cancelAnimationFrame(this.iconFrame);
+    this.iconFrame = null;
+  }
+  iconColor(color: string): string { return this.previewColors[color] || '#999'; }
   previewStyle(cell: TopNetCell, item: FormulaItem): object {
     const facelets = this.ollPreviews[item.id] || '';
     return { gridRow: cell.row + 1, gridColumn: cell.col + 1,
-      backgroundColor: facelets[cell.index] ? this.palette.getColor(facelets[cell.index]) : '#999' };
+      backgroundColor: this.iconColor(facelets[cell.index]) };
   }
-  closePicker(): void { this.stopPaint(); this.pickerOpen = false; this.save(); this.nextCase(); }
+  closePicker(): void { this.stopPaint(); this.stopIconRendering(); this.pickerOpen = false; this.save(); this.nextCase(); }
   toggleChoice(id: string): void {
     const index = this.selectedIds.indexOf(id);
     if (index < 0) this.selectedIds.push(id); else this.selectedIds.splice(index, 1);

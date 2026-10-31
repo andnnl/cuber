@@ -4,6 +4,9 @@
 
 import { BleTransport, DeviceInfo, LinkEvent } from "./types";
 import { GanCubeLink } from "./protocols/gan";
+import { Moyu32CubeLink } from "./protocols/moyu32";
+import { QiyiCubeLink } from "./protocols/qiyi";
+import { findCubeProtocol } from "./protocols/registry";
 import { MockGanCubeTransport } from "./mock-transport";
 import { WebBluetoothTransport, webBluetoothAvailable } from "./transport/web";
 import { getNativeTransport, nativeBridgeAvailable } from "./transport/native";
@@ -12,6 +15,7 @@ export type CubeLinkKind = "web" | "mock" | "native";
 export type CubeLinkStatus = "disconnected" | "connecting" | "connected";
 export type DisconnectSource = "requested" | "page-dispose" | "transport" | "connection-failed";
 export type TransportFactory = (kind: CubeLinkKind) => BleTransport;
+type CubeProtocolLink = GanCubeLink | Moyu32CubeLink | QiyiCubeLink;
 
 export { webBluetoothAvailable, nativeBridgeAvailable, getNativeTransport };
 
@@ -28,7 +32,7 @@ export function createTransport(kind: CubeLinkKind): BleTransport {
 
 export class CubeLink {
   private transport: BleTransport | null = null;
-  private gan: GanCubeLink | null = null;
+  private protocol: CubeProtocolLink | null = null;
   /** 每次连接/断开均递增；异步回调只能修改创建它的那一代会话。 */
   private generation = 0;
 
@@ -92,41 +96,47 @@ export class CubeLink {
       }
       throw err;
     }
-    const gan = new GanCubeLink(transport);
     this.transport = transport;
-    this.gan = gan;
-    gan.onEvent((e) => {
-      if (generation === this.generation && this.gan === gan) {
-        this.handleEvent(e);
-      }
-    });
-    gan.onDisconnect(() => {
-      if (generation !== this.generation || this.gan !== gan) {
-        return;
-      }
-      this.transport = null;
-      this.gan = null;
-      this.deviceInfo = null;
-      this.facelets = null;
-      this.battery = null;
-      this.hardware = null;
-      this.lastDisconnectSource = "transport";
-      this.setStatus("disconnected");
-    });
+    let protocol: CubeProtocolLink | null = null;
     try {
-      const info = await gan.connect(opts);
-      if (generation !== this.generation || this.gan !== gan) {
-        await gan.disconnect().catch(() => undefined);
+      const connectedInfo = await transport.connect(opts);
+      if (generation !== this.generation) {
+        await transport.disconnect().catch(() => undefined);
+        throw new Error("连接已取消");
+      }
+      const meta = findCubeProtocol({ name: connectedInfo.name, serviceUuids: connectedInfo.serviceUuids || [] });
+      if (!meta) throw new Error("设备不是已支持的 GAN、MoYu32 或 QiYi 智能魔方");
+      protocol = meta.brand === "MoYu32" ? new Moyu32CubeLink(transport) :
+        meta.brand === "QiYi" ? new QiyiCubeLink(transport) : new GanCubeLink(transport);
+      this.protocol = protocol;
+      protocol.onEvent(e => {
+        if (generation === this.generation && this.protocol === protocol) this.handleEvent(e);
+      });
+      protocol.onDisconnect(() => {
+        if (generation !== this.generation || this.protocol !== protocol) return;
+        this.transport = null;
+        this.protocol = null;
+        this.deviceInfo = null;
+        this.facelets = null;
+        this.battery = null;
+        this.hardware = null;
+        this.lastDisconnectSource = "transport";
+        this.setStatus("disconnected");
+      });
+      const info = await protocol.connect(opts, connectedInfo);
+      if (generation !== this.generation || this.protocol !== protocol) {
+        await protocol.disconnect().catch(() => undefined);
         throw new Error("连接已取消");
       }
       this.deviceInfo = info;
       this.setStatus("connected");
       return info;
     } catch (err) {
-      await gan.disconnect().catch(() => undefined);
-      if (generation === this.generation && this.gan === gan) {
+      if (protocol) await protocol.disconnect().catch(() => undefined);
+      else await transport.disconnect().catch(() => undefined);
+      if (generation === this.generation) {
         this.transport = null;
-        this.gan = null;
+        this.protocol = null;
         this.lastDisconnectSource = "connection-failed";
         this.setStatus("disconnected");
       }
@@ -137,17 +147,17 @@ export class CubeLink {
   async disconnect(source: "requested" | "page-dispose" = "requested"): Promise<void> {
     ++this.generation;
     this.lastDisconnectSource = source;
-    const gan = this.gan;
-    this.gan = null;
+    const protocol = this.protocol;
+    this.protocol = null;
+    const transport = this.transport;
     this.transport = null;
     this.deviceInfo = null;
     this.facelets = null;
     this.battery = null;
     this.hardware = null;
     this.setStatus("disconnected");
-    if (gan) {
-      await gan.disconnect();
-    }
+    if (protocol) await protocol.disconnect();
+    else await transport?.disconnect();
   }
 
   get connected(): boolean {
@@ -156,11 +166,11 @@ export class CubeLink {
 
   /** 协议命令透传 (电量/硬件/facelets 刷新) */
   async requestFacelets(): Promise<void> {
-    await this.gan?.requestFacelets();
+    await this.protocol?.requestFacelets();
   }
 
   async requestBattery(): Promise<void> {
-    await this.gan?.requestBattery();
+    await this.protocol?.requestBattery();
   }
 
   /** Mock 专用: 驱动模拟魔方转动 (kind="mock" 时可用) */

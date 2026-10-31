@@ -31,9 +31,9 @@
           <p>{{scanMessage}}</p>
           <button type="button" @click="startScan">重新扫描</button>
           <button v-for="device in scanDevices" :key="device.address" type="button" @click="connect('native', device.address)" :disabled="snapshot.status !== 'disconnected'">
-            {{device.name || 'GAN 魔方'}} · {{device.address}}
+            {{device.name || '蓝牙魔方'}} · {{device.address}}
           </button>
-          <p v-if="scanDevices.length === 0">未发现支持自动获取 MAC 的魔方？可在下方手动填写 MAC，仍需授权设备。</p>
+          <p v-if="scanDevices.length === 0">未发现魔方？请重新扫描；网页模式也可在下方填写 MAC 后授权设备。</p>
           <input v-model="manualMac" placeholder="AA:BB:CC:DD:EE:FF" aria-label="MAC 地址" autocomplete="off" @input="macError = ''">
           <button type="button" @click="connect('web', undefined, true)" :disabled="!manualMac.trim()">用 MAC 连接（备用）</button>
           <p v-if="macError" role="alert">{{macError}}</p>
