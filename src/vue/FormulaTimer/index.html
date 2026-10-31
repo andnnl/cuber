@@ -12,6 +12,7 @@
     <div ref="cubeArea" class="formula-timer-cube"><viewport ref="viewport"></viewport></div>
     <main class="formula-timer-panel">
       <p v-if="current" class="formula-timer-formula"><strong>{{current.name}}</strong><span>{{current.formula}}</span></p>
+      <p v-if="current && current.scramble" class="formula-timer-scramble">打乱：{{current.scramble}}</p>
       <p v-else class="formula-timer-formula">{{feedback || '暂无可用公式'}}</p>
       <div class="formula-timer-clock"><strong data-formula-timer-clock>{{elapsed}}</strong><span>秒</span><small>{{statusLabel}}</small></div>
       <p v-if="feedback && current" role="status" class="formula-timer-feedback">{{feedback}}</p>

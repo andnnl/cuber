@@ -42,6 +42,20 @@ async page => {
     if (view.paint || view.touchName) throw Error('长按结束没有清除划选状态');
   });
   await page.getByRole('button', { name: '完成' }).click();
+  const ollCase = await page.evaluate(() => {
+    const view = window.__appShell.currentView();
+    return { ...view.current, shown: view.world.cube.serialize() };
+  });
+  if (!ollCase.scramble || ollCase.shown !== ollCase.initialFacelets || !await page.locator('.formula-timer-scramble').isVisible())
+    throw Error('OLL 题面没有使用并显示实际打乱串');
+  await page.getByRole('button', { name: '重试同题' }).click();
+  if (!await page.evaluate(scramble => window.__appShell.currentView().current.scramble === scramble, ollCase.scramble))
+    throw Error('重复 OLL 题面时打乱发生变化');
+  await page.getByRole('button', { name: 'PLL', exact: true }).click();
+  if (!await page.evaluate(() => {
+    const view = window.__appShell.currentView();
+    return view.current.scramble && view.current.initialFacelets === view.world.cube.serialize();
+  })) throw Error('PLL 题面与打乱串不一致');
   await page.getByRole('button', { name: 'F2L', exact: true }).click();
   await page.reload();
   await page.locator('.formula-timer-root').waitFor();

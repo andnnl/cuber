@@ -2,7 +2,7 @@ import { isSolvedFacelets } from './pll-training';
 
 export type FormulaCategory = 'f2l' | 'oll' | 'pll';
 export type FormulaResult = 'success' | 'idle-failure' | 'interrupted';
-export interface FormulaCase { id: string; category: FormulaCategory; name: string; formula: string; initialFacelets: string }
+export interface FormulaCase { id: string; category: FormulaCategory; name: string; formula: string; initialFacelets: string; scramble?: string }
 export interface FormulaRecord extends FormulaCase { at: number; durationMs: number; result: FormulaResult }
 
 export function isFormulaGoal(category: FormulaCategory, facelets: string): boolean {

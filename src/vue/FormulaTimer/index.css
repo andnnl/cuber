@@ -9,6 +9,7 @@
 .formula-timer-formula { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; align-items:baseline; }
 .formula-timer-formula strong { font-size:18px; }
 .formula-timer-formula span { overflow-wrap:anywhere; }
+.formula-timer-scramble { margin:4px 0 8px; font-size:13px; overflow-wrap:anywhere; }
 .formula-timer-clock { border-radius:12px; padding:12px; background:#153642; color:#fff; text-align:center; }
 .formula-timer-clock strong { font-size:36px; font-variant-numeric:tabular-nums; }
 .formula-timer-clock small { display:block; color:#bce3e6; }

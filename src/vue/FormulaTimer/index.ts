@@ -150,12 +150,13 @@ export default class FormulaTimerView extends Vue {
   }
   private validPool(): FormulaCase[] {
     this.invalidItems = [];
+    const plls = this.items.filter(item => item.category === 'pll');
     const selected = this.selectedIds;
     const pool = this.categoryItems.filter(item => !selected.length ? !item.id.startsWith('oll:custom-') : selected.indexOf(item.id) >= 0);
     const cases: FormulaCase[] = [];
     for (const item of pool) {
       if (this.settings.slowOnly && !this.isSlow(item)) continue;
-      try { cases.push(makeFormulaCase(item)); }
+      try { cases.push(makeFormulaCase(item, plls)); }
       catch (error) { this.invalidItems.push(`${item.name}：${(error as Error).message}`); }
     }
     return cases;
@@ -165,7 +166,7 @@ export default class FormulaTimerView extends Vue {
     this.current = item;
     this.replayRecord = null;
     this.world.cube.twister.finish();
-    this.world.cube.twister.setup(parseOpFormula(item.formula).inverse.join(' '));
+    this.world.cube.twister.setup(item.scramble || parseOpFormula(item.formula).inverse.join(' '));
     this.now = Date.now();
     this.resize();
   }

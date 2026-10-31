@@ -21,6 +21,11 @@ const records = [{ id: 'oll:01', category: 'oll', name: 'OLL-01', formula: 'R U'
   initialFacelets: 'U'.repeat(54), at: 1000, durationMs: 1900, result: 'success' }];
 assert.equal(store.save(settings, records), null);
 assert.deepEqual(new FormulaTimerStore(storage).load(), { settings, records, warning: '' });
+const newRecords = [{ ...records[0], scramble: "y R' U' R" }];
+assert.equal(store.save(settings, newRecords), null);
+assert.deepEqual(new FormulaTimerStore(storage).load().records, newRecords, '新题实际打乱串可复盘');
+assert.equal(store.save(settings, [{ ...records[0], scramble: 17 }]), null);
+assert.match(store.load().warning, /记录|读取/, '不接受类型错误的打乱串');
 assert.equal(values.get('algs'), 'untouched');
 assert.equal(values.get('pll6Records'), 'untouched');
 

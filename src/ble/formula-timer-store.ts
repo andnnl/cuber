@@ -22,6 +22,7 @@ function defaults(): FormulaTimerSettings {
 function validRecord(value: any): value is FormulaRecord {
   return value && CATEGORIES.indexOf(value.category) >= 0 && RESULTS.indexOf(value.result) >= 0 &&
     ['id', 'name', 'formula', 'initialFacelets'].every(key => typeof value[key] === 'string') &&
+    (value.scramble === undefined || typeof value.scramble === 'string') &&
     Number.isFinite(value.at) && Number.isFinite(value.durationMs) && value.durationMs >= 0;
 }
 
