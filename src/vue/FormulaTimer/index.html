@@ -4,13 +4,18 @@
     <header class="formula-timer-header">
       <h2>公式集训练计时</h2>
       <div class="formula-timer-tabs">
-        <button v-for="category in ['f2l','oll','pll']" :key="category" type="button"
-          :class="{active:settings.category === category}" @click="changeCategory(category)">{{category.toUpperCase()}}</button>
-        <button type="button" @click="openPicker">选择公式</button>
+        <button v-for="category in ['f2l','oll','pll']" v-if="!statsOpen" :key="category" type="button"
+          :class="{active:trainingCategory === category}" @click="changeCategory(category)">{{category.toUpperCase()}}</button>
+        <button v-if="!statsOpen" type="button" @click="openPicker">选择公式</button>
+        <button type="button" :class="{active:statsOpen}" @click="statsOpen ? closeStats() : openStats()">{{statsOpen ? '返回训练' : '统计'}}</button>
       </div>
     </header>
-    <div ref="cubeArea" class="formula-timer-cube"><viewport ref="viewport"></viewport></div>
-    <main class="formula-timer-panel">
+    <div ref="cubeArea" v-show="!statsOpen" class="formula-timer-cube"><viewport ref="viewport"></viewport></div>
+    <main v-show="!statsOpen" class="formula-timer-panel">
+      <div v-if="focusIds" class="formula-stats-focus" role="status">
+        <strong>临时重点训练 · {{focusTitle}} · {{focusIds.length}} 条</strong>
+        <button type="button" @click="leaveStatsFocus">退出重点训练</button>
+      </div>
       <p v-if="current" class="formula-timer-formula"><strong>{{current.name}}</strong><span>{{current.formula}}</span></p>
       <p v-if="current && current.scramble" class="formula-timer-scramble">打乱：{{current.scramble}}</p>
       <p v-else class="formula-timer-formula">{{feedback || '暂无可用公式'}}</p>
@@ -35,7 +40,75 @@
           <button type="button" @click="replay(record)">复盘题面</button>
         </div>
       </details>
-      <small>实体无需与题面同步；成绩按实体状态判断，画面仅跟随转动。F2L/PLL 六面还原；OLL 下两层还原且顶面同色。</small>
+      <small>实体无需与题面同步；按屏幕 3D 魔方判定完成，实体转动带动画面。F2L 十字和前两层完成；PLL 六面还原；OLL 下两层还原且顶面同色。</small>
+    </main>
+    <main v-if="statsOpen" class="formula-timer-panel formula-stats" aria-label="公式训练统计">
+      <div class="formula-stats-filters">
+        <label>分类 <select v-model="statsPreferences.category" @change="saveStatsPreferences">
+          <option value="f2l">F2L</option><option value="oll">OLL</option><option value="pll">PLL</option>
+        </select></label>
+        <label>取样 <select v-model="statsPreferences.mode" @change="saveStatsPreferences">
+          <option value="per-formula">每个公式最近 N 条</option><option value="category">当前分类最近 N 条</option>
+        </select></label>
+        <label>条数 <select v-model.number="statsPreferences.count" @change="saveStatsPreferences">
+          <option :value="10">10</option><option :value="20">20</option><option :value="50">50</option><option :value="100">100</option>
+        </select></label>
+      </div>
+      <small class="formula-stats-caption">{{statsPreferences.mode === 'per-formula' ? '每个公式' : '当前分类'}}最近 {{statsPreferences.count}} 条记录；停转失败计入成功率，连接中断不计入。</small>
+      <p v-if="warning" role="alert" class="formula-timer-warning">{{warning}}</p>
+      <section class="formula-stats-section">
+        <h3>总体成绩</h3>
+        <div v-if="statsResult.overview.recordCount" class="formula-stats-overview">
+          <div><small>有效尝试</small><strong>{{statsResult.overview.attemptCount}}</strong></div>
+          <div><small>成功率</small><strong>{{statsRate(statsResult.overview.successRate)}}</strong></div>
+          <div><small>平均反应</small><strong>{{statsSeconds(statsResult.overview.meanReactionMs)}}</strong><small>{{statsResult.overview.reactionCount}} 次成功有数据</small></div>
+          <div><small>平均拧动</small><strong>{{statsSeconds(statsResult.overview.meanDurationMs)}}</strong><small>{{statsResult.overview.durationCount}} 次成功有数据</small></div>
+        </div>
+        <p v-else class="formula-stats-empty">当前分类暂无训练记录，完成训练后这里会显示统计。</p>
+      </section>
+      <section class="formula-stats-section">
+        <h3>重点补练</h3>
+        <div v-for="label in ['duration','reaction','failure']" :key="label" class="formula-stats-group">
+          <div class="formula-stats-group-heading"><strong>{{statsLabel(label)}} · {{statsGroupRows(label).length}} 条</strong>
+            <button type="button" :disabled="!statsGroupAvailable(label)" @click="startStatsFocus(statsGroupRows(label), statsLabel(label))">练这一组</button></div>
+          <div v-if="statsGroupRows(label).length" class="formula-stats-tags">
+            <span v-for="row in statsGroupRows(label)" :key="row.id">{{row.name}} · {{statsGroupValue(row, label)}}</span>
+          </div>
+          <small v-else>当前样本内暂无符合条件的公式</small>
+        </div>
+        <small>拧动慢：平均时间超过 {{settings.slowSeconds}} 秒；反应慢：超过分类中位数 1.5 倍；失败较多：至少 5 次且成功率低于 80%。</small>
+      </section>
+      <section class="formula-stats-section">
+        <h3>各公式排行</h3>
+        <p v-if="!statsResult.formulas.length" class="formula-stats-empty">暂无可排行的公式。</p>
+        <article v-for="row in statsResult.formulas" :key="row.id" class="formula-stats-card">
+          <button type="button" class="formula-stats-card-head" :aria-expanded="statsExpandedId === row.id ? 'true' : 'false'" @click="toggleStatsRow(row.id)">
+            <strong>{{row.name}}</strong><span>{{statsSeconds(row.meanDurationMs)}} {{statsExpandedId === row.id ? '▴' : '▾'}}</span>
+          </button>
+          <div class="formula-stats-card-metrics">
+            <span>反应 {{statsSeconds(row.meanReactionMs)}} <small>({{row.reactionCount}} 次)</small></span>
+            <span>拧动 {{statsSeconds(row.meanDurationMs)}} <small>({{row.durationCount}} 次)</small></span>
+            <span>成功率 {{statsRate(row.successRate)}} <small>({{row.successCount}}/{{row.attemptCount}})</small></span>
+          </div>
+          <div v-if="row.insufficient || row.labels.length" class="formula-stats-tags">
+            <span v-if="row.insufficient">数据不足</span><span v-for="label in row.labels" :key="label">{{statsLabel(label)}}</span>
+          </div>
+          <div v-if="statsExpandedId === row.id" class="formula-stats-expanded">
+            <small>最近 {{row.records.length}} 条 · 青线为拧动，蓝线为反应，叉号为停转失败</small>
+            <svg viewBox="0 0 300 100" preserveAspectRatio="none" role="img" :aria-label="row.name + ' 最近成绩趋势'">
+              <line x1="10" y1="90" x2="290" y2="90" stroke="#aac6c8" />
+              <polyline v-for="(segment, index) in statsChart.durationPaths" :key="'d'+index" :points="segment" fill="none" stroke="#00a9a8" stroke-width="2.5" />
+              <polyline v-for="(segment, index) in statsChart.reactionPaths" :key="'r'+index" :points="segment" fill="none" stroke="#5267c9" stroke-width="2" />
+              <circle v-for="(point, index) in statsChart.durationDots" :key="'dc'+index" :cx="point.x" :cy="point.y" r="3" fill="#00a9a8" />
+              <circle v-for="(point, index) in statsChart.reactionDots" :key="'rc'+index" :cx="point.x" :cy="point.y" r="2.5" fill="#5267c9" />
+              <text v-for="(x, index) in statsChart.failures" :key="'f'+index" :x="x" y="88" fill="#d0504e" text-anchor="middle">×</text>
+            </svg>
+            <small v-if="row.durationCount < 2">成功样本不足 2 次，趋势只显示已有点。</small>
+            <button type="button" :disabled="!statsAvailable(row)" :title="statsAvailable(row) ? '' : '该公式已不在当前公式库'" @click="startStatsFocus([row], row.name)">只练这一条</button>
+            <small v-if="!statsAvailable(row)">该公式已不在当前公式库，仍可查看历史成绩。</small>
+          </div>
+        </article>
+      </section>
     </main>
     <div v-if="pickerOpen" class="formula-timer-overlay" @click.self="closePicker" @mouseup="stopPaint" @touchend="stopPaint">
       <section class="formula-timer-dialog" role="dialog" aria-modal="true" aria-label="选择训练公式">

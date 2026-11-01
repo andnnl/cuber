@@ -59,6 +59,7 @@ export class Moyu32CubeLink {
   private disconnectCb: (() => void) | null = null;
   private closed = false;
   private previousCount = -1;
+  private lastStateCount = -1;
   private info: DeviceInfo | null = null;
   private writes: Promise<void> = Promise.resolve();
   private fallbackCipher: Moyu32Cipher | null = null;
@@ -70,6 +71,8 @@ export class Moyu32CubeLink {
 
   async connect(opts?: { address?: string; mac?: string; autoReconnect?: boolean; knownName?: string; knownDeviceId?: string }, connectedInfo?: DeviceInfo): Promise<DeviceInfo> {
     this.closed = false;
+    this.previousCount = -1;
+    this.lastStateCount = -1;
     this.info = connectedInfo || await this.transport.connect(opts);
     const mac = opts?.mac || this.info.mac || fallbackMac(this.info.name);
     if (!mac) throw new Error("MoYu32 无法获取加密 MAC，请手动填写设备地址");
@@ -127,8 +130,10 @@ export class Moyu32CubeLink {
       if (!brandFaceletsToState(facelets)) return;
       const count = bits(raw, 152, 8);
       const forward = (count - this.previousCount + 256) & 255;
-      if (this.previousCount >= 0 && (forward === 0 || forward > 128)) return;
+      // MOVE 已推进 previousCount；同序号的首张完整状态仍须交给训练判定。
+      if (this.previousCount >= 0 && (forward > 128 || (forward === 0 && count === this.lastStateCount))) return;
       this.previousCount = count;
+      this.lastStateCount = count;
       this.eventCb?.({ type: "facelets", facelets, serial: this.previousCount });
       this.transport.confirmMac?.();
     } else if (raw[0] === 0xa4) {

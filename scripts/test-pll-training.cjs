@@ -1,5 +1,10 @@
 const assert = require('node:assert/strict');
+global.requestAnimationFrame = () => 0;
 const { PllTraining, isSolvedFacelets } = require('../.tmp/ble/pll-training.js');
+const { parseOpFormula } = require('../.tmp/ble/op-formula.js');
+const { matchPllSix } = require('../.tmp/ble/pll-six-sticker.js');
+const Cube = require('../.tmp/cuber/cube.js').default;
+const realPlls = require('../src/vue/Algs/algs.json').find(group => group.name === 'PLL').items;
 
 const items = Array.from({length: 21}, (_, i) => ({name: `PLL-${i}`, origin: 'R U R\''}));
 const solved = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
@@ -43,9 +48,9 @@ assert.equal(training.records.length, 2);
 const picks = [0.99, 0.26, 0.51];
 const aufs = new PllTraining(items, () => picks.shift(), Date.now, () => 'R');
 assert.equal(aufs.current.name, 'PLL-20');
-assert.equal(aufs.current.preRotation, 'y');
+assert.equal(aufs.current.preRotation, 'U');
 assert.equal(aufs.current.postAuf, "U'");
-assert.equal(aufs.current.scramble, "y R U'");
+assert.equal(aufs.current.scramble, "U R U'");
 let filteredPick = 0.99;
 const filtered = new PllTraining(items, () => filteredPick, Date.now, () => 'R');
 const initialCase = filtered.current;
@@ -62,11 +67,24 @@ assert.equal(filtered.next().name, 'PLL-0', '非法名称回退到完整公式�
 filtered.setAllowedNames([]);
 filteredPick = 0.99;
 assert.equal(filtered.next().name, 'PLL-20', '空选表示完整公式库');
-for (const [choice, rotation] of [[0, ''], [0.26, 'y'], [0.51, "y'"], [0.76, 'y2']]) {
+for (const [choice, rotation] of [[0, ''], [0.26, 'U'], [0.51, "U'"], [0.76, 'U2']]) {
   const sample = new PllTraining(items, (() => { const values = [0, choice, 0]; return () => values.shift(); })(), Date.now, () => 'R');
   assert.equal(sample.current.preRotation, rotation);
   assert.equal(sample.current.postAuf, '');
   assert.equal(sample.current.scramble, [rotation, 'R'].filter(Boolean).join(' '));
+}
+for (let i = 0; i < realPlls.length; i++) for (let pre = 0; pre < 4; pre++) for (let post = 0; post < 4; post++) {
+  const picks = [(i + 0.01) / realPlls.length, (pre + 0.01) / 4, (post + 0.01) / 4];
+  const trainer = new PllTraining(realPlls, () => picks.shift(), Date.now,
+    origin => parseOpFormula(origin).inverse.join(' '));
+  const cube = new Cube(3);
+  cube.twister.setup(trainer.current.scramble);
+  assert.equal(matchPllSix(cube.serialize())?.name, realPlls[i].name.slice(4),
+    `${realPlls[i].name} 前 AUF=${pre} 后 AUF=${post} 仍须是原 PLL`);
+  trainer.setZ2(true);
+  cube.twister.setup(trainer.current.scramble);
+  assert.equal(matchPllSix(cube.serialize())?.name, realPlls[i].name.slice(4),
+    `${realPlls[i].name} z2 前 AUF=${pre} 后 AUF=${post} 仍须是原 PLL`);
 }
 
 const bluetooth = new PllTraining(items, () => 0.7, Date.now, () => 'R');

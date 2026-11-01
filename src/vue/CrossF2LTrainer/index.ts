@@ -14,8 +14,8 @@ import { HIGHLIGHT_COLORS, highlightPiece, restoreHighlight, restorePositionHigh
 import { TRAINER_THEME_CSS } from "./theme";
 import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
 import { WideCrossClient } from "../../wasm/WideCrossClient";
-import { parseWideRecommendations, WideRecommendation } from "./wide-recommendations";
-import { correctWideCross } from "./wide-playback";
+import { parseWideRecommendations, recoverWideCross, WideRecommendation } from "./wide-recommendations";
+import { applyWideFormulaFrom, correctWideCross } from "./wide-playback";
 import { gripTokens, displayWideGripRoute } from "./wide-grip";
 import { applyFormulaFrom } from "../../ble/move-diff";
 import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "./recommendations";
@@ -938,12 +938,19 @@ export default class CrossF2LTrainer extends Vue {
           valid.push(item);
           return valid;
         }, [])), []);
+      if (!candidates.some(item => item.physicalMoves.some(move => move[0] === 'l'))) {
+        this.wideStage = '寻找左宽转可验证解法';
+        const recovered = await recoverWideCross(facelets,
+          state => this.analysisClient.request('recommendCross', { facelets: state }), applyWideFormulaFrom);
+        if (generation !== this.wideRequestId || facelets !== this.solveFacelets) return;
+        candidates.push(...recovered);
+      }
       const routes = await this.wideClient.score(candidates.map(item => gripTokens(item.displayMoves)));
       if (generation !== this.wideRequestId || facelets !== this.solveFacelets) return;
       if (routes.length !== candidates.length) throw new Error('宽转指法结果数量不一致');
       candidates.forEach((item, index) => { item.route = displayWideGripRoute(routes[index], item.displayMoves); });
       this.wideRecommendations = candidates;
-      this.wideRejected -= this.wideRecommendations.length;
+      this.wideRejected = Math.max(0, this.wideRejected - this.wideRecommendations.length);
     } catch (error) {
       if (generation === this.wideRequestId) this.wideError = `宽转搜索失败：${String(error)}`;
     } finally {

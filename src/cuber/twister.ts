@@ -258,6 +258,12 @@ export default class Twister {
     tweener.finish();
   }
 
+  /** 切题时不执行尚未开始的旧动作；仅完成在途动作以释放旋转锁。 */
+  discardPending(): void {
+    this.queue.length = 0;
+    tweener.finish();
+  }
+
   setup(exp: string, reverse = false, times = 1): void {
     this.finish();
     this.cube.reset();

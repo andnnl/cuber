@@ -17,9 +17,9 @@ export class FormulaStatsPreferencesStore {
   load(): FormulaStatsPreferences {
     try {
       const value = JSON.parse(this.storage.getItem(KEY) || 'null');
-      if (['f2l', 'oll', 'pll'].includes(value?.category) &&
-          ['per-formula', 'category'].includes(value?.mode) &&
-          [10, 20, 50, 100].includes(value?.count)) return value;
+      if (['f2l', 'oll', 'pll'].indexOf(value?.category) >= 0 &&
+          ['per-formula', 'category'].indexOf(value?.mode) >= 0 &&
+          [10, 20, 50, 100].indexOf(value?.count) >= 0) return value;
     } catch { /* 损坏偏好不影响训练记录 */ }
     return defaults();
   }

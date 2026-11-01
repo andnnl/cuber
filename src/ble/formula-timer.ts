@@ -6,7 +6,16 @@ export interface FormulaCase { id: string; category: FormulaCategory; name: stri
 export interface FormulaRecord extends FormulaCase { at: number; durationMs: number; reactionMs?: number; result: FormulaResult }
 
 export function isFormulaGoal(category: FormulaCategory, facelets: string): boolean {
-  if (category !== 'oll') return isSolvedFacelets(facelets);
+  if (category === 'pll') return isSolvedFacelets(facelets);
+  if (category === 'f2l') {
+    // 当前中心色为基准：D 面含十字与底角，四侧面下两排覆盖四组 F2L 槽位。
+    // 顶层可未还原，且 z2 后 D 中心不一定是字母 D。
+    if (!/^[URFDLB]{54}$/.test(facelets) ||
+      new Set([4, 13, 22, 31, 40, 49].map(i => facelets[i])).size !== 6) return false;
+    if (facelets.slice(27, 36) !== facelets[31].repeat(9)) return false;
+    return [9, 18, 36, 45].every(base =>
+      facelets.slice(base + 3, base + 9) === facelets[base + 4].repeat(6));
+  }
   if (!/^[URFDLB]{54}$/.test(facelets) || new Set([4, 13, 22, 31, 40, 49].map(i => facelets[i])).size !== 6) return false;
   if (facelets.slice(0, 9) !== facelets[4].repeat(9) || facelets.slice(27, 36) !== facelets[31].repeat(9)) return false;
   return [9, 18, 36, 45].every(base => facelets.slice(base + 3, base + 9) === facelets[base + 4].repeat(6));
@@ -24,7 +33,6 @@ export interface FormulaTimerClock {
   now(): number;
   schedule(fn: () => void, ms: number): number;
   cancel(id: number): void;
-  requestFacelets(): Promise<void>;
   onResult(record: FormulaRecord): void;
 }
 
@@ -35,14 +43,19 @@ export class FormulaTimer {
   startedAt: number | null = null;
   lastMoveAt: number | null = null;
   private generation = 0;
-  private lastSerial = 0;
-  private startSerial = 0;
-  private seenUnfinished = false;
-  private baseline = '';
-  private lastFreshFacelets = '';
+  private lastSerial: number | null = null;
   private job: number | null = null;
+  private verifying = false;
 
   constructor(private readonly clock: FormulaTimerClock) {}
+
+  /** 新蓝牙连接可能重新从任意序号起报，不能沿用上个设备的去重基准。 */
+  resetSerial(): void { this.lastSerial = null; }
+
+  private serialRelation(serial: number, reference: number): -1 | 0 | 1 {
+    const diff = ((serial & 0xff) - (reference & 0xff)) & 0xff;
+    return diff === 0 ? 0 : diff < 0x80 ? 1 : -1;
+  }
 
   beginCase(item: FormulaCase, displayedAt = this.clock.now()): number {
     this.cancel();
@@ -50,37 +63,42 @@ export class FormulaTimer {
     this.presentedAt = displayedAt;
     this.startedAt = null;
     this.lastMoveAt = null;
-    this.startSerial = this.lastSerial;
-    this.seenUnfinished = false;
-    this.lastFreshFacelets = '';
-    this.baseline = '';
     return this.generation;
   }
 
+  holdForVerification(): void { this.verifying = true; }
+  releaseVerification(): void {
+    this.verifying = false;
+    if (this.current && this.lastMoveAt !== null && this.clock.now() >= this.lastMoveAt + 2000)
+      this.expire(this.generation, this.lastMoveAt);
+  }
+
+  /** 末转后最多显示 2 秒；核验请求挂起时也不能让计时继续累加。 */
+  elapsedAt(at: number): number {
+    if (this.startedAt === null) return 0;
+    const end = this.lastMoveAt === null ? at : Math.min(at, this.lastMoveAt + 2000);
+    return Math.max(0, end - this.startedAt);
+  }
+
+  /** 由屏幕逻辑题面完成触发；蓝牙实体状态不参与本训练的成功判定。 */
+  completeDisplayed(at: number): boolean {
+    if (!this.current || this.startedAt === null) return false;
+    this.finish('success', at);
+    return true;
+  }
+
   move(at: number, serial?: number, recovered = false): boolean {
-    if (!this.current || recovered || (serial !== undefined && serial > 0 && serial <= this.lastSerial)) return false;
-    if (serial !== undefined && serial > 0) this.lastSerial = serial;
+    if (!this.current || recovered || (serial !== undefined && this.lastSerial !== null &&
+        this.serialRelation(serial, this.lastSerial) <= 0)) return false;
+    if (serial !== undefined) this.lastSerial = serial & 0xff;
     if (this.startedAt === null) {
       this.reactionMs = Math.max(0, at - this.presentedAt!);
       this.startedAt = at;
-      this.startSerial = serial && serial > 0 ? serial : 0;
-      this.seenUnfinished = !!this.baseline && !isFormulaGoal(this.current.category, this.baseline);
     }
     this.lastMoveAt = at;
     this.clearJob();
     const generation = this.generation;
-    this.job = this.clock.schedule(() => { void this.expire(generation, at); }, 1000);
-    return true;
-  }
-
-  facelets(value: string, at: number, serial?: number): boolean {
-    if (!this.current || !/^[URFDLB]{54}$/.test(value)) return false;
-    if (serial !== undefined && serial > 0 && serial < this.startSerial) return false;
-    if (this.startedAt === null) { this.baseline = value; return false; }
-    this.lastFreshFacelets = value;
-    if (!isFormulaGoal(this.current.category, value)) { this.seenUnfinished = true; return false; }
-    if (!this.seenUnfinished) return false;
-    this.finish('success', at);
+    this.job = this.clock.schedule(() => { void this.expire(generation, at); }, 2000);
     return true;
   }
 
@@ -91,13 +109,13 @@ export class FormulaTimer {
 
   cancel(): void {
     this.generation++;
+    this.verifying = false;
     this.clearJob();
     this.current = null;
     this.presentedAt = null;
     this.reactionMs = null;
     this.startedAt = null;
     this.lastMoveAt = null;
-    this.lastFreshFacelets = '';
   }
 
   dispose(): void { this.cancel(); }
@@ -107,19 +125,11 @@ export class FormulaTimer {
     this.job = null;
   }
 
-  private async expire(generation: number, lastMoveAt: number): Promise<void> {
+  private expire(generation: number, lastMoveAt: number): void {
     if (generation !== this.generation || this.lastMoveAt !== lastMoveAt) return;
     this.job = null;
-    try { await this.clock.requestFacelets(); }
-    catch {
-      if (generation === this.generation && this.lastMoveAt === lastMoveAt) this.finish('interrupted', this.clock.now());
-      return;
-    }
-    if (generation !== this.generation || this.lastMoveAt !== lastMoveAt) return;
-    this.job = this.clock.schedule(() => {
-      if (generation !== this.generation || this.lastMoveAt !== lastMoveAt) return;
-      this.finish(this.lastFreshFacelets ? 'idle-failure' : 'interrupted', lastMoveAt + 1000);
-    }, 150);
+    if (this.verifying) return;
+    this.finish('idle-failure', lastMoveAt + 2000);
   }
 
   private finish(result: FormulaResult, at: number): void {

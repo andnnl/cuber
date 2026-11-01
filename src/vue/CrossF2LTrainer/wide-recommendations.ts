@@ -16,8 +16,8 @@ export interface WideResult {
   buckets: { front: string; solutions: WideRecommendation[] }[];
 }
 
-const TOKEN = /^(?:[URFDLB](?:2|')?|[ud](?:2|')?)$/;
-const INPUT_TOKEN = /^(?:[URFDLB](?:2|')?|u'?)$/;
+const TOKEN = /^(?:[URFDLB]|[udrflb])(?:2|')?$/;
+const INPUT_TOKEN = /^(?:[URFDLB]|[udrflb])(?:2|')?$/;
 const FRONT_MAP: { [front: string]: { [face: string]: string } } = {
   F: {}, L: { F: 'L', R: 'F', B: 'R', L: 'B' },
   B: { F: 'B', R: 'L', B: 'F', L: 'R' },
@@ -30,7 +30,7 @@ export function mapWideMove(move: string, faceMap: { [face: string]: string }): 
   const face = move[0].toUpperCase();
   const mapped = faceMap[face] || face;
   if (!/^[URFDLB]$/.test(mapped)) throw new Error(`无效面映射：${mapped}`);
-  return (move[0] === 'u' || move[0] === 'd' ? mapped.toLowerCase() : mapped) + move.slice(1);
+  return (move[0] === move[0].toLowerCase() ? mapped.toLowerCase() : mapped) + move.slice(1);
 }
 
 /** z2 is a half turn, so suffix direction is unchanged. */
@@ -57,7 +57,7 @@ export function parseWideRecommendations(facelets: string, input: any): WideResu
         || !moves.every((move: any) => typeof move === 'string' && INPUT_TOKEN.test(move))) {
         throw new Error('无效宽转候选记号或步数');
       }
-      if (!moves.some((move: string) => move[0] === 'u')) throw new Error('候选缺少宽转');
+      if (!moves.some((move: string) => /^[udrflb]/.test(move))) throw new Error('候选缺少宽转');
       const route = candidate.route;
       if (!Number.isFinite(route?.score) || !Number.isInteger(route?.regrips)
         || !Array.isArray(route?.steps) || !route.steps.every((step: any) =>
@@ -73,4 +73,45 @@ export function parseWideRecommendations(facelets: string, input: any): WideResu
     }) };
   });
   return { limited: input.limited, buckets };
+}
+
+/** The cached cubie search can return only candidates whose moved centers make the
+ * displayed cross invalid. Start with an actual left-wide turn, normalize the
+ * resulting center colors, then solve and verify the sticker-level result. */
+export async function recoverWideCross(facelets: string,
+  analyze: (normalized: string) => Promise<any>, replay: (state: string, moves: string[]) => string,
+): Promise<WideRecommendation[]> {
+  const recovered: WideRecommendation[] = [];
+  const seen = new Set<string>();
+  const perView = new Set<string>();
+  for (const first of ['l', "l'", 'l2']) {
+    const after = replay(facelets, [first]);
+    const centers = [4, 13, 22, 31, 40, 49].map(index => after[index]);
+    if (new Set(centers).size !== 6) continue;
+    const normalized = Array.from(after, color => 'URFDLB'[centers.indexOf(color)]).join('');
+    const result = await analyze(normalized);
+    for (const bucket of result.buckets || []) {
+      if (!FRONT_MAP[bucket.front]) continue;
+      const inverse: { [face: string]: string } = {};
+      for (const face of ['F', 'R', 'B', 'L']) {
+        inverse[FRONT_MAP[bucket.front][face] || face] = face;
+      }
+      for (const solution of bucket.solutions || []) {
+        if (perView.has(`${first}:${bucket.front}`)) break;
+        const physicalMoves = [first, ...solution.moves.map((move: string) => mapWideMove(move, FRONT_MAP[bucket.front]))];
+        if (physicalMoves.length > 8 || seen.has(physicalMoves.join(' '))) continue;
+        const end = replay(facelets, physicalMoves);
+        if (![28, 25, 32, 16, 34, 52, 30, 43].every(index =>
+          end[index] === end[Math.floor(index / 9) * 9 + 4])) continue;
+        seen.add(physicalMoves.join(' '));
+        perView.add(`${first}:${bucket.front}`);
+        const moves = [mapWideMove(first, inverse), ...solution.moves];
+        recovered.push({ id: `wide:recovered:${bucket.front}:${moves.join(' ')}`,
+          front: bucket.front, moves, displayMoves: moves.slice(), physicalMoves,
+          route: { score: 0, regrips: 0, steps: [] }, depth: moves.length,
+          backTurns: physicalMoves.filter(move => move[0] === 'B').length });
+      }
+    }
+  }
+  return recovered;
 }

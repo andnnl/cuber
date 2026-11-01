@@ -120,6 +120,11 @@ async function main() {
     assert.deepStrictEqual(events.filter(e => e.type === "move"), [{ type: "move", move: "U", serial: 43 }]);
     notify(cipher.encode(state));
     assert.strictEqual(events.filter(e => e.type === "facelets").length, 1, "晚到旧状态不得覆盖已转动的魔方");
+    putBits(state, 152, 8, 43);
+    notify(cipher.encode(state));
+    assert.strictEqual(events.filter(e => e.type === "facelets").length, 2, "当前转动对应的首张完整状态必须交给训练计时核验");
+    notify(cipher.encode(state));
+    assert.strictEqual(events.filter(e => e.type === "facelets").length, 2, "同序号的重复完整状态无需再发送");
   });
   await test("MoYu32 广播地址与加密地址不同仍能回退设备名地址", async () => {
     const { Moyu32Cipher, Moyu32CubeLink } = req("protocols/moyu32.js");
@@ -132,6 +137,20 @@ async function main() {
     const events = []; link.onEvent(e => events.push(e));
     notify(new Moyu32Cipher("CF:30:16:00:A1:B2").encode(frame));
     assert.deepStrictEqual(events.find(e => e.type === "battery"), { type: "battery", level: 63 });
+  });
+  await test("共享蓝牙快照标识贴纸对应的转动序号，避免用过时状态作为新题基线", async () => {
+    const { CubeSession } = req("cube-session.js");
+    let emit;
+    const session = new CubeSession({ onEvent: cb => { emit = cb; return () => {}; },
+      onStatus: () => () => {}, disconnect: async () => {} });
+    emit({ type: "facelets", facelets: "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB", serial: 17 });
+    assert.strictEqual(session.snapshot.faceletsSerial, 17);
+    emit({ type: "move", move: "R", serial: 18 });
+    assert.strictEqual(session.snapshot.lastMoveSerial, 18);
+    assert.strictEqual(session.snapshot.faceletsSerial, 17, "转动后旧贴纸不可标记为最新实体状态");
+    emit({ type: "facelets", facelets: "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB", serial: 18 });
+    assert.strictEqual(session.snapshot.faceletsSerial, 18);
+    session.dispose();
   });
   await test("QiYi hello、状态及历史转动去重", async () => {
     const { QiyiCipher, QiyiCubeLink, buildQiyiMessage } = req("protocols/qiyi.js");

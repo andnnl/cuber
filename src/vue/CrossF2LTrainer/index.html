@@ -191,9 +191,9 @@
         </button>
         <small v-if="solveMode !== 'cross'">仅对已返回候选评分；F2L 指法分未专项校准，不代表实测用时。</small>
         <div v-if="solveMode === 'cross'" class="wide-section" data-wide-cross>
-          <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+          <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u'、r/r'/r2 少 B 十字候选</button>
           <template v-if="wideOpen">
-            <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅用于视觉预览。</small>
+            <small>最多 8 步 · 有搜索预算 · 不保证全局最短；r 宽转按 R 握姿与指法分估算，仅用于视觉预览。</small>
             <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
             <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
             <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>
@@ -242,9 +242,9 @@
           </button>
           <small v-if="solveMode !== 'cross'">仅对已返回候选评分；F2L 指法分未专项校准，不代表实测用时。</small>
           <div v-if="solveMode === 'cross'" class="wide-section" data-wide-cross>
-            <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+            <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u'、r/r'/r2 少 B 十字候选</button>
             <template v-if="wideOpen">
-              <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅用于视觉预览。</small>
+              <small>最多 8 步 · 有搜索预算 · 不保证全局最短；r 宽转按 R 握姿与指法分估算，仅用于视觉预览。</small>
               <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
               <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
               <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>

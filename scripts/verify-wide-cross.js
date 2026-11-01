@@ -32,7 +32,7 @@ async page => {
   if (cross.error) throw new Error(cross.error);
   if (!cross.count) throw new Error('8 轮 CrossF2L 打乱均无可播放宽转候选');
   for (const item of await page.evaluate(() => window.__crossF2L.wideRecommendations)) {
-    if (item.depth > 8 || !item.physicalMoves.some(m => /^[ud]/.test(m))) throw new Error('宽转步数或记号无效');
+    if (item.depth > 8 || !item.physicalMoves.some(m => /^[udrflb]/.test(m))) throw new Error('宽转步数或记号无效');
     if (item.route.steps.length !== item.displayMoves.length || item.route.steps.some((step, i) => step.movement !== item.displayMoves[i]))
       throw new Error('CrossF2L 宽转指法未与播放公式一致');
   }
@@ -120,8 +120,8 @@ async page => {
   await page.waitForFunction(() => !window.__bleCross.wideBusy, null, { timeout: 180000 });
   const white = await page.evaluate(() => ({ count: window.__bleCross.wideRecommendations.length,
     error: window.__bleCross.wideError, white: window.__bleCross.z2On,
-    mapped: window.__bleCross.wideRecommendations.every(item => item.physicalMoves.some(m => /^d/.test(m)) &&
-      item.displayMoves.some(m => /^u/.test(m))) }));
+    mapped: window.__bleCross.wideRecommendations.every(item => item.physicalMoves.some(m => /^[udrflb]/.test(m)) &&
+      item.displayMoves.some(m => /^[udrflb]/.test(m))) }));
   for (let attempt = 0; white.count === 0 && attempt < 8; attempt++) {
     const generation = await page.evaluate(async () => {
       const a = window.__bleCross;
@@ -136,14 +136,14 @@ async page => {
       && !window.__bleCross.wideBusy, generation, { timeout: 180000 });
     const state = await page.evaluate(() => ({ count: window.__bleCross.wideRecommendations.length,
       error: window.__bleCross.wideError, white: window.__bleCross.z2On,
-      mapped: window.__bleCross.wideRecommendations.every(item => item.physicalMoves.some(m => /^d/.test(m)) &&
-        item.displayMoves.some(m => /^u/.test(m))) }));
+      mapped: window.__bleCross.wideRecommendations.every(item => item.physicalMoves.some(m => /^[udrflb]/.test(m)) &&
+        item.displayMoves.some(m => /^[udrflb]/.test(m))) }));
     Object.assign(white, state);
   }
   if (!white.white || white.error || !white.count || !white.mapped)
     throw new Error(`白底／y' 映射异常：${JSON.stringify(white)}`);
   if (!await page.evaluate(() => window.__bleCross.wideRecommendations.every(item =>
-    item.route.estimated === item.displayMoves.some(move => move[0] === 'd') &&
+    item.route.estimated === item.displayMoves.some(move => move[0] === 'd' || /^[flb]/.test(move)) &&
     item.route.steps.length === item.displayMoves.length &&
     item.route.steps.every((step, i) => step.movement === item.displayMoves[i]))))
     throw new Error('白底宽转指法未映射到显示公式');

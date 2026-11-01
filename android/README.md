@@ -37,6 +37,22 @@ SDK 路径配置在 [local.properties](local.properties)（`sdk.dir=/dd/AndoridS
 
 ## 一键打包
 
+如需一次打包 Windows、Linux、Android 两种 APK，使用仓库根目录的统一入口：
+
+```bash
+bash scripts/package-all.sh all
+# 或仅打包指定平台：windows / linux / android
+bash scripts/package-all.sh windows
+# 预览执行顺序，不构建、不覆盖产物
+bash scripts/package-all.sh --dry-run all
+```
+
+网页资源与搜索表在统一入口中只生成一次；产物集中于 `desktop-release/`：
+`Cuber-<version>-win-*.exe`、`Cuber-<version>-linux-*.AppImage`、
+`Cuber-<version>-android-debug.apk`、`Cuber-<version>-android-release.apk`。
+Android APK 仍保留在 Gradle 原目录；同版本重打包会更新 `desktop-release/` 中对应文件。
+如只打 Android，也可以继续运行原命令：
+
 ```bash
 bash android/build-apk.sh
 ```

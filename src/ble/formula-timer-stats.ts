@@ -67,20 +67,22 @@ export function summarizeFormulaRecords(records: FormulaRecord[], category: Form
   const sorted = records.map((record, index) => ({ record, index }))
     .filter(item => item.record.category === category)
     .sort((a, b) => b.record.at - a.record.at || a.index - b.index);
-  const groups = new Map<string, FormulaRecord[]>();
-  for (const { record } of mode === 'category' ? sorted.slice(0, count) : sorted) {
-    const chosen = groups.get(record.id) || [];
-    if (mode === 'category' || chosen.length < count) chosen.push(record);
-    groups.set(record.id, chosen);
+  const groups = new Map<string, Array<{ record: FormulaRecord; index: number }>>();
+  for (const item of mode === 'category' ? sorted.slice(0, count) : sorted) {
+    const chosen = groups.get(item.record.id) || [];
+    if (mode === 'category' || chosen.length < count) chosen.push(item);
+    groups.set(item.record.id, chosen);
   }
   const formulas: FormulaSummary[] = Array.from(groups.entries()).map(([id, chosen]) => ({
-    id, category, name: chosen[0].name, records: chosen,
-    points: chosen.slice().reverse().map(record => ({
+    id, category, name: chosen[0].record.name, records: chosen.map(item => item.record),
+    points: chosen.slice().sort((a, b) => a.record.at - b.record.at || a.index - b.index)
+      .map(({ record }) => ({
       at: record.at, result: record.result,
       durationMs: record.result === 'success' && validTime(record.durationMs) ? record.durationMs : null,
       reactionMs: record.result === 'success' && validTime(record.reactionMs) ? record.reactionMs! : null,
     })),
-    ...aggregate(chosen), labels: [], insufficient: chosen.filter(record => record.result === 'success').length < 3,
+    ...aggregate(chosen.map(item => item.record)), labels: [],
+    insufficient: chosen.filter(item => item.record.result === 'success').length < 3,
   }));
   const reactionBaseline = median(formulas.filter(row => row.reactionCount >= 3 && row.meanReactionMs !== null)
     .map(row => row.meanReactionMs!));
@@ -93,15 +95,16 @@ export function summarizeFormulaRecords(records: FormulaRecord[], category: Form
       row.labels.push('failure');
   }
   formulas.sort((a, b) => descending(a.meanDurationMs, b.meanDurationMs) || tie(a, b));
-  const sample = ([] as FormulaRecord[]).concat(...Array.from(groups.values()));
+  const sample = ([] as FormulaRecord[]).concat(...Array.from(groups.values()).map(chosen =>
+    chosen.map(item => item.record)));
   return {
     overview: aggregate(sample), formulas,
     groups: {
-      duration: formulas.filter(row => row.labels.includes('duration'))
+      duration: formulas.filter(row => row.labels.indexOf('duration') >= 0)
         .sort((a, b) => descending(a.meanDurationMs, b.meanDurationMs) || tie(a, b)),
-      reaction: formulas.filter(row => row.labels.includes('reaction'))
+      reaction: formulas.filter(row => row.labels.indexOf('reaction') >= 0)
         .sort((a, b) => descending(a.meanReactionMs, b.meanReactionMs) || tie(a, b)),
-      failure: formulas.filter(row => row.labels.includes('failure'))
+      failure: formulas.filter(row => row.labels.indexOf('failure') >= 0)
         .sort((a, b) => (a.successRate! - b.successRate!) || tie(a, b)),
     },
   };

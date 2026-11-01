@@ -43,4 +43,22 @@ assert.equal(reactionResult.formulas.find(row => row.id === 'slow').labels.inclu
 assert.deepEqual(summarizeFormulaRecords([], 'pll', 'category', 20, 3).overview,
   { recordCount: 0, attemptCount: 0, successCount: 0, successRate: null,
     durationCount: 0, meanDurationMs: null, reactionCount: 0, meanReactionMs: null });
+const sameTime = summarizeFormulaRecords([
+  rec('same', 42, 'success', 1000, 1000), rec('same', 42, 'idle-failure', 2000, 2000),
+  rec('same', 41, 'success', 3000, 3000),
+], 'pll', 'category', 10, 3).formulas[0];
+assert.deepEqual(sameTime.points.map(point => point.result), ['success', 'success', 'idle-failure'],
+  '时间戳相同的趋势点保持原始顺序');
+const boundary = summarizeFormulaRecords([
+  rec('edge', 10, 'success', 3000, 1500), rec('edge', 9, 'success', 3000, 1500),
+  rec('edge', 8, 'success', 3000, 1500), rec('edge', 7, 'success', 3000, 1500),
+  rec('edge', 6, 'idle-failure', 2000, 3000), rec('edge', 5, 'interrupted', 2000, 3000),
+  rec('base', 4, 'success', 1000, 1000), rec('base', 3, 'success', 1000, 1000),
+  rec('base', 2, 'success', 1000, 1000),
+], 'pll', 'category', 10, 3);
+const edge = boundary.formulas.find(row => row.id === 'edge');
+assert.equal(edge.attemptCount, 5, '连接中断不进入成功率分母');
+assert.equal(edge.recordCount, 6, '连接中断仍占 N 的取样名额');
+assert.equal(edge.successRate, 0.8);
+assert.deepEqual(edge.labels, [], '阈值恰好相等时不贴标签');
 console.log('公式统计取样、均值和标签：通过');

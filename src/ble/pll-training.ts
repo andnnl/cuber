@@ -1,11 +1,11 @@
 /** PLL 六格训练的案例与实体计时，不修改展示魔方。 */
 export type PllItem = { name: string; origin: string };
+/** preRotation 沿用原字段名，值现在是前置 AUF，不再是整体 y 转体。 */
 export type PllCase = PllItem & { preRotation: string; postAuf: string; scramble: string };
 export type PllResult = { name: string; kind: 'observation' | 'bluetooth'; durationMs: number | null; at: number;
   version?: number; ok?: boolean; selectedName?: string; scramble?: string };
 
 const AUF = ['', 'U', "U'", 'U2'];
-const ROTATIONS = ['', 'y', "y'", 'y2'];
 
 export function isSolvedFacelets(value: string): boolean {
   return /^[URFDLB]{54}$/.test(value) && new Set([4, 13, 22, 31, 40, 49].map(index => value[index])).size === 6 &&
@@ -34,7 +34,7 @@ export class PllTraining {
   next(): PllCase {
     const pool = this.allowedNames.size ? this.items.filter(item => this.allowedNames.has(item.name)) : this.items;
     const item = pool[Math.min(pool.length - 1, Math.floor(this.random() * pool.length))];
-    const preRotation = ROTATIONS[Math.floor(this.random() * 4)];
+    const preRotation = AUF[Math.floor(this.random() * 4)];
     const postAuf = AUF[Math.floor(this.random() * 4)];
     this.current = { ...item, preRotation, postAuf,
       scramble: this.scramble(item.origin, preRotation, postAuf) };

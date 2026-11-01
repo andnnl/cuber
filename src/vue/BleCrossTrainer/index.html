@@ -443,9 +443,9 @@
         </div>
         <small v-if="trainMode !== 'cross'">仅评分求解器返回的候选；F2L 指法分不是实测用时。</small>
         <div v-if="trainMode === 'cross'" class="ble-wide-section" data-wide-cross>
-          <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+          <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u'、r/r'/r2 少 B 十字候选</button>
           <template v-if="wideOpen">
-            <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅预览，不参与训练判定。</small>
+            <small>最多 8 步 · 有搜索预算 · 不保证全局最短；r 宽转按 R 握姿与指法分估算；仅预览，不参与训练判定。</small>
             <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
             <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
             <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>
@@ -465,7 +465,7 @@
             </div>
             <small v-if="wideLimited">搜索预算已用尽，结果可能不完整。</small>
             <small v-if="wideRejected">已过滤 {{ wideRejected }} 条与 3D 播放不一致的候选。</small>
-            <small v-if="wideRecommendations.some(item => item.route.estimated)">白底 d 宽转为参考指法，具体手指触点待核验。</small>
+            <small v-if="wideRecommendations.some(item => item.route.estimated)">白底 d 及其他正面映射的宽转为参考指法，具体手指触点待核验。</small>
           </template>
         </div>
       </div>
@@ -507,9 +507,9 @@
             </div>
           </div>
           <div v-if="trainMode === 'cross'" class="ble-wide-section" data-wide-cross>
-            <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u' 少 B 十字候选</button>
+            <button type="button" @click="toggleWide">{{ wideOpen ? '收起' : '展开' }} u/u'、r/r'/r2 少 B 十字候选</button>
             <template v-if="wideOpen">
-              <small>最多 8 步 · 有搜索预算 · 不保证全局最短；仅预览，不参与训练判定。</small>
+              <small>最多 8 步 · 有搜索预算 · 不保证全局最短；r 宽转按 R 握姿与指法分估算；仅预览，不参与训练判定。</small>
               <div v-if="wideBusy">{{ wideStage === 'rebuilding' ? '表不可用，正在现场计算…' : '正在搜索宽转候选…' }} <button @click="toggleWide">取消</button></div>
               <div v-else-if="wideError">{{ wideError }} <button @click="toggleWide(); toggleWide()">重试</button></div>
               <div v-else-if="!visibleWideRecommendations.length">{{ wideRejected ? '候选未通过 3D 贴纸重放，暂无可播放解法' : '当前朝向没有宽转候选' }}</div>
@@ -529,7 +529,7 @@
               </div>
               <small v-if="wideLimited">搜索预算已用尽，结果可能不完整。</small>
               <small v-if="wideRejected">已过滤 {{ wideRejected }} 条与 3D 播放不一致的候选。</small>
-              <small v-if="wideRecommendations.some(item => item.route.estimated)">白底 d 宽转为参考指法，具体手指触点待核验。</small>
+              <small v-if="wideRecommendations.some(item => item.route.estimated)">白底 d 及其他正面映射的宽转为参考指法，具体手指触点待核验。</small>
             </template>
           </div>
         </v-card-text>

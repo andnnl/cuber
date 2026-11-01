@@ -1,10 +1,10 @@
-import init, * as wasm from './cube_cross_solve.js?v=20261022-xxcross';
+import init, * as wasm from './cube_cross_solve.js?v=20261101-rwide';
 
 let ready;
 let jointReady;
 function initialize() {
   if (!ready) ready = (async () => {
-    await init(new URL('./cube_cross_solve_bg.wasm?v=20261022-xxcross', import.meta.url));
+    await init(new URL('./cube_cross_solve_bg.wasm?v=20261101-rwide', import.meta.url));
     const response = await fetch(new URL('./cube_cross_table.bin', import.meta.url));
     if (!response.ok) throw new Error(`十字表加载失败：HTTP ${response.status}`);
     wasm.load_table_from_bytes(new Uint8Array(await response.arrayBuffer()));

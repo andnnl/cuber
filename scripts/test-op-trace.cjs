@@ -39,7 +39,7 @@ for (const move of new Set(algs.find(group => group.name === 'OLL').items.flatMa
 }
 const plls = algs.find(group => group.name === 'PLL').items;
 const olls = algs.find(group => group.name === 'OLL').items;
-for (const y of ['', 'y', "y'", 'y2']) for (const pll of plls) for (const oll of olls) {
+for (const y of ['', 'U', "U'", 'U2']) for (const pll of plls) for (const oll of olls) {
   const sample = validateOpCase(pll, oll, y, simulate);
   const path = traceOpStickers(sample.moves);
   assert.equal(applyStickerPermutation(sample.beforeFacelets, path.positions.at(-1)), sample.afterFacelets);

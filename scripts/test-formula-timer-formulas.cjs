@@ -30,7 +30,7 @@ for (const category of ['f2l', 'oll', 'pll']) {
 assert.match(makeFormulaCase(pool.find(item => item.name === 'F2L-32')).initialFacelets, /^[URFDLB]{54}$/,
   '括号与重复次数可解析');
 assert.match(makeFormulaCase(pool.find(item => item.id === 'oll:custom-1'), plls, () => 0.3).initialFacelets, /^[URFDLB]{54}$/);
-for (const [random, rotation] of [[0, ''], [0.25, 'y'], [0.5, "y'"], [0.75, 'y2']]) {
+for (const [random, rotation] of [[0, ''], [0.25, 'U'], [0.5, "U'"], [0.75, 'U2']]) {
   const pll = makeFormulaCase(plls[6], plls, () => random);
   assert.equal(pll.scramble, [rotation, ...parseOpFormula(plls[6].formula).inverse].filter(Boolean).join(' '));
   const oll = makeFormulaCase(pool.find(item => item.category === 'oll'), plls, () => random);
@@ -40,12 +40,12 @@ for (const item of pool) {
   const result = makeFormulaCase(item, plls, () => 0.3);
   const cube = new Cube(3);
   const inverse = parseOpFormula(item.formula).inverse;
-  const expected = item.category === 'oll' ? ['y', ...parseOpFormula(plls[6].formula).inverse, ...inverse] :
-    item.category === 'pll' ? ['y', ...inverse] : inverse;
+  const expected = item.category === 'oll' ? ['U', ...parseOpFormula(plls[6].formula).inverse, ...inverse] :
+    item.category === 'pll' ? ['U', ...inverse] : inverse;
   assert.equal(result.scramble, expected.join(' '), `${item.id} 使用无缝 OP 的打乱顺序`);
   cube.twister.setup(result.scramble);
   assert.equal(cube.serialize(), result.initialFacelets, `${item.id} 题面与打乱串一致`);
-  cube.twister.setup(`${result.scramble} ${item.formula}`);
+  cube.twister.setup(`${result.scramble} ${item.formula}${item.category === 'pll' ? " U'" : ''}`);
   assert.equal(isFormulaGoal(item.category, cube.serialize()), true, `${item.id} 正公式达到训练目标`);
   if (item.category === 'oll') assert.equal(cube.complete, false, `${item.id} 做完 OLL 应留下 PLL`);
 }

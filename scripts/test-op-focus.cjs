@@ -16,7 +16,7 @@ for (const oll of olls) {
   distribution[opWindowCoverage(traceOpStickers(sample.moves)).filter(item => item.full).length]++;
 }
 assert.deepEqual(distribution, [17, 20, 18, 0, 2], '57 条 OLL 的满窗分布与 PLL 无关');
-for (const z2 of [false, true]) for (const y of ['', 'y', "y'", 'y2']) {
+for (const z2 of [false, true]) for (const y of ['', 'U', "U'", 'U2']) {
   for (const pll of plls) for (const oll of olls) {
     const sample = validateOpCase(pll, oll, y, simulate, z2);
     const trace = traceOpStickers(sample.moves);

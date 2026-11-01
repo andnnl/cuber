@@ -33,8 +33,8 @@ import { debugLog } from "../../util/debug-log";
 import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
 import { WideCrossClient } from "../../wasm/WideCrossClient";
 import { gripTokens, displayWideGripRoute } from "../CrossF2LTrainer/wide-grip";
-import { parseWideRecommendations, wideToPhysicalMove } from "../CrossF2LTrainer/wide-recommendations";
-import { correctWideCross } from "../CrossF2LTrainer/wide-playback";
+import { parseWideRecommendations, recoverWideCross, wideToPhysicalMove } from "../CrossF2LTrainer/wide-recommendations";
+import { applyWideFormulaFrom, correctWideCross } from "../CrossF2LTrainer/wide-playback";
 import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "../CrossF2LTrainer/recommendations";
 import { recommendationFrontColor, recommendationFrontTurn } from "./recommendation-preview";
 import { verifySolvedTargets } from "../CrossF2LTrainer/training-targets";
@@ -802,7 +802,7 @@ export default class BleCrossTrainer extends Vue {
   private displayMoveWithOps(move: string, ops: BaseOp[]): string {
     const map = baseOpsFaceCharMap(ops);
     const face = move.charAt(0);
-    if (face !== 'u' && face !== 'd') return (map[face] || face) + move.slice(1);
+    if (face === face.toUpperCase()) return (map[face] || face) + move.slice(1);
     const mapped = map[face.toUpperCase()] || face.toUpperCase();
     return mapped.toLowerCase() + move.slice(1);
   }
@@ -2208,12 +2208,27 @@ export default class BleCrossTrainer extends Vue {
         }
         return all;
       }, []);
+      if (!candidates.some(item => item.physicalMoves.some(move => move[0] === (white ? 'r' : 'l')))) {
+        this.wideStage = '寻找左宽转可验证解法';
+        const recovered = await recoverWideCross(facelets,
+          state => this.analysisClient.request('recommendCross', { facelets: state }), applyWideFormulaFrom);
+        if (generation !== this.wideRequestId || coreBase !== this.analysisCoreBase || white !== this.z2On) return;
+        for (const item of recovered) {
+          const physicalMoves = item.physicalMoves.map(move => wideToPhysicalMove(move, white));
+          const screenMoves = physicalMoves.map(move => this.displayMoveWithOps(move, viewOps));
+          const screenFront = this.displayMoveWithOps(wideToPhysicalMove(item.front, white), viewOps);
+          const front = FRONTS.indexOf(screenFront) >= 0 ? screenFront : item.front;
+          candidates.push({ id: item.id, front, displayMoves: screenMoves.map(move => physicalMove(move, front)),
+            physicalMoves, slots: [], physicalSlots: [], sourceIndices: [], route: item.route,
+            depth: item.depth, offset: 0 });
+        }
+      }
       const routes = await this.wideClient.score(candidates.map(item => gripTokens(item.displayMoves)));
       if (generation !== this.wideRequestId || coreBase !== this.analysisCoreBase || white !== this.z2On) return;
       if (routes.length !== candidates.length) throw new Error('宽转指法结果数量不一致');
       candidates.forEach((item, index) => { item.route = displayWideGripRoute(routes[index], item.displayMoves); });
       this.wideRecommendations = candidates;
-      this.wideRejected -= this.wideRecommendations.length;
+      this.wideRejected = Math.max(0, this.wideRejected - this.wideRecommendations.length);
     } catch (error) {
       if (generation === this.wideRequestId) this.wideError = `宽转搜索失败：${String(error)}`;
     } finally {

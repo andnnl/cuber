@@ -7,6 +7,7 @@ export type SessionSnapshot = {
   deviceName: string;
   battery: number | null;
   facelets: string | null;
+  faceletsSerial: number | null;
   lastMoveSerial: number | null;
   generation: number;
   disconnectSource: DisconnectSource | null;
@@ -24,6 +25,7 @@ export class CubeSession {
     deviceName: "",
     battery: null,
     facelets: null,
+    faceletsSerial: null,
     lastMoveSerial: null,
     generation: 0,
     disconnectSource: null,
@@ -38,7 +40,10 @@ export class CubeSession {
   constructor(private readonly link: CubeLink = new CubeLink(),
     private readonly nativeTransport: () => Pick<NativeBridgeTransport, "onScan" | "onError" | "startScan" | "stopScan"> = getNativeTransport) {
     this.stopEvent = link.onEvent((event) => {
-      if (event.type === "facelets") this.state.facelets = event.facelets;
+      if (event.type === "facelets") {
+        this.state.facelets = event.facelets;
+        this.state.faceletsSerial = typeof event.serial === "number" ? event.serial : null;
+      }
       if (event.type === "battery") this.state.battery = event.level;
       if (event.type === "move" && !event.recovered && typeof event.serial === "number") {
         this.state.lastMoveSerial = event.serial;
@@ -54,6 +59,8 @@ export class CubeSession {
         this.state.disconnectSource = null;
         this.state.error = "";
         this.state.lastMoveSerial = null;
+        this.state.faceletsSerial = null;
+        this.state.facelets = null;
       }
       if (status === "disconnected") {
         this.state.disconnectSource = link.lastDisconnectSource;
@@ -65,6 +72,7 @@ export class CubeSession {
           if (previous !== "disconnected") console.info("[BLE] disconnected", { source: this.state.disconnectSource, kind: this.lastKind, generation: this.state.generation });
         }
         this.state.facelets = null;
+        this.state.faceletsSerial = null;
         this.state.battery = null;
         this.state.lastMoveSerial = null;
       }

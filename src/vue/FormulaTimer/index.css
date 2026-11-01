@@ -40,4 +40,32 @@
 .formula-timer-f2l-picture { width:100%; max-width:146px; aspect-ratio:1; object-fit:contain; margin:auto; pointer-events:none; }
 .formula-timer-f2l-preview polygon { stroke:#27313a; stroke-width:1.7; stroke-linejoin:round; }
 .formula-timer-choice-formula { max-width:100%; font:12px/1.35 monospace; overflow-wrap:anywhere; }
+.formula-stats { padding-top:18px; }
+.formula-stats-filters { display:flex; gap:8px; flex-wrap:wrap; }
+.formula-stats-filters label { display:flex; flex:1 1 150px; align-items:center; gap:6px; min-width:0; }
+.formula-stats-filters select { max-width:100%; min-width:0; border:1px solid #9cb9bc; border-radius:6px; padding:7px; background:#fff; color:#123d42; }
+.formula-stats-caption { display:block; margin:9px 0; }
+.formula-stats-section { background:#ffffffeb; border:1px solid #c3d5d5; border-radius:12px; padding:12px; margin:10px 0; min-width:0; }
+.formula-stats-section h3 { margin:0 0 10px; font-size:17px; }
+.formula-stats-overview { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.formula-stats-overview > div { display:flex; flex-direction:column; min-width:0; padding:10px; border-radius:8px; background:#eaf6f5; }
+.formula-stats-overview strong { font-size:20px; font-variant-numeric:tabular-nums; }
+.formula-stats-overview small { color:#416069; }
+.formula-stats-empty { color:#526b71; }
+.formula-stats-group { border-top:1px solid #d9e4e5; padding:8px 0; }
+.formula-stats-group-heading { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.formula-stats-tags { display:flex; gap:5px; flex-wrap:wrap; margin:7px 0; }
+.formula-stats-tags span { border-radius:12px; background:#dff2f0; color:#13525a; padding:3px 8px; font-size:12px; }
+.formula-stats-card { min-width:0; border-top:1px solid #d9e4e5; padding:9px 0; overflow-wrap:anywhere; }
+.formula-timer-root .formula-stats-card-head { display:flex; justify-content:space-between; width:100%; text-align:left; background:transparent; border:0; padding:4px 0; gap:8px; }
+.formula-stats-card-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; font-size:13px; }
+.formula-stats-card-metrics span { min-width:0; }
+.formula-stats-card-metrics small { color:#536c70; }
+.formula-stats-expanded { min-width:0; }
+.formula-stats-expanded > small { display:block; margin:7px 0; }
+.formula-stats-expanded svg { display:block; width:100%; max-width:100%; height:135px; background:#f5faf9; border-radius:6px; }
+.formula-stats-expanded button { margin-top:8px; }
+.formula-stats-focus { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; border:1px solid #0a898c; background:#ddf6f2; border-radius:8px; padding:7px 10px; margin-bottom:8px; }
+.formula-timer-root button:disabled { opacity:.5; cursor:not-allowed; }
 @media(max-width:600px) { .formula-timer-header { padding-top:52px; } .formula-timer-cube { height:38vh; min-height:200px; } .formula-timer-clock { padding:9px 4px; } .formula-timer-clock strong { font-size:clamp(22px,7vw,36px); } .formula-timer-preview-choices { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .formula-stats-card-metrics { grid-template-columns:1fr; } .formula-stats-overview strong { font-size:17px; } }

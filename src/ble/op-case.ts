@@ -6,11 +6,12 @@ export type OpSimulator = (moves: string[]) => string;
 export type OpCaseMode = 'pll' | 'none' | 'mixed';
 export type OpCase = {
   targetPll: string; pllFormula: string; ollName: string; ollFormula: string;
+  /** 历史记录兼容字段：现在保存逆公式前的 AUF，而非整体 y 转体。 */
   y: string; z2: boolean; scramble: string; moves: string[]; openingAuf: string | null;
   beforeFacelets: string; afterFacelets: string;
 };
 
-const ROTATIONS = ['', 'y', "y'", 'y2'];
+const PRE_AUF = ['', 'U', "U'", 'U2'];
 
 function f2lComplete(facelets: string): boolean {
   if (!/^[URFDLB]{54}$/.test(facelets)) return false;
@@ -25,7 +26,7 @@ function fullySolved(facelets: string): boolean {
 }
 
 export function validateOpCase(pll: OpItem | null, oll: OpItem, y: string, simulate: OpSimulator, z2 = false): OpCase {
-  if (ROTATIONS.indexOf(y) < 0) throw Error('整体朝向不支持');
+  if (PRE_AUF.indexOf(y) < 0) throw Error('前置 AUF 不支持');
   const p = pll ? parseOpFormula(pll.origin) : null;
   const o = parseOpFormula(oll.origin);
   const scrambleMoves = [z2 ? 'z2' : '', y, ...(p?.inverse || []), ...o.inverse].filter(Boolean);
@@ -36,7 +37,9 @@ export function validateOpCase(pll: OpItem | null, oll: OpItem, y: string, simul
     throw Error('此组合没有形成有效的 OLL 待定向状态');
   if (!f2lComplete(afterFacelets) || afterFacelets.slice(0, 9) !== afterFacelets[4].repeat(9))
     throw Error('OLL 完成后未保持下两层或未完成顶层定向');
-  if (pll ? matchPllSix(afterFacelets)?.name !== targetPll : !fullySolved(afterFacelets))
+  const aufSolved = !pll && PRE_AUF.some(auf =>
+    fullySolved(auf ? simulate([...scrambleMoves, ...o.moves, auf]) : afterFacelets));
+  if (pll ? matchPllSix(afterFacelets)?.name !== targetPll : !aufSolved)
     throw Error('目标 PLL 校验失败');
   return { targetPll, pllFormula: pll?.origin || '', ollName: oll.name, ollFormula: oll.origin,
     y, z2, scramble: scrambleMoves.join(' '), moves: o.moves, openingAuf: o.openingAuf,
@@ -65,7 +68,7 @@ export function generateOpCase(plls: OpItem[], olls: OpItem[], random: () => num
     mode === 'mixed' ? [...plls, null] : plls;
   const pll = candidates[Math.min(candidates.length - 1, Math.floor(random() * candidates.length))];
   const index = Math.min(olls.length - 1, Math.floor(random() * olls.length));
-  const y = ROTATIONS[Math.min(3, Math.floor(random() * 4))];
+  const y = PRE_AUF[Math.min(3, Math.floor(random() * 4))];
   const reasons: string[] = [];
   for (let offset = 0; offset < olls.length; offset++) {
     const oll = olls[(index + offset) % olls.length];

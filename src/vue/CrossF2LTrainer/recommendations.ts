@@ -18,7 +18,9 @@ export function relativeMove(move: string, front: string): string {
 export function physicalMove(move: string, front: string): string {
   const map = FACE_MAP[front];
   if (!map) throw new Error(`无效观察正面：${front}`);
-  return (Object.keys(map).find(face => map[face] === move[0]) || move[0]) + move.slice(1);
+  const face = move[0].toUpperCase();
+  const mapped = Object.keys(map).find(key => map[key] === face) || face;
+  return (move[0] === face ? mapped : mapped.toLowerCase()) + move.slice(1);
 }
 
 export function slotInView(slot: string, front: string): string {

@@ -17,11 +17,11 @@ export function applyWideFormulaFrom(facelets: string, moves: string[]): string 
   if (!/^[URFDLB]{54}$/.test(facelets)) throw new Error('无效 54 面片');
   let state = facelets;
   for (const move of moves) {
-    if (!/^(?:[URFDLB]|[ud])(?:2|')?$/.test(move)) throw new Error(`无效记号：${move}`);
+    if (!/^(?:[URFDLB]|[udrflb])(?:2|')?$/.test(move)) throw new Error(`无效记号：${move}`);
     const face = move[0].toUpperCase();
     const axis = face === 'U' || face === 'D' ? 1 : face === 'R' || face === 'L' ? 0 : 2;
     const side = 'URF'.indexOf(face) >= 0 ? 1 : -1;
-    const wide = move[0] === 'u' || move[0] === 'd';
+    const wide = move[0] === move[0].toLowerCase();
     // Clockwise when looking at the face: positive-axis faces turn -90°, negative-axis +90°.
     const turns = move.endsWith('2') ? 2 : move.endsWith("'") ? 3 : 1;
     const out: string[] = new Array(54);

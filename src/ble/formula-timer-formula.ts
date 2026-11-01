@@ -20,7 +20,7 @@ export function buildFormulaPool(groups: FormulaGroup[], customOlls: CustomOll[]
   return items;
 }
 
-const ROTATIONS = ['', 'y', "y'", 'y2'];
+const PRE_AUF = ['', 'U', "U'", 'U2'];
 
 function randomIndex(length: number, random: () => number): number {
   return Math.min(length - 1, Math.max(0, Math.floor(random() * length)));
@@ -33,7 +33,7 @@ export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], ran
   if (item.category === 'oll') {
     if (!plls.length) throw Error('OLL 出题缺少 PLL 公式池');
     const start = randomIndex(plls.length, random);
-    const y = ROTATIONS[randomIndex(ROTATIONS.length, random)];
+    const y = PRE_AUF[randomIndex(PRE_AUF.length, random)];
     let lastError: Error | null = null;
     let valid = false;
     for (let offset = 0; offset < plls.length; offset++) {
@@ -52,10 +52,14 @@ export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], ran
     }
     if (!valid) throw Error(`OLL 与 PLL 无有效组合：${lastError?.message || '没有可用的 PLL'}`);
   } else if (item.category === 'pll') {
-    scramble = [ROTATIONS[randomIndex(ROTATIONS.length, random)], ...parsed.inverse].filter(Boolean).join(' ');
+    scramble = [PRE_AUF[randomIndex(PRE_AUF.length, random)], ...parsed.inverse].filter(Boolean).join(' ');
   }
   if (beforeZ2) scramble = `z2 ${scramble}`;
   const cube = new Cube(3);
+  if (item.category === 'pll') {
+    cube.twister.setup(parsed.inverse.join(' '));
+    if (isFormulaGoal('pll', cube.serialize())) throw Error(`${item.name} 的 PLL 公式无效`);
+  }
   cube.twister.setup(scramble);
   const initialFacelets = cube.serialize();
   if (!/^[URFDLB]{54}$/.test(initialFacelets) || isFormulaGoal(item.category, initialFacelets)) {

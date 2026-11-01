@@ -1,10 +1,10 @@
-import init, * as wasm from "./cube_cross_solve.js?v=20261022-xxcross";
+import init, * as wasm from "./cube_cross_solve.js?v=20261101-rwide";
 
 let initialized = false;
 
 async function ensureInitialized() {
   if (!initialized) {
-    await init(new URL('./cube_cross_solve_bg.wasm?v=20261022-xxcross', import.meta.url));
+    await init(new URL('./cube_cross_solve_bg.wasm?v=20261101-rwide', import.meta.url));
     initialized = true;
   }
 }

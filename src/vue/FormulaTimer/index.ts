@@ -1,12 +1,19 @@
 import { Component, Inject, Provide, Ref, Vue } from 'vue-property-decorator';
 import World from '../../cuber/world';
+import Cube from '../../cuber/cube';
+import CubeGroup from '../../cuber/group';
 import { PreferanceData, PaletteData, PRESET_PALETTES } from '../../data';
 import { parseOpFormula } from '../../ble/op-formula';
-import { FormulaTimer, FormulaCase, FormulaCategory, FormulaRecord, recentMedian } from '../../ble/formula-timer';
+import { FormulaTimer, FormulaCase, FormulaCategory, FormulaRecord, isFormulaGoal, recentMedian } from '../../ble/formula-timer';
 import { FormulaTimerSettings, FormulaTimerStore } from '../../ble/formula-timer-store';
+import { FormulaSummary, StatsPoint, StatsResult, summarizeFormulaRecords } from '../../ble/formula-timer-stats';
+import { FormulaStatsPreferencesStore } from '../../ble/formula-timer-stats-preferences';
+import { chooseFormulaItems } from '../../ble/formula-timer-focus';
 import { FormulaItem, makeFormulaCase } from '../../ble/formula-timer-formula';
 import { CubeSession, SessionSnapshot } from '../../ble/cube-session';
 import { LinkEvent } from '../../ble/types';
+import { advanceDisplayedCube } from '../../ble/formula-timer-follow';
+import { FormulaMoveRecovery, RecoveredMove } from '../../ble/formula-timer-recovery';
 import { topNetCells, TopNetCell } from '../../ble/op-top-net';
 import { algsPreviewExpression, cubeIconTiles, CubeIconTile, previewFormulaFacelets } from '../../ble/formula-timer-preview';
 import Capture from '../Algs/capture';
@@ -23,6 +30,7 @@ export default class FormulaTimerView extends Vue {
   @Provide('palette') palette: PaletteData = new PaletteData(this.world);
   @Inject('cubeSession') session: CubeSession;
   @Ref('viewport') viewport: Viewport;
+  private readonly displayCube = new Cube(3);
 
   settings: FormulaTimerSettings = { category: 'f2l', selectedIds: { f2l: [], oll: [], pll: [] },
     nextMode: 'random', beforeZ2: false, slowOnly: false, slowSeconds: 3 };
@@ -42,9 +50,16 @@ export default class FormulaTimerView extends Vue {
   pickerOpen = false;
   pickerGroup: 'builtin' | 'custom' = 'builtin';
   recordResult = 'all';
+  statsOpen = false;
+  statsExpandedId = '';
+  statsPreferences = new FormulaStatsPreferencesStore(window.localStorage).load();
+  focusIds: string[] | null = null;
+  focusCategory: FormulaCategory | null = null;
+  focusTitle = '';
   replayRecord: FormulaRecord | null = null;
   completedRecord: FormulaRecord | null = null;
   private store = new FormulaTimerStore(window.localStorage);
+  private readonly statsStore = new FormulaStatsPreferencesStore(window.localStorage);
   private active = true;
   private frame: number | null = null;
   private clockTick: number | null = null;
@@ -57,28 +72,131 @@ export default class FormulaTimerView extends Vue {
   private iconFrame: number | null = null;
   private capture: Capture | null = null;
   private captureUnavailable = false;
+  private lastMirrorAt = 0;
+  private readonly recovery = new FormulaMoveRecovery();
+  private recoveryRound = 0;
+  private verifyJob: number | null = null;
+  private verifyTimeout: number | null = null;
+  private awaitingState = false;
   private readonly training = new FormulaTimer({
     now: () => Date.now(),
     schedule: (fn, ms) => window.setTimeout(fn, ms),
     cancel: id => window.clearTimeout(id),
-    requestFacelets: () => this.session.requestFacelets(),
     onResult: record => this.finishRecord(record),
   });
 
-  get categoryItems(): FormulaItem[] { return this.items.filter(item => item.category === this.settings.category); }
+  private clearStatsFocus(): void {
+    const wasFocused = this.focusIds !== null;
+    this.focusIds = null;
+    this.focusCategory = null;
+    this.focusTitle = '';
+    if (wasFocused) this.current = null;
+  }
+
+  get trainingCategory(): FormulaCategory { return this.focusCategory || this.settings.category; }
+  get categoryItems(): FormulaItem[] { return this.items.filter(item => item.category === this.trainingCategory); }
   get pickerItems(): FormulaItem[] {
     return this.categoryItems.filter(item => this.settings.category !== 'oll' ||
       (this.pickerGroup === 'custom') === item.id.startsWith('oll:custom-'));
   }
-  get selectedIds(): string[] { return this.settings.selectedIds[this.settings.category]; }
+  get selectedIds(): string[] { return this.settings.selectedIds[this.trainingCategory]; }
   get filteredRecords(): FormulaRecord[] {
     return this.records.filter(record => (this.recordResult === 'all' || record.result === this.recordResult) &&
-      record.category === this.settings.category);
+      record.category === this.trainingCategory);
+  }
+  get statsResult(): StatsResult {
+    return summarizeFormulaRecords(this.records, this.statsPreferences.category,
+      this.statsPreferences.mode, this.statsPreferences.count, this.settings.slowSeconds);
+  }
+  get statsChart(): { durationPaths: string[]; reactionPaths: string[];
+    durationDots: { x: number; y: number }[]; reactionDots: { x: number; y: number }[];
+    failures: number[] } {
+    const row = this.statsResult.formulas.find(item => item.id === this.statsExpandedId);
+    const empty = { durationPaths: [], reactionPaths: [], durationDots: [], reactionDots: [], failures: [] };
+    if (!row) return empty;
+    const points = row.points;
+    const maximum = points.reduce((max, item) => Math.max(max, item.durationMs || 0, item.reactionMs || 0), 1000);
+    const position = (index: number, value: number): { x: number; y: number } => ({
+      x: 10 + index * 280 / Math.max(1, points.length - 1), y: 90 - value / maximum * 75,
+    });
+    const series = (field: 'durationMs' | 'reactionMs') => {
+      const paths: string[] = [];
+      const dots: { x: number; y: number }[] = [];
+      let segment: string[] = [];
+      points.forEach((point: StatsPoint, index: number) => {
+        const value = point[field];
+        if (value === null) {
+          if (segment.length > 1) paths.push(segment.join(' '));
+          segment = [];
+          return;
+        }
+        const dot = position(index, value);
+        dots.push(dot);
+        segment.push(`${dot.x},${dot.y}`);
+      });
+      if (segment.length > 1) paths.push(segment.join(' '));
+      return { paths, dots };
+    };
+    const duration = series('durationMs');
+    const reaction = series('reactionMs');
+    return { durationPaths: duration.paths, reactionPaths: reaction.paths,
+      durationDots: duration.dots, reactionDots: reaction.dots,
+      failures: points.map((point, index) => point.result === 'idle-failure' ? position(index, 0).x : -1)
+        .filter(x => x >= 0) };
+  }
+  statsSeconds(value: number | null): string { return value === null ? '—' : (value / 1000).toFixed(2) + ' 秒'; }
+  statsRate(value: number | null): string { return value === null ? '—' : (value * 100).toFixed(0) + '%'; }
+  statsLabel(label: string): string {
+    return ({ duration: '拧动慢', reaction: '反应慢', failure: '失败较多' } as Record<string, string>)[label] || label;
+  }
+  statsGroupRows(label: 'duration' | 'reaction' | 'failure'): FormulaSummary[] { return this.statsResult.groups[label]; }
+  statsGroupValue(row: FormulaSummary, label: string): string {
+    return label === 'failure' ? this.statsRate(row.successRate) :
+      this.statsSeconds(label === 'reaction' ? row.meanReactionMs : row.meanDurationMs);
+  }
+  statsAvailable(row: FormulaSummary): boolean {
+    return this.items.some(item => item.category === row.category && item.id === row.id);
+  }
+  statsGroupAvailable(label: 'duration' | 'reaction' | 'failure'): boolean {
+    return this.statsGroupRows(label).some(row => this.statsAvailable(row));
+  }
+  saveStatsPreferences(): void {
+    this.statsExpandedId = '';
+    if (!this.statsStore.save(this.statsPreferences)) this.warning = '统计筛选偏好保存失败';
+  }
+  openStats(): void {
+    if (this.training.startedAt !== null) this.training.interrupt(Date.now());
+    this.clearNextJob();
+    this.training.cancel();
+    this.current = null;
+    this.clearStatsFocus();
+    this.statsOpen = true;
+  }
+  closeStats(): void { this.statsOpen = false; this.nextCase(); this.$nextTick(() => this.resize()); }
+  toggleStatsRow(id: string): void { this.statsExpandedId = this.statsExpandedId === id ? '' : id; }
+  startStatsFocus(rows: FormulaSummary[], title: string): void {
+    const available = rows.filter(row => this.statsAvailable(row));
+    if (!available.length) return;
+    if (this.training.startedAt !== null) this.training.interrupt(Date.now());
+    this.clearNextJob();
+    this.training.cancel();
+    this.focusCategory = this.statsPreferences.category;
+    this.focusIds = available.map(row => row.id);
+    this.focusTitle = title;
+    this.statsOpen = false;
+    this.nextCase();
+    this.$nextTick(() => this.resize());
+  }
+  leaveStatsFocus(): void {
+    if (this.training.startedAt !== null) this.training.interrupt(Date.now());
+    this.clearNextJob();
+    this.clearStatsFocus();
+    this.nextCase();
   }
   get elapsed(): string {
     if (this.replayRecord || this.completedRecord) return (((this.replayRecord || this.completedRecord)!.durationMs) / 1000).toFixed(2);
     if (this.training.startedAt === null) return '0.00';
-    return ((this.now - this.training.startedAt) / 1000).toFixed(2);
+    return (this.training.elapsedAt(this.now) / 1000).toFixed(2);
   }
   get reactionElapsed(): string {
     if (this.replayRecord || this.completedRecord) return this.formatReaction((this.replayRecord || this.completedRecord)!);
@@ -92,7 +210,8 @@ export default class FormulaTimerView extends Vue {
   get statusLabel(): string {
     if (this.replayRecord) return '复盘题面 · 计时暂停';
     if (this.snapshot?.status !== 'connected') return '连接蓝牙魔方后开始训练';
-    return this.training.startedAt === null ? '等待首次实体转动' : '计时中 · 停转 1 秒将结束本轮';
+    if (this.awaitingState || this.recovery.needsState) return '正在核验实体转动 · 请稍候';
+    return this.training.startedAt === null ? '等待首次实体转动' : '计时中 · 停转 2 秒将结束本轮';
   }
   get slowCount(): number {
     return this.categoryItems.filter(item => this.isSlow(item)).length;
@@ -118,35 +237,145 @@ export default class FormulaTimerView extends Vue {
   }
   onAppDeactivate(): void {
     this.active = false;
+    this.clearVerification(false);
     this.stopIconRendering();
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
     this.training.cancel();
     this.clearNextJob();
+    this.clearStatsFocus();
     this.stopPaint();
   }
-  onAppActivate(): void { this.active = true; this.resetCase(); this.resize(); this.loop(); }
+  onAppActivate(): void { this.active = true; if (!this.statsOpen) this.resetCase(); this.resize(); this.loop(); }
   onSessionSnapshot(snapshot: SessionSnapshot): void {
     if (this.snapshot?.status === 'connected' && snapshot.status === 'disconnected') {
+      this.clearVerification(false);
+      this.recovery.start(null);
       this.training.interrupt(Date.now());
       this.feedback = '蓝牙连接中断，请重连后重试';
     }
-    if (this.snapshot?.status !== 'connected' && snapshot.status === 'connected' &&
-        this.current && !this.training.current && !this.replayRecord) this.resetCase();
+    if (this.snapshot?.status !== 'connected' && snapshot.status === 'connected') {
+      this.training.resetSerial();
+      this.recovery.start(snapshot.facelets, snapshot.faceletsSerial ?? undefined);
+      if (this.current && !this.training.current && !this.replayRecord) this.resetCase();
+    }
     this.snapshot = snapshot;
   }
   handlePhysicalEvent(event: LinkEvent, live: boolean): void {
-    if (!this.active || this.replayRecord) return;
-    if (event.type === 'move' && !event.recovered) {
-      if (this.training.move(Date.now(), event.serial)) {
-        this.now = Date.now();
-        if (live) this.world.cube.twister.push(event.move);
+    if (!this.active || this.replayRecord || this.statsOpen) return;
+    if (event.type === 'facelets') {
+      if (!this.awaitingState && this.training.startedAt === null && !this.recovery.hasBaseline) {
+        this.recovery.start(event.facelets, event.serial);
       }
-    } else if (event.type === 'facelets') this.training.facelets(event.facelets, Date.now(), event.serial);
+      if (!this.awaitingState || !this.current) return;
+      const result = this.recovery.state(event.facelets, event.serial);
+      if (result.status === 'stale') return;
+      this.clearVerification(false);
+      if (result.status === 'uncertain') { this.failVerification('实体动作无法唯一核验，请重试同题'); return; }
+      if (result.tail) {
+        this.training.interrupt(this.training.lastMoveAt || Date.now());
+        this.playRecoveredMoves(result.moves, false);
+        this.feedback = '末步已补回，时间无法精确核验，请重试同题';
+        return;
+      }
+      if (result.moves.some(item => item.at === null) && this.training.startedAt === null) {
+        this.training.interrupt(Date.now());
+        this.playRecoveredMoves(result.moves, false);
+        this.feedback = '起始动作已补回，但起始时间无法核验，请重试同题';
+        return;
+      }
+      this.playRecoveredMoves(result.moves, true);
+      this.training.releaseVerification();
+      return;
+    }
+    if (event.type !== 'move' || (!live && !event.recovered)) return;
+    const at = Date.now();
+    const result = this.recovery.move(event.move, event.serial, event.recovered ? null : at, event.recovered);
+    if (result.status === 'stale') return;
+    if (result.status === 'pending') {
+      this.training.holdForVerification();
+      this.scheduleVerification(true);
+      return;
+    }
+    if (result.status === 'uncertain') { this.failVerification('实体转动序号无法核验，请重试同题'); return; }
+    if (result.moves.some(item => item.at === null) && this.training.startedAt === null) {
+      this.training.interrupt(at);
+      this.playRecoveredMoves(result.moves, false);
+      this.feedback = '起始动作已补回，但起始时间无法核验，请重试同题';
+      return;
+    }
+    if (result.moves.length && result.moves[result.moves.length - 1].at === null) {
+      this.training.interrupt(this.training.lastMoveAt || at);
+      this.playRecoveredMoves(result.moves, false);
+      this.feedback = '末步已补回，时间无法精确核验，请重试同题';
+      return;
+    }
+    this.playRecoveredMoves(result.moves, true);
+    if (this.recovery.needsState) this.scheduleVerification(true);
+    else if (result.moves.length && event.serial !== undefined && !event.recovered && this.training.current) this.scheduleVerification(false);
+  }
+  private playRecoveredMoves(moves: RecoveredMove[], allowCompletion: boolean): void {
+    for (const item of moves) {
+      const at = item.at ?? Date.now();
+      if (item.at !== null && !this.training.move(at)) continue;
+      this.playPhysicalMove(item.move, at);
+    }
+    const last = moves[moves.length - 1];
+    if (allowCompletion && last && this.current && isFormulaGoal(this.current.category, this.displayCube.serialize()))
+      this.training.completeDisplayed(last.at ?? Date.now());
+  }
+  private playPhysicalMove(physicalMove: string, at: number): void {
+    this.now = at;
+    const move = advanceDisplayedCube(this.displayCube, physicalMove);
+    if (!move) return;
+    const interval = this.lastMirrorAt ? at - this.lastMirrorAt : 500;
+    this.lastMirrorAt = at;
+    const backlog = this.world.cube.twister.length;
+    CubeGroup.durationScale = Math.max(0.067, Math.min(1, interval / 500, backlog ? Math.pow(0.55, backlog) : 1));
+    this.world.cube.twister.push(move);
+  }
+  private clearVerification(release = true): void {
+    this.recoveryRound++;
+    if (this.verifyJob !== null) window.clearTimeout(this.verifyJob);
+    if (this.verifyTimeout !== null) window.clearTimeout(this.verifyTimeout);
+    this.verifyJob = this.verifyTimeout = null;
+    this.awaitingState = false;
+    if (release) this.training.releaseVerification();
+  }
+  private failVerification(message: string): void {
+    this.clearVerification(false);
+    this.training.interrupt(this.training.lastMoveAt || Date.now());
+    this.feedback = message;
+  }
+  private scheduleVerification(immediate: boolean): void {
+    if (!this.recovery.hasBaseline) {
+      if (immediate) this.failVerification('没有可用的实体状态基线，请重试同题');
+      return;
+    }
+    this.clearVerification(false);
+    const round = this.recoveryRound;
+    this.training.holdForVerification();
+    this.verifyJob = window.setTimeout(() => {
+      if (round !== this.recoveryRound || !this.current) return;
+      this.awaitingState = true;
+      this.verifyTimeout = window.setTimeout(() => {
+        if (round === this.recoveryRound && this.awaitingState)
+          this.failVerification('实体状态核验超时，请重试同题');
+      }, 1300);
+      void this.session.requestFacelets().catch(() => {
+        if (round === this.recoveryRound) this.failVerification('无法请求实体状态，请重试同题');
+      });
+    }, immediate ? 0 : 350);
   }
   private loop(): void {
     if (!this.active) return;
-    this.viewport?.draw();
+    if (!this.statsOpen) this.viewport?.draw();
+    // 逻辑账本可能早于动画（或鼠标转动）变化；可见魔方归位时以画面为准结算。
+    if (this.current && !this.awaitingState && !this.recovery.needsState && this.verifyJob === null &&
+      this.training.startedAt !== null &&
+      isFormulaGoal(this.current.category, this.world.cube.serialize())) {
+      this.training.completeDisplayed(this.training.lastMoveAt || Date.now());
+    }
     this.frame = requestAnimationFrame(() => this.loop());
   }
   resize(): void {
@@ -159,11 +388,12 @@ export default class FormulaTimerView extends Vue {
     this.nextJob = null;
   }
   private finishRecord(record: FormulaRecord): void {
+    this.clearVerification(false);
     this.completedRecord = record;
     this.records.unshift(record);
     const times = `反应 ${this.formatReaction(record)} 秒 · 拧公式 ${(record.durationMs / 1000).toFixed(2)} 秒`;
     this.feedback = record.result === 'success' ? `成功 · ${times}` :
-      record.result === 'idle-failure' ? `停转 1 秒 · 本轮失败 · ${times}` : `状态不可验证或连接中断 · ${times}`;
+      record.result === 'idle-failure' ? `停转 2 秒 · 本轮失败 · ${times}` : `状态不可验证或连接中断 · ${times}`;
     this.save();
     this.clearNextJob();
     if (record.result !== 'interrupted') this.nextJob = window.setTimeout(() => {
@@ -174,22 +404,30 @@ export default class FormulaTimerView extends Vue {
   private validPool(): FormulaCase[] {
     this.invalidItems = [];
     const plls = this.items.filter(item => item.category === 'pll');
-    const selected = this.selectedIds;
-    const pool = this.categoryItems.filter(item => !selected.length ? !item.id.startsWith('oll:custom-') : selected.indexOf(item.id) >= 0);
+    const pool = chooseFormulaItems(this.items, this.trainingCategory, this.selectedIds, this.settings.slowOnly,
+      id => this.isSlow(this.categoryItems.find(item => item.id === id)!), this.focusIds);
     const cases: FormulaCase[] = [];
     for (const item of pool) {
-      if (this.settings.slowOnly && !this.isSlow(item)) continue;
       try { cases.push(makeFormulaCase(item, plls, Math.random, this.settings.beforeZ2)); }
       catch (error) { this.invalidItems.push(`${item.name}：${(error as Error).message}`); }
     }
     return cases;
   }
   private showCase(item: FormulaCase): void {
+    this.clearVerification(false);
+    const entity = this.session.snapshot;
+    this.recovery.start(entity.facelets, entity.faceletsSerial ?? undefined);
+    if (entity.status === 'connected' && !this.recovery.hasBaseline)
+      void this.session.requestFacelets().catch(() => { /* 无状态时仍可实时跟随，断档时暂停。 */ });
     this.completedRecord = null;
     this.current = item;
     this.replayRecord = null;
-    this.world.cube.twister.finish();
-    this.world.cube.twister.setup(item.scramble || parseOpFormula(item.formula).inverse.join(' '));
+    this.world.cube.twister.discardPending();
+    CubeGroup.durationScale = 1;
+    this.lastMirrorAt = 0;
+    const scramble = item.scramble || parseOpFormula(item.formula).inverse.join(' ');
+    this.world.cube.twister.setup(scramble);
+    this.displayCube.twister.setup(scramble);
     this.resize();
     this.now = Date.now();
     this.training.beginCase(item, this.now);
@@ -201,7 +439,8 @@ export default class FormulaTimerView extends Vue {
     this.current = null;
     const pool = this.validPool();
     if (!pool.length) {
-      this.feedback = this.settings.slowOnly ? '当前筛选范围没有慢公式，请调整阈值或选择' :
+      this.feedback = this.focusIds ? '临时训练池没有可用题目，请退出重点训练' :
+        this.settings.slowOnly ? '当前筛选范围没有慢公式，请调整阈值或选择' :
         this.invalidItems.length ? `无有效题面：${this.invalidItems[0]}` : '当前公式池为空';
       return;
     }
@@ -215,7 +454,10 @@ export default class FormulaTimerView extends Vue {
     this.feedback = '';
   }
   resetVisualCube(): void { this.resetCase(); }
-  changeCategory(category: FormulaCategory): void { this.settings.category = category; this.save(); this.nextCase(); }
+  changeCategory(category: FormulaCategory): void {
+    this.clearStatsFocus();
+    this.settings.category = category; this.save(); this.nextCase();
+  }
   toggleBeforeZ2(): void { this.settings.beforeZ2 = !this.settings.beforeZ2; this.save(); this.nextCase(); }
   changeSettings(): void {
     this.settings.slowSeconds = Math.max(0.1, Number(this.settings.slowSeconds) || 3);
@@ -233,6 +475,7 @@ export default class FormulaTimerView extends Vue {
   replay(record: FormulaRecord): void { this.clearNextJob(); this.training.cancel(); this.replayRecord = record; this.showCase(record); this.replayRecord = record; }
   leaveReplay(): void { this.replayRecord = null; this.resetCase(); }
   openPicker(): void {
+    if (this.focusIds) this.leaveStatsFocus();
     this.pickerGroup = 'builtin';
     for (const item of this.categoryItems) {
       if (this.ollPreviews[item.id] || this.f2lPreviews[item.id]) continue;
