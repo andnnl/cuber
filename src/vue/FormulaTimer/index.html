@@ -26,7 +26,7 @@
       <small class="formula-timer-status">{{statusLabel}}</small>
       <p v-if="feedback && current" role="status" class="formula-timer-feedback">{{feedback}}</p>
       <p v-if="warning" role="alert" class="formula-timer-warning">{{warning}}</p>
-      <div class="formula-timer-actions"><button type="button" @click="nextCase">新题</button><button type="button" @click="resetCase">重试同题</button><label class="formula-timer-z2" title="开启后出题前先做 z2，并立即生成新题"><input type="checkbox" :checked="settings.beforeZ2" @change="toggleBeforeZ2">出题前 z2</label><button v-if="replayRecord" type="button" @click="leaveReplay">退出复盘</button></div>
+      <div class="formula-timer-actions"><button type="button" @click="nextCase">新题</button><button type="button" @click="resetCase">重试同题</button><label class="formula-timer-z2" title="开启后出题前先做 z2，并立即生成新题"><input type="checkbox" :checked="settings.beforeZ2" @change="toggleBeforeZ2">出题前 z2</label><label class="formula-timer-before-y">出题前 y <select v-model="settings.beforeY" @change="changeBeforeY"><option value="">无</option><option value="y">y</option><option value="y'">y'</option><option value="y2">y2</option></select></label><label class="formula-timer-random-u" title="公式逆操作后随机做无、U、U' 或 U2，并立即生成新题"><input type="checkbox" :checked="settings.randomU" @change="toggleRandomU">随机 U</label><button v-if="replayRecord" type="button" @click="leaveReplay">退出复盘</button></div>
       <details class="formula-timer-details"><summary>训练设置 · 慢公式 {{slowCount}} 条</summary>
         <label>下一题 <select v-model="settings.nextMode" @change="save"><option value="random">随机下一条</option><option value="repeat">重复同一条</option></select></label>
         <label>慢公式阈值 <input type="number" min="0.1" step="0.1" v-model.number="settings.slowSeconds" @change="changeSettings">秒</label>
@@ -36,7 +36,7 @@
       <details class="formula-timer-details"><summary>训练记录 · {{records.length}} 条</summary>
         <label>结果 <select v-model="recordResult"><option value="all">全部</option><option value="success">成功</option><option value="idle-failure">停转失败</option><option value="interrupted">中断</option></select></label>
         <div v-for="(record, index) in filteredRecords" :key="record.at + '-' + index" class="formula-timer-record">
-          <span>{{new Date(record.at).toLocaleString()}} · {{record.name}} · {{record.result === 'success' ? '成功' : record.result === 'idle-failure' ? '停转失败' : '中断'}} · 反应 {{formatReaction(record)}} 秒 · 拧公式 {{(record.durationMs/1000).toFixed(2)}} 秒</span>
+          <span>{{new Date(record.at).toLocaleString()}} · {{record.name}} · {{record.result === 'success' ? '成功' : record.result === 'idle-failure' ? '停转失败' : '中断'}} · 反应 {{formatReaction(record)}} 秒 · 拧公式 {{(record.durationMs/1000).toFixed(2)}} 秒 · {{record.moveCount === undefined ? '—' : record.moveCount}} 步 · TPS {{formatTps(record)}}</span>
           <button type="button" @click="replay(record)">复盘题面</button>
         </div>
       </details>
@@ -63,6 +63,7 @@
           <div><small>成功率</small><strong>{{statsRate(statsResult.overview.successRate)}}</strong></div>
           <div><small>平均反应</small><strong>{{statsSeconds(statsResult.overview.meanReactionMs)}}</strong><small>{{statsResult.overview.reactionCount}} 次成功有数据</small></div>
           <div><small>平均拧动</small><strong>{{statsSeconds(statsResult.overview.meanDurationMs)}}</strong><small>{{statsResult.overview.durationCount}} 次成功有数据</small></div>
+          <div><small>平均 TPS</small><strong>{{formatMeanTps(statsResult.overview.meanTps)}}</strong><small>{{statsResult.overview.tpsCount}} 次成功有数据</small></div>
         </div>
         <p v-else class="formula-stats-empty">当前分类暂无训练记录，完成训练后这里会显示统计。</p>
       </section>
@@ -88,6 +89,7 @@
           <div class="formula-stats-card-metrics">
             <span>反应 {{statsSeconds(row.meanReactionMs)}} <small>({{row.reactionCount}} 次)</small></span>
             <span>拧动 {{statsSeconds(row.meanDurationMs)}} <small>({{row.durationCount}} 次)</small></span>
+            <span>TPS {{formatMeanTps(row.meanTps)}} <small>({{row.tpsCount}} 次)</small></span>
             <span>成功率 {{statsRate(row.successRate)}} <small>({{row.successCount}}/{{row.attemptCount}})</small></span>
           </div>
           <div v-if="row.insufficient || row.labels.length" class="formula-stats-tags">

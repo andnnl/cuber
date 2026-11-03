@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { summarizeFormulaRecords } = require('../.tmp/ble/formula-timer-stats.js');
+const { summarizeFormulaRecords, recordTps } = require('../.tmp/ble/formula-timer-stats.js');
 
 const base = { formula: 'R U', initialFacelets: 'U'.repeat(54) };
 const rec = (id, at, result, durationMs, reactionMs, category = 'pll') =>
@@ -12,6 +12,15 @@ const records = [
   rec('A', 1, 'interrupted', 2000, 4000), rec('A', 10, 'success', 2000, 1000, 'oll'),
 ];
 const original = records.map(record => record.at);
+assert.equal(recordTps({ ...records[0], moveCount: 20 }), 5);
+assert.equal(recordTps({ ...records[0], moveCount: 20, durationMs: 0 }), null);
+assert.equal(recordTps({ ...records[0], moveCount: 20, result: 'idle-failure' }), null);
+assert.equal(recordTps(records[0]), null, '旧记录没有步数不估算 TPS');
+const tpsStats = summarizeFormulaRecords([
+  { ...records[0], moveCount: 20 }, { ...records[1], moveCount: 4 }, records[2],
+], 'pll', 'category', 10, 3);
+assert.equal(tpsStats.overview.tpsCount, 2);
+assert.equal(tpsStats.overview.meanTps, 4.5, '逐条 TPS 等权平均，不用总步数除总时间');
 const perFormula = summarizeFormulaRecords(records, 'pll', 'per-formula', 6, 3);
 const a = perFormula.formulas.find(row => row.id === 'A');
 assert.equal(a.attemptCount, 6);
@@ -42,7 +51,8 @@ assert.equal(reactionResult.formulas.find(row => row.id === 'slow').labels.inclu
   '等于拧动阈值不贴标签');
 assert.deepEqual(summarizeFormulaRecords([], 'pll', 'category', 20, 3).overview,
   { recordCount: 0, attemptCount: 0, successCount: 0, successRate: null,
-    durationCount: 0, meanDurationMs: null, reactionCount: 0, meanReactionMs: null });
+    durationCount: 0, meanDurationMs: null, reactionCount: 0, meanReactionMs: null,
+    tpsCount: 0, meanTps: null });
 const sameTime = summarizeFormulaRecords([
   rec('same', 42, 'success', 1000, 1000), rec('same', 42, 'idle-failure', 2000, 2000),
   rec('same', 41, 'success', 3000, 3000),

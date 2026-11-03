@@ -9,6 +9,8 @@ export interface FormulaTimerSettings {
   selectedIds: Record<FormulaCategory, string[]>;
   nextMode: 'repeat' | 'random';
   beforeZ2: boolean;
+  beforeY: '' | 'y' | "y'" | 'y2';
+  randomU: boolean;
   slowOnly: boolean;
   slowSeconds: number;
 }
@@ -17,7 +19,7 @@ export interface StorageLike { getItem(key: string): string | null; setItem(key:
 
 function defaults(): FormulaTimerSettings {
   return { category: 'f2l', selectedIds: { f2l: [], oll: [], pll: [] }, nextMode: 'random',
-    beforeZ2: false, slowOnly: false, slowSeconds: 3 };
+    beforeZ2: false, beforeY: '', randomU: true, slowOnly: false, slowSeconds: 3 };
 }
 
 function validRecord(value: any): value is FormulaRecord {
@@ -25,6 +27,7 @@ function validRecord(value: any): value is FormulaRecord {
     ['id', 'name', 'formula', 'initialFacelets'].every(key => typeof value[key] === 'string') &&
     (value.scramble === undefined || typeof value.scramble === 'string') &&
     (value.reactionMs === undefined || (Number.isFinite(value.reactionMs) && value.reactionMs >= 0)) &&
+    (value.moveCount === undefined || (Number.isInteger(value.moveCount) && value.moveCount >= 0)) &&
     Number.isFinite(value.at) && Number.isFinite(value.durationMs) && value.durationMs >= 0;
 }
 
@@ -40,12 +43,15 @@ export class FormulaTimerStore {
       const value = data.settings;
       if (CATEGORIES.indexOf(value.category) < 0 || ['repeat', 'random'].indexOf(value.nextMode) < 0 ||
           (value.beforeZ2 !== undefined && typeof value.beforeZ2 !== 'boolean') ||
+          (value.beforeY !== undefined && ['', 'y', "y'", 'y2'].indexOf(value.beforeY) < 0) ||
+          (value.randomU !== undefined && typeof value.randomU !== 'boolean') ||
           typeof value.slowOnly !== 'boolean' || !Number.isFinite(value.slowSeconds) ||
           value.slowSeconds <= 0 || !value.selectedIds ||
           !CATEGORIES.every(category => Array.isArray(value.selectedIds[category]) &&
             value.selectedIds[category].every((id: unknown) => typeof id === 'string')) ||
           !data.records.every(validRecord)) throw Error('设置或记录格式无效');
-      return { settings: { ...value, beforeZ2: value.beforeZ2 === true } as FormulaTimerSettings,
+      return { settings: { ...value, beforeZ2: value.beforeZ2 === true, beforeY: value.beforeY || '',
+        randomU: value.randomU !== false } as FormulaTimerSettings,
         records: data.records as FormulaRecord[], warning: '' };
     } catch {
       return { settings: defaults(), records: [], warning: '训练设置或记录读取失败，已使用默认值' };

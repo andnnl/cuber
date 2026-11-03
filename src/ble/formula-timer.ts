@@ -3,7 +3,7 @@ import { isSolvedFacelets } from './pll-training';
 export type FormulaCategory = 'f2l' | 'oll' | 'pll';
 export type FormulaResult = 'success' | 'idle-failure' | 'interrupted';
 export interface FormulaCase { id: string; category: FormulaCategory; name: string; formula: string; initialFacelets: string; scramble?: string }
-export interface FormulaRecord extends FormulaCase { at: number; durationMs: number; reactionMs?: number; result: FormulaResult }
+export interface FormulaRecord extends FormulaCase { at: number; durationMs: number; reactionMs?: number; moveCount?: number; result: FormulaResult }
 
 export function isFormulaGoal(category: FormulaCategory, facelets: string): boolean {
   if (category === 'pll') return isSolvedFacelets(facelets);
@@ -42,6 +42,7 @@ export class FormulaTimer {
   reactionMs: number | null = null;
   startedAt: number | null = null;
   lastMoveAt: number | null = null;
+  moveCount = 0;
   private generation = 0;
   private lastSerial: number | null = null;
   private job: number | null = null;
@@ -63,6 +64,7 @@ export class FormulaTimer {
     this.presentedAt = displayedAt;
     this.startedAt = null;
     this.lastMoveAt = null;
+    this.moveCount = 0;
     return this.generation;
   }
 
@@ -91,6 +93,7 @@ export class FormulaTimer {
     if (!this.current || recovered || (serial !== undefined && this.lastSerial !== null &&
         this.serialRelation(serial, this.lastSerial) <= 0)) return false;
     if (serial !== undefined) this.lastSerial = serial & 0xff;
+    this.moveCount++;
     if (this.startedAt === null) {
       this.reactionMs = Math.max(0, at - this.presentedAt!);
       this.startedAt = at;
@@ -116,6 +119,7 @@ export class FormulaTimer {
     this.reactionMs = null;
     this.startedAt = null;
     this.lastMoveAt = null;
+    this.moveCount = 0;
   }
 
   dispose(): void { this.cancel(); }
@@ -135,7 +139,7 @@ export class FormulaTimer {
   private finish(result: FormulaResult, at: number): void {
     if (!this.current || this.startedAt === null) return;
     const record: FormulaRecord = { ...this.current, result, at, durationMs: Math.max(0, at - this.startedAt),
-      reactionMs: this.reactionMs! };
+      reactionMs: this.reactionMs!, moveCount: this.moveCount };
     this.cancel();
     this.clock.onResult(record);
   }

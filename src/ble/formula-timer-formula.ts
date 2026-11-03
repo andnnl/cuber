@@ -27,7 +27,7 @@ function randomIndex(length: number, random: () => number): number {
 }
 
 export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], random: () => number = Math.random,
-  beforeZ2 = false): FormulaCase {
+  beforeZ2 = false, beforeY: '' | 'y' | "y'" | 'y2' = '', randomU = true): FormulaCase {
   const parsed = parseOpFormula(item.formula);
   let scramble = parsed.inverse.join(' ');
   if (item.category === 'oll') {
@@ -54,7 +54,9 @@ export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], ran
   } else if (item.category === 'pll') {
     scramble = [PRE_AUF[randomIndex(PRE_AUF.length, random)], ...parsed.inverse].filter(Boolean).join(' ');
   }
-  if (beforeZ2) scramble = `z2 ${scramble}`;
+  // 随机 U 只在逆公式之后执行；关闭时不消耗随机值。
+  const afterAuf = randomU ? PRE_AUF[randomIndex(PRE_AUF.length, random)] : '';
+  scramble = [beforeZ2 ? 'z2' : '', beforeY, scramble, afterAuf].filter(Boolean).join(' ');
   const cube = new Cube(3);
   if (item.category === 'pll') {
     cube.twister.setup(parsed.inverse.join(' '));

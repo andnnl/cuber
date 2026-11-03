@@ -775,42 +775,95 @@ async function main() {
         new Promise((resolve) => setTimeout(() => resolve("timeout"), 30)),
       ]);
       assert.notStrictEqual(result, "timeout", "历史请求写入悬挂时阻塞了通知串行队列");
-      assert.deepStrictEqual(result.map((e) => e.serial), [20], "当前实时 MOVE 应立即放行");
-      assert.strictEqual(driver.lastSerial, 20);
-      assert.deepStrictEqual(
-        sent,
-        [Array.from(driver.createCommandMessage({ type: "REQUEST_FACELETS" }))],
-        "跳过断档后只应异步请求权威状态"
-      );
+      assert.deepStrictEqual(result, [], "存在缺号时不能抢先放行后面的转动");
+      assert.strictEqual(driver.lastSerial, 1, "未补齐的序号不能跳过");
+      assert.deepStrictEqual(driver.moveBuffer.map(e => e.serial), [20], "等待历史时保留已收到的转动");
+      assert.strictEqual(sent.length, 1, "断档只请求一次历史窗口");
+      assert.deepStrictEqual(sent[0].slice(0, 2), name === "Gen3" ? [0x68, 0x03] : [0xd1, 0x04]);
     });
 
-    await test(`${name}: 断档积压不批量重放旧 MOVE，并请求权威 facelets`, async () => {
+    await test(`${name}: 切层两侧缺一侧时历史补齐后按序交付，不重复`, async () => {
       const driver = new Driver();
-      driver.lastSerial = 1;
-      driver.moveBuffer = Array.from({ length: 17 }, (_, i) => bufferedMove(20 + i));
+      driver.lastSerial = 40;
+      driver.moveBuffer = [{ ...bufferedMove(42), move: 'R' }];
       const sent = [];
-      let disconnected = false;
       const conn = {
         sendCommandMessage: async (msg) => sent.push(Array.from(msg)),
-        disconnect: async () => {
-          disconnected = true;
-        },
+        disconnect: async () => {},
       };
+      assert.deepStrictEqual(await driver.evictMoveBuffer(conn), []);
+      assert.strictEqual(sent.length, 1);
+      driver.injectMissedMoveToBuffer({ ...bufferedMove(41), move: 'L2', localTimestamp: null });
+      driver.injectMissedMoveToBuffer({ ...bufferedMove(41), move: 'L2', localTimestamp: null });
+      const restored = await driver.evictMoveBuffer();
+      assert.deepStrictEqual(restored.map(e => [e.serial, e.move]), [[41, 'L2'], [42, 'R']]);
+      assert.strictEqual(restored[0].localTimestamp, null, "历史步不得伪造时间");
+    });
 
-      const stale = await driver.evictMoveBuffer(conn);
-      assert.deepStrictEqual(stale, []);
-      assert.strictEqual(driver.moveBuffer.length, 0);
-      assert.strictEqual(driver.lastSerial, 36);
-      assert.strictEqual(disconnected, false);
-      assert.deepStrictEqual(
-        sent,
-        [Array.from(driver.createCommandMessage({ type: "REQUEST_FACELETS" }))],
-        "溢出恢复只应请求一次权威 facelets"
-      );
+    await test(`${name}: 历史无响应时状态兜底不丢已收到的切层另一侧`, async () => {
+      const driver = new Driver();
+      driver.lastSerial = 40;
+      driver.moveBuffer = [bufferedMove(42)];
+      const sent = [];
+      const conn = { sendCommandMessage: async msg => sent.push(Array.from(msg)), disconnect: async () => {} };
+      await driver.evictMoveBuffer(conn);
+      driver.serial = 42;
+      const known = await driver.checkIfMoveMissed(conn);
+      assert.deepStrictEqual(known.map(e => e.serial), [42]);
+      assert.strictEqual(driver.lastSerial, 42);
+      assert.deepStrictEqual(driver.moveBuffer, []);
+      driver.injectMissedMoveToBuffer({ ...bufferedMove(41), localTimestamp: null });
+      assert.deepStrictEqual(driver.moveBuffer, [], '状态兜底后迟到历史不能污染下一题');
+    });
 
-      driver.moveBuffer.push(bufferedMove(37));
-      const fresh = await driver.evictMoveBuffer(conn);
-      assert.deepStrictEqual(fresh.map((e) => e.serial), [37]);
+    await test(`${name}: 序号回绕时历史窗口保持偶数长度并按序交付`, async () => {
+      const driver = new Driver();
+      driver.lastSerial = 255;
+      driver.moveBuffer = [bufferedMove(1)];
+      const sent = [];
+      const conn = { sendCommandMessage: async msg => sent.push(Array.from(msg)), disconnect: async () => {} };
+      assert.deepStrictEqual(await driver.evictMoveBuffer(conn), []);
+      assert.strictEqual(sent[0][2], 1, '历史窗口起点保持奇数');
+      assert.strictEqual(sent[0][4] % 2, 0, '历史请求条数必须对齐');
+      driver.injectMissedMoveToBuffer(bufferedMove(0));
+      assert.deepStrictEqual((await driver.evictMoveBuffer()).map(e => e.serial), [0, 1]);
+    });
+
+    await test(`${name}: 迟到实时通知不得重新开启缺口`, async () => {
+      const driver = new Driver();
+      driver.lastSerial = 42;
+      driver.moveBuffer = [bufferedMove(41)];
+      const sent = [];
+      const conn = { sendCommandMessage: async msg => sent.push(Array.from(msg)), disconnect: async () => {} };
+      assert.deepStrictEqual(await driver.evictMoveBuffer(conn), []);
+      assert.deepStrictEqual(driver.moveBuffer, [], '过期通知不能无限积压在缓冲区');
+      assert.strictEqual(sent.length, 0, '过期通知不触发历史请求');
+    });
+
+    await test(`${name}: 首次状态序号固定为零时首条实时 MOVE 不被卡住`, async () => {
+      const driver = new Driver();
+      driver.lastSerial = 0;
+      driver.initialUnsequencedState = true;
+      driver.moveBuffer = [bufferedMove(67)];
+      const conn = { sendCommandMessage: async () => {}, disconnect: async () => {} };
+      assert.deepStrictEqual((await driver.evictMoveBuffer(conn)).map(e => e.serial), [67]);
+    });
+
+    await test(`${name}: 历史写入悬挂时超时仍能请求完整状态`, async () => {
+      const driver = new Driver();
+      driver.lastSerial = 40;
+      driver.moveBuffer = [bufferedMove(42)];
+      const sent = [];
+      const conn = { sendCommandMessage: msg => {
+        sent.push(Array.from(msg));
+        return new Promise(() => {});
+      }, disconnect: async () => {} };
+      await driver.evictMoveBuffer(conn);
+      await new Promise(resolve => setTimeout(resolve, 290));
+      assert.strictEqual(sent.length, 2, '历史无响应必须继续请求完整状态');
+      assert.deepStrictEqual(sent[1].slice(0, 2), name === 'Gen3' ? [0x68, 0x01] : [0xdd, 0x04]);
+      assert.deepStrictEqual((await driver.checkIfMoveMissed(conn)).map(e => e.serial), [42]);
+      assert.strictEqual(driver.historyFallbackRequested, false, '状态兜底结束后清理等待标记');
     });
   }
 

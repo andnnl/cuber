@@ -339,6 +339,36 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
     private lastSerial: number = -1;
     private lastLocalTimestamp: number | null = null;
     private moveBuffer: GanCubeEvent[] = [];
+    private initialUnsequencedState = false;
+    private historyRequestedFor: number = -1;
+    private historyFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    private historyFallbackRequested = false;
+
+    /** 历史命令不能阻塞通知队列；设备未回历史时稍后请求整幅状态兜底。 */
+    private requestMoveHistory(conn: GanCubeRawConnection, serial: number, count: number): void {
+        if (this.historyRequestedFor === serial) return;
+        this.historyRequestedFor = serial;
+        const aligned = serial % 2 === 0 ? (serial - 1) & 0xff : serial;
+        const size = Math.min(count + (count % 2), 16);
+        const message = new Uint8Array(16);
+        message.set([0x68, 0x03, aligned, 0, size, 0]);
+        void conn.sendCommandMessage(message).catch(() => undefined);
+        if (this.historyFallbackTimer !== null) clearTimeout(this.historyFallbackTimer);
+        this.historyFallbackTimer = setTimeout(() => {
+            this.historyFallbackTimer = null;
+            if (this.moveBuffer.length === 0) return;
+            this.historyFallbackRequested = true;
+            const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
+            if (request) void conn.sendCommandMessage(request).catch(() => undefined);
+        }, 250);
+    }
+
+    private clearHistoryFallback(): void {
+        if (this.historyFallbackTimer !== null) clearTimeout(this.historyFallbackTimer);
+        this.historyFallbackTimer = null;
+        this.historyRequestedFor = -1;
+        this.historyFallbackRequested = false;
+    }
 
     createCommandMessage(command: GanCubeCommand): Uint8Array | undefined {
         var msg: Uint8Array | undefined = new Uint8Array(16).fill(0);
@@ -367,29 +397,26 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
      */
     private async evictMoveBuffer(conn?: GanCubeRawConnection): Promise<Array<GanCubeEvent>> {
         var evictedEvents: GanCubeEvent[] = [];
-        // 实时优先：GATT 写入可能悬挂数十秒，绝不能在通知串行队列中 await 历史请求。
-        // 断档时跳过缺失序号、立即放行当前实时 MOVE，并异步请求权威状态校正实体账本。
-        if (conn && this.moveBuffer.length > 16) {
-            const tail = this.moveBuffer[this.moveBuffer.length - 1] as GanCubeMoveEvent;
-            this.lastSerial = tail.serial;
-            this.moveBuffer = [];
+        // 缺号时保留已收到的 MOVE；历史写入挂起也不能阻塞通知串行队列。
+        if (conn && this.moveBuffer.length > 16 && !this.historyFallbackRequested) {
+            this.historyFallbackRequested = true;
             const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
-            if (request) {
-                void conn.sendCommandMessage(request).catch(() => undefined);
-            }
-            return evictedEvents;
+            if (request) void conn.sendCommandMessage(request).catch(() => undefined);
         }
         while (this.moveBuffer.length > 0) {
             let bufferHead = this.moveBuffer[0] as GanCubeMoveEvent;
+            if (this.initialUnsequencedState) {
+                this.lastSerial = (bufferHead.serial - 1) & 0xff;
+                this.initialUnsequencedState = false;
+            }
             let diff = this.lastSerial == -1 ? 1 : (bufferHead.serial - this.lastSerial) & 0xFF;
+            if (diff === 0 || diff >= 128) {
+                this.moveBuffer.shift(); // 迟到/重复通知不属于当前缺口
+                continue;
+            }
             if (diff > 1) {
                 if (conn) {
-                    this.lastSerial = (bufferHead.serial - 1) & 0xFF;
-                    const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
-                    if (request) {
-                        void conn.sendCommandMessage(request).catch(() => undefined);
-                    }
-                    continue;
+                    this.requestMoveHistory(conn, bufferHead.serial, diff);
                 }
                 break;
             } else {
@@ -397,6 +424,7 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
                 this.lastSerial = bufferHead.serial;
             }
         }
+        if (this.moveBuffer.length === 0 && !this.historyFallbackRequested) this.clearHistoryFallback();
         return evictedEvents;
     }
 
@@ -413,6 +441,8 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
     /** Used to inject missed moves to FIFO buffer */
     private injectMissedMoveToBuffer(move: GanCubeEvent) {
         if (move.type == "MOVE") {
+            const forward = (move.serial - this.lastSerial) & 0xff;
+            if (this.lastSerial != -1 && (forward === 0 || forward >= 128)) return;
             if (this.moveBuffer.length > 0) {
                 var bufferHead = this.moveBuffer[0] as GanCubeMoveEvent;
                 // Skip if move event with the same serial already in the buffer
@@ -436,13 +466,16 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
     }
 
     /** Used in response to periodic facelets event to check if any moves missed */
-    private async checkIfMoveMissed(conn: GanCubeRawConnection) {
-        let diff = (this.serial - this.lastSerial) & 0xFF;
-        if (diff > 0) {
-            // FACELETS 已是当前权威状态；历史 MOVE 不再回放，直接把协议序号推进到快照。
-            this.lastSerial = this.serial;
-            this.moveBuffer = [];
+    private async checkIfMoveMissed(conn: GanCubeRawConnection): Promise<GanCubeEvent[]> {
+        if (this.moveBuffer.length > 0) {
+            // 历史缺失时仍把已收到的另一侧交给训练账本；账本用紧接着的状态帧验证缺口。
+            const known = this.moveBuffer.splice(0);
+            this.lastSerial = (known[known.length - 1] as GanCubeMoveEvent).serial;
+            this.clearHistoryFallback();
+            return known;
         }
+        this.clearHistoryFallback();
+        return [];
     }
 
     async handleStateEvent(conn: GanCubeRawConnection, eventMessage: Uint8Array): Promise<GanCubeEvent[]> {
@@ -522,13 +555,15 @@ export class GanGen3ProtocolDriver implements GanProtocolDriver {
                 // Also check and recovery missed moves using periodic facelets event sent by cube
                 if (this.lastSerial != -1) {
                     // Debounce the facelet event if there are active cube moves
-                    if (this.lastLocalTimestamp != null && (timestamp - this.lastLocalTimestamp) > 500) {
-                        await this.checkIfMoveMissed(conn);
+                    if (this.historyFallbackRequested || this.lastLocalTimestamp != null && (timestamp - this.lastLocalTimestamp) > 500) {
+                        cubeEvents.push(...await this.checkIfMoveMissed(conn));
                     }
                 }
 
-                if (this.lastSerial == -1)
+                if (this.lastSerial == -1) {
                     this.lastSerial = serial;
+                    this.initialUnsequencedState = serial === 0;
+                }
 
                 // Corner/Edge Permutation/Orientation
                 let cp: Array<number> = [];
@@ -619,6 +654,34 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
     private lastSerial: number = -1;
     private lastLocalTimestamp: number | null = null;
     private moveBuffer: GanCubeEvent[] = [];
+    private initialUnsequencedState = false;
+    private historyRequestedFor = -1;
+    private historyFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    private historyFallbackRequested = false;
+
+    private requestMoveHistory(conn: GanCubeRawConnection, serial: number, count: number): void {
+        if (this.historyRequestedFor === serial) return;
+        this.historyRequestedFor = serial;
+        const aligned = serial % 2 === 0 ? (serial - 1) & 0xff : serial;
+        const message = new Uint8Array(20);
+        message.set([0xd1, 0x04, aligned, 0, Math.min(count + (count % 2), 16), 0]);
+        void conn.sendCommandMessage(message).catch(() => undefined);
+        if (this.historyFallbackTimer !== null) clearTimeout(this.historyFallbackTimer);
+        this.historyFallbackTimer = setTimeout(() => {
+            this.historyFallbackTimer = null;
+            if (!this.moveBuffer.length) return;
+            this.historyFallbackRequested = true;
+            const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
+            if (request) void conn.sendCommandMessage(request).catch(() => undefined);
+        }, 250);
+    }
+
+    private clearHistoryFallback(): void {
+        if (this.historyFallbackTimer !== null) clearTimeout(this.historyFallbackTimer);
+        this.historyFallbackTimer = null;
+        this.historyRequestedFor = -1;
+        this.historyFallbackRequested = false;
+    }
 
     // Used to store partial result acquired from hardware info events
     private hwInfo: { [key: number]: string } = {};
@@ -651,28 +714,25 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
      */
     private async evictMoveBuffer(conn?: GanCubeRawConnection): Promise<Array<GanCubeEvent>> {
         var evictedEvents: GanCubeEvent[] = [];
-        // 与 Gen3 同策：断档恢复不等待 GATT 写入，也不批量回放历史 MOVE。
-        if (conn && this.moveBuffer.length > 16) {
-            const tail = this.moveBuffer[this.moveBuffer.length - 1] as GanCubeMoveEvent;
-            this.lastSerial = tail.serial;
-            this.moveBuffer = [];
+        if (conn && this.moveBuffer.length > 16 && !this.historyFallbackRequested) {
+            this.historyFallbackRequested = true;
             const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
-            if (request) {
-                void conn.sendCommandMessage(request).catch(() => undefined);
-            }
-            return evictedEvents;
+            if (request) void conn.sendCommandMessage(request).catch(() => undefined);
         }
         while (this.moveBuffer.length > 0) {
             let bufferHead = this.moveBuffer[0] as GanCubeMoveEvent;
+            if (this.initialUnsequencedState) {
+                this.lastSerial = (bufferHead.serial - 1) & 0xff;
+                this.initialUnsequencedState = false;
+            }
             let diff = this.lastSerial == -1 ? 1 : (bufferHead.serial - this.lastSerial) & 0xFF;
+            if (diff === 0 || diff >= 128) {
+                this.moveBuffer.shift();
+                continue;
+            }
             if (diff > 1) {
                 if (conn) {
-                    this.lastSerial = (bufferHead.serial - 1) & 0xFF;
-                    const request = this.createCommandMessage({ type: 'REQUEST_FACELETS' });
-                    if (request) {
-                        void conn.sendCommandMessage(request).catch(() => undefined);
-                    }
-                    continue;
+                    this.requestMoveHistory(conn, bufferHead.serial, diff);
                 }
                 break;
             } else {
@@ -680,6 +740,7 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
                 this.lastSerial = bufferHead.serial;
             }
         }
+        if (this.moveBuffer.length === 0 && !this.historyFallbackRequested) this.clearHistoryFallback();
         return evictedEvents;
     }
 
@@ -696,6 +757,8 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
     /** Used to inject missed moves to FIFO buffer */
     private injectMissedMoveToBuffer(move: GanCubeEvent) {
         if (move.type == "MOVE") {
+            const forward = (move.serial - this.lastSerial) & 0xff;
+            if (this.lastSerial != -1 && (forward === 0 || forward >= 128)) return;
             if (this.moveBuffer.length > 0) {
                 var bufferHead = this.moveBuffer[0] as GanCubeMoveEvent;
                 // Skip if move event with the same serial already in the buffer
@@ -719,12 +782,15 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
     }
 
     /** Used in response to periodic facelets event to check if any moves missed */
-    private async checkIfMoveMissed(conn: GanCubeRawConnection) {
-        let diff = (this.serial - this.lastSerial) & 0xFF;
-        if (diff > 0) {
-            this.lastSerial = this.serial;
-            this.moveBuffer = [];
+    private async checkIfMoveMissed(conn: GanCubeRawConnection): Promise<GanCubeEvent[]> {
+        if (this.moveBuffer.length > 0) {
+            const known = this.moveBuffer.splice(0);
+            this.lastSerial = (known[known.length - 1] as GanCubeMoveEvent).serial;
+            this.clearHistoryFallback();
+            return known;
         }
+        this.clearHistoryFallback();
+        return [];
     }
 
     async handleStateEvent(conn: GanCubeRawConnection, eventMessage: Uint8Array): Promise<GanCubeEvent[]> {
@@ -801,13 +867,15 @@ export class GanGen4ProtocolDriver implements GanProtocolDriver {
             // Also check and recovery missed moves using periodic facelets event sent by cube
             if (this.lastSerial != -1) {
                 // Debounce the facelet event if there are active cube moves
-                if (this.lastLocalTimestamp != null && (timestamp - this.lastLocalTimestamp) > 500) {
-                    await this.checkIfMoveMissed(conn);
+                if (this.historyFallbackRequested || this.lastLocalTimestamp != null && (timestamp - this.lastLocalTimestamp) > 500) {
+                    cubeEvents.push(...await this.checkIfMoveMissed(conn));
                 }
             }
 
-            if (this.lastSerial == -1)
+            if (this.lastSerial == -1) {
                 this.lastSerial = serial;
+                this.initialUnsequencedState = serial === 0;
+            }
 
             // Corner/Edge Permutation/Orientation
             let cp: Array<number> = [];

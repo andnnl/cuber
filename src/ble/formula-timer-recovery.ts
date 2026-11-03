@@ -16,12 +16,17 @@ export class FormulaMoveRecovery {
   private serial: number | null = null;
   private pending = new Map<number, RecoveredMove>();
   private gap = false;
+  private unsequencedFacelets = false;
+  private recentStates: string[] = [];
 
   start(facelets: string | null, serial?: number): void {
     this.baseline = facelets && /^[URFDLB]{54}$/.test(facelets) ? facelets : null;
-    this.serial = serial === undefined ? null : serial & 255;
+    // Gen3/Gen4 的 FACELETS 常驻 s=0，并非 MOVE 序号；不能据此推断首步断档。
+    this.unsequencedFacelets = serial !== undefined && (serial & 255) === 0;
+    this.serial = serial === undefined || this.unsequencedFacelets ? null : serial & 255;
     this.pending.clear();
     this.gap = false;
+    this.recentStates = [];
   }
 
   get needsState(): boolean { return this.gap; }
@@ -29,6 +34,8 @@ export class FormulaMoveRecovery {
 
   move(move: string, serial?: number, at: number | null = null, recovered = false): RecoveryResult {
     if (MOVES.indexOf(move) < 0) return { status: 'stale', moves: EMPTY, tail: false };
+    if (this.unsequencedFacelets && this.serial === null && this.baseline && serial !== undefined && !recovered)
+      this.serial = (serial - 1) & 255; // 首条实时 MOVE 是状态帧之后的第一步。
     if (serial === undefined || this.serial === null || this.baseline === null) {
       if (recovered) return { status: 'stale', moves: EMPTY, tail: false };
       // 没有实体基线仍可实时跟随，但不能从完整状态猜测漏步。
@@ -52,7 +59,10 @@ export class FormulaMoveRecovery {
       const item = this.pending.get(key)!;
       const next = this.baseline && applyFaceletMove(this.baseline, item.move);
       if (this.baseline && !next) return { status: 'uncertain', moves: EMPTY, tail: false };
-      if (next) this.baseline = next;
+      if (next) {
+        this.rememberState(this.baseline!);
+        this.baseline = next;
+      }
       this.pending.delete(key);
       this.serial = key;
       moves.push(item);
@@ -64,7 +74,15 @@ export class FormulaMoveRecovery {
   state(facelets: string, serial?: number): RecoveryResult {
     if (!this.hasBaseline || !/^[URFDLB]{54}$/.test(facelets))
       return { status: 'uncertain', moves: EMPTY, tail: false };
-    const target = serial === undefined ? this.serial! : serial & 255;
+    if (this.unsequencedFacelets && facelets !== this.baseline && this.recentStates.indexOf(facelets) >= 0)
+      return { status: 'stale', moves: EMPTY, tail: false };
+    // 部分设备的状态帧固定回报 0；使用已收到的最大 MOVE 序号核验缺口，
+    // 而不是把 0 当成旧状态或序号回绕。
+    const target = this.unsequencedFacelets
+      ? this.pending.size
+        ? [...this.pending.keys()].reduce((latest, key) => relation(key, latest) > 0 ? key : latest, this.serial!)
+        : this.baseline === facelets ? this.serial! : (this.serial! + 1) & 255
+      : serial === undefined ? this.serial! : serial & 255;
     if (relation(target, this.serial!) < 0) return { status: 'stale', moves: EMPTY, tail: false };
     const count = distance(target, this.serial!);
     if ([...this.pending.keys()].some(key => relation(key, target) > 0))
@@ -92,10 +110,18 @@ export class FormulaMoveRecovery {
     if (solutions.length !== 1) return { status: 'uncertain', moves: EMPTY, tail: false };
     const moves = solutions[0];
     const tail = moves.length > 0 && moves[moves.length - 1].at === null;
+    if (this.baseline !== facelets) this.rememberState(this.baseline!);
     this.baseline = facelets;
     this.serial = target;
     this.pending.clear();
     this.gap = false;
     return { status: moves.some(item => item.at === null) ? 'recovered' : 'ready', moves, tail };
+  }
+
+  private rememberState(state: string): void {
+    this.recentStates.push(state);
+    // 请求状态会穿插在连续通知中；设备可能在数十步后才回送旧快照。
+    // MOVE 序号仅有 8 位，保留半个窗口即可覆盖可比较的旧状态，不让其误报断档。
+    if (this.recentStates.length > 128) this.recentStates.shift();
   }
 }

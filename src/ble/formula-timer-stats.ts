@@ -17,6 +17,8 @@ export interface StatsTotals {
   meanDurationMs: number | null;
   reactionCount: number;
   meanReactionMs: number | null;
+  tpsCount: number;
+  meanTps: number | null;
 }
 export interface FormulaSummary extends StatsTotals {
   id: string;
@@ -37,6 +39,11 @@ const validTime = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const mean = (values: number[]): number | null =>
   values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+export function recordTps(record: FormulaRecord): number | null {
+  return record.result === 'success' && Number.isInteger(record.moveCount) && record.moveCount! >= 0 &&
+    typeof record.durationMs === 'number' && Number.isFinite(record.durationMs) && record.durationMs > 0
+    ? record.moveCount! * 1000 / record.durationMs : null;
+}
 const median = (values: number[]): number | null => {
   if (!values.length) return null;
   const sorted = values.slice().sort((a, b) => a - b);
@@ -49,11 +56,13 @@ function aggregate(records: FormulaRecord[]): StatsTotals {
   const successes = records.filter(record => record.result === 'success');
   const durations = successes.filter(record => validTime(record.durationMs)).map(record => record.durationMs);
   const reactions = successes.filter(record => validTime(record.reactionMs)).map(record => record.reactionMs!);
+  const speeds = successes.map(recordTps).filter((speed): speed is number => speed !== null);
   return {
     recordCount: records.length, attemptCount: attempts.length, successCount: successes.length,
     successRate: attempts.length ? successes.length / attempts.length : null,
     durationCount: durations.length, meanDurationMs: mean(durations),
     reactionCount: reactions.length, meanReactionMs: mean(reactions),
+    tpsCount: speeds.length, meanTps: mean(speeds),
   };
 }
 

@@ -63,6 +63,9 @@ async function advance(ms) {
   assert.equal(timer.move(now, serial, true), false, '历史恢复不结束反应计时');
   timer.move(now, ++serial);
   assert.equal(timer.reactionMs, 2000, '首个有效转动结束反应计时');
+  assert.equal(timer.moveCount, 1, '首个实时转动计一步');
+  assert.equal(timer.move(now, serial), false, '重复序号不能重复计步');
+  assert.equal(timer.move(now, serial, true), false, '历史恢复不能计步');
   await advance(900);
   assert.equal(outcomes.length, 0);
   timer.move(now, ++serial);
@@ -72,11 +75,13 @@ async function advance(ms) {
   assert.equal(outcomes[0].result, 'success');
   assert.equal(outcomes[0].durationMs, 900, '屏幕完成即以本步作为完成时间');
   assert.equal(outcomes[0].reactionMs, 2000);
+  assert.equal(outcomes[0].moveCount, 2, '成功记录两条实际接收的转动');
   await advance(2000);
   assert.equal(outcomes.length, 1, '结算后不能二次结算');
 
   timer.beginCase(sample);
   assert.equal(timer.reactionMs, null, '新题清空上一题反应时间');
+  assert.equal(timer.moveCount, 0, '新题清空上一题计步');
   timer.move(now, ++serial);
   assert.equal(timer.reactionMs, 0);
   await advance(1999);
@@ -85,6 +90,7 @@ async function advance(ms) {
   assert.equal(requestCount, 0, '屏幕计时不需要请求实体状态');
   assert.equal(outcomes[1].result, 'idle-failure');
   assert.equal(outcomes[1].reactionMs, 0);
+  assert.equal(outcomes[1].moveCount, 1, '失败记录保留实际转动步数');
 
   timer.beginCase(sample);
   timer.move(now, ++serial);
