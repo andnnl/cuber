@@ -1,0 +1,60 @@
+<div class="adv-f2l-root">
+  <setting />
+  <header class="adv-f2l-header">
+    <h1>非标 F2L 公式库</h1>
+    <span>54 个案例 · 四方向 · 多解法</span>
+  </header>
+  <div class="adv-f2l-layout">
+    <section class="adv-f2l-study" aria-label="公式动画学习">
+      <div ref="cubeArea" class="adv-f2l-cube"><viewport ref="viewport"></viewport></div>
+      <div class="adv-f2l-details">
+        <h2>{{selected.name}} <small>· {{groups.find(item => item.key === selected.subgroup).label}}</small></h2>
+        <div class="adv-f2l-directions" aria-label="槽位方向">
+          <button v-for="(label, index) in directions" :key="label" type="button" :class="{active: direction === index}"
+            @click="selectDirection(index)">{{label}} <small>({{selected.algs[index].length}})</small></button>
+        </div>
+        <p v-if="error" class="adv-f2l-error">{{error}}</p>
+        <template v-if="selection">
+          <p class="adv-f2l-source">原公式 {{variant + 1}} / {{selected.algs[direction].length}} · 来源编号 {{selection.altId}}</p>
+          <div class="adv-f2l-controls">
+            <button type="button" @click="toStart">⏮ 回到起点</button>
+            <button type="button" :disabled="playing || step === 0" @click="previous">◀ 上一步</button>
+            <button type="button" :disabled="playing || step >= currentMoves.length" @click="next">下一步 ▶</button>
+            <button type="button" :disabled="playing || step >= currentMoves.length" @click="play">▶ 播放</button>
+            <button type="button" :disabled="!playing || pauseRequested" @click="pause">⏸ 暂停</button>
+            <span>{{step}} / {{currentMoves.length}}</span>
+          </div>
+          <div class="adv-f2l-steps" aria-label="当前公式步骤">
+            <span v-for="(move, index) in currentMoves" :key="index" :class="{'done': index < step, 'next': index === step}">{{move}}</span>
+          </div>
+        </template>
+        <h3>该方向的公式</h3>
+        <div class="adv-f2l-variants" v-if="selected.algs[direction].length">
+          <button type="button" v-for="(item, index) in selected.algs[direction]" :key="item.altId"
+            :class="{active: index === variant}" @click="selectVariant(index)">
+            <b>{{index + 1}}.</b> {{item.alg}}
+          </button>
+        </div>
+        <p v-else>该方向在原始资料中暂无公式，请选择其他方向。</p>
+      </div>
+    </section>
+    <section class="adv-f2l-browser" aria-label="非标 F2L 案例">
+      <div class="adv-f2l-groups">
+        <button type="button" v-for="item in groups" :key="item.key" :class="{active: group === item.key}"
+          @click="selectGroup(item.key)">{{item.label}} (18)</button>
+      </div>
+      <div class="adv-f2l-cases">
+        <button type="button" v-for="item in filteredCases" :key="item.id" :class="{active: selected.id === item.id}"
+          @click="selectCase(item)">
+          <strong>{{item.name}}</strong>
+          <span v-if="previews[item.id]" class="adv-f2l-preview" aria-hidden="true">
+            <span v-for="(face, faceIndex) in previews[item.id]" :key="faceIndex" class="adv-f2l-preview-face">
+              <i v-for="(color, cellIndex) in face" :key="cellIndex" :style="{backgroundColor:color}"></i>
+            </span>
+          </span>
+          <small>四方向共 {{item.algs.reduce((n, group) => n + group.length, 0)}} 条</small></button>
+      </div>
+      <small class="adv-f2l-attribution">公式来自 CubeRoot 非标 F2L 快照；本页可离线浏览和播放。</small>
+    </section>
+  </div>
+</div>

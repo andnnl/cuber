@@ -40,6 +40,12 @@
               @click="tap('f2l')" :style="{height: size + 'px'}">
               <v-icon :size="size * 0.8">fitness_center</v-icon>
             </v-btn>
+            <v-btn :color="mode == 'advf2l'?'primary':''" depressed
+              class="setting-mode-button setting-mode-button--labeled"
+              @click="tap('advf2l')" :style="{height: size + 'px'}">
+              <v-icon :size="size * 0.5">view_module</v-icon>
+              <span :style="{'font-size': size * 0.22 + 'px'}">非标F2L</span>
+            </v-btn>
             <v-btn :color="mode == 'crossf2l'?'primary':''" depressed
               class="setting-mode-button setting-mode-button--labeled"
               @click="tap('crossf2l')" :style="{height: size + 'px'}">

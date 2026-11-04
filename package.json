@@ -16,6 +16,7 @@
     "verify:crossf2l": "playwright-cli -s=crossf2l open && playwright-cli -s=crossf2l run-code --filename scripts/verify-crossf2l-analysis.js",
     "test:ble": "tsc -p tsconfig.ble.json && node scripts/test-ble.js",
     "test:pll": "tsc -p tsconfig.ble.json && node scripts/test-pll-training.cjs && node scripts/test-pll-six-sticker.cjs",
+    "test:adv-f2l": "tsc -p tsconfig.ble.json && node scripts/test-adv-f2l.cjs",
     "test:op": "tsc -p tsconfig.ble.json && node scripts/test-op-formula.cjs && node scripts/test-op-preview.cjs && node scripts/test-op-case.cjs && node scripts/test-op-trace.cjs && node scripts/test-op-top-net.cjs && node scripts/test-op-focus.cjs && node scripts/test-op-training.cjs && node scripts/test-op-custom-oll.cjs && node scripts/test-op-oll-library.cjs && node scripts/test-op-oll-transfer.cjs",
     "test:formula-timer": "tsc -p tsconfig.ble.json && node scripts/test-formula-timer.cjs && node scripts/test-formula-timer-recovery.cjs && node scripts/test-formula-timer-store.cjs && node scripts/test-formula-timer-formulas.cjs && node scripts/test-formula-timer-preview.cjs && node scripts/test-formula-timer-stats.cjs && node scripts/test-formula-timer-stats-preferences.cjs && node scripts/test-formula-timer-focus.cjs && node scripts/test-formula-timer-stats-view.cjs",
     "test:android": "node scripts/test-android-app.js",
