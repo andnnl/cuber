@@ -3416,6 +3416,7 @@ export default class BleCrossTrainer extends Vue {
   private gifPlayStarted = false;
   private gifPlayEndAt = 0;
   private recommendationGifId: string | null = null;
+  bestXGifFormula: string | null = null;
   private recommendationGifRun = 0;
   private static GIF_PIXEL = 384;
   private static GIF_DELAY = 8; // 每帧显示时长, 单位 1/100 秒 (8 = 80ms ≈ 12.5fps)
@@ -3469,6 +3470,25 @@ export default class BleCrossTrainer extends Vue {
     else this.cancelRecommendationGif();
   }
 
+  /** 按 XCross/XXCross/XXXCross 当前结果行录制，不切换训练轮次。 */
+  toggleBestXGif(formula: string): void {
+    if (this.gifRecording) {
+      if (this.bestXGifFormula !== formula) return;
+      if (this.gifPlayStarted) this.cancelBestPlay();
+      this.finishGif();
+      return;
+    }
+    if (this.trainMode === 'cross' || this.playingBest || this.resultTimer !== null ||
+        !this.bestX.some(item => item.formula === formula) ||
+        !this.resetBestPreview(formula, true)) return;
+    this.startGif();
+    this.bestXGifFormula = formula;
+    this.gifAuto = true;
+    this.startBestPreview(this.previewKey(formula), this.bestMovesOf(formula), 1, 1000);
+    if (this.playingBest) this.gifPlayStarted = true;
+    else this.cancelRecommendationGif();
+  }
+
   private cancelRecommendationGif(): void {
     if (this.gifPlayStarted) this.cancelBestPlay();
     this.recommendationGifRun++;
@@ -3477,6 +3497,7 @@ export default class BleCrossTrainer extends Vue {
     this.gifPlayStarted = false;
     this.gifPlayEndAt = 0;
     this.recommendationGifId = null;
+    this.bestXGifFormula = null;
     this.gif = null; // 换轮/换选中项时丢弃未完成录制，不下载错误公式。
   }
 
@@ -3503,6 +3524,7 @@ export default class BleCrossTrainer extends Vue {
     this.gifFrames = 0;
     this.gifLast = 0;
     this.gifAuto = false;
+    this.bestXGifFormula = null;
     this.gifPlayStarted = false;
     this.gifPlayEndAt = 0;
     this.gifRecording = true;
@@ -3551,6 +3573,7 @@ export default class BleCrossTrainer extends Vue {
     this.recommendationGifRun++;
     this.gifRecording = false;
     this.recommendationGifId = null;
+    this.bestXGifFormula = null;
     this.gifAuto = false;
     this.gifPlayStarted = false;
     this.gifPlayEndAt = 0;

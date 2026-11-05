@@ -324,7 +324,7 @@
             </div>
             <!-- XCross 模式: FL/FR/BL/BR 四组各自的最优解, 完成的槽位高亮 -->
             <template v-else>
-              <div v-for="(b, index) in bestXDisplay" :key="index + ':' + b.slot" style="display: flex; gap: 6px; min-width: 0;">
+              <div v-for="(b, index) in bestXDisplay" :key="index + ':' + b.slot" data-ble-bestx-row style="display: flex; gap: 6px; min-width: 0;">
                 <span
                   :style="{color: b.slot.split('+').every(slot => completedSlots.indexOf(slot) >= 0) ? '#2e7d32' : '#1565c0', whiteSpace: 'nowrap', fontWeight: 'bold'}"
                 >{{ b.slot }} {{ b.formula ? b.steps + '步' : '' }}</span>
@@ -351,20 +351,19 @@
                     title="从起点播放完整解法 (预览, 不自动复原; 需还原点「重置」)"
                     :style="previewBtnStyle"
                   >▶</v-btn>
+                  <v-btn
+                    x-small
+                    :color="gifRecording && bestXGifFormula === b.raw ? 'red' : undefined"
+                    :dark="gifRecording && bestXGifFormula === b.raw"
+                    :disabled="!b.raw || (!gifRecording && playingBest) || (gifRecording && bestXGifFormula !== b.raw)"
+                    @click="toggleBestXGif(b.raw)"
+                    :title="gifRecording && bestXGifFormula === b.raw ? '停止录制并下载这条解法' : '录制这条槽位解法 GIF（从起点停 1 秒后播放）'"
+                    :style="previewBtnStyle"
+                  >{{ gifRecording && bestXGifFormula === b.raw ? '⏹' : 'GIF' }}</v-btn>
                 </div>
               </div>
               <div v-if="!bestXReady" style="color: #999;">{{ trainMode === 'xcross' ? '槽位' : '多组' }}最优解求解中…</div>
               <div v-if="bestXReady && !bestXDisplay.length" style="color: #999;">当前槽位组合暂无解法，请切换槽位或新打乱</div>
-              <div v-show="!compactMode" data-ble-preview-controls style="display: flex; justify-content: flex-end; margin-top: 3px;">
-                <v-btn
-                  x-small
-                  :color="gifRecording ? 'red' : undefined"
-                  :dark="gifRecording"
-                  @click="toggleGif"
-                  :title="gifRecording ? '停止录制并下载 GIF (已录 ' + gifFrames + ' 帧)' : '一键演示 GIF: 自动重置→播放最优解→自动下载 (有最优解时; 录制中点击可提前停止)'"
-                  :style="previewBtnStyle"
-                >{{ gifRecording ? '⏹' : 'GIF' }}</v-btn>
-              </div>
             </template>
           </div>
 

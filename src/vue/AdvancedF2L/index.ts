@@ -35,7 +35,7 @@ export default class AdvancedF2L extends Vue {
   pauseRequested = false;
   error = '';
   z2On = window.localStorage.getItem('advF2LZ2') === '1';
-  previews: Record<number, string[][]> = {};
+  previews: Record<number, string[][][]> = {};
 
   private generation = 0;
   private frame: number | null = null;
@@ -49,12 +49,12 @@ export default class AdvancedF2L extends Vue {
     // 案例公式只由按钮控制，拖动魔方可调整视角但不误转小层。
     this.world.controller.lock = true;
     const previewCube = new Cube(3);
-    const previews: Record<number, string[][]> = {};
+    const previews: Record<number, string[][][]> = {};
     for (const item of this.cases) {
-      previews[item.id] = [
-        advancedF2LPreview(item, false, previewCube),
-        advancedF2LPreview(item, true, previewCube),
-      ];
+      previews[item.id] = this.directions.map((_, direction) => [
+        advancedF2LPreview(item, false, previewCube, direction),
+        advancedF2LPreview(item, true, previewCube, direction),
+      ]);
     }
     this.previews = previews;
     this.$nextTick(() => {

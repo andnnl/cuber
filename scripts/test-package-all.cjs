@@ -23,8 +23,8 @@ for (const [platform, expected, absent] of [
   for (const label of expected) assert(output.includes(label), `${platform}: missing ${label}`);
   for (const label of absent) assert(!output.includes(label), `${platform}: unexpected ${label}`);
   if (platform === 'android' || platform === 'all') {
-    assert(output.includes('Cuber-1.0.14-android-debug.apk'));
-    assert(output.includes('Cuber-1.0.14-android-release.apk'));
+    assert(output.includes('Cuber-1.0.15-android-debug.apk'));
+    assert(output.includes('Cuber-1.0.15-android-release.apk'));
   }
 }
 

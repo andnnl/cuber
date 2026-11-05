@@ -1,4 +1,7 @@
 import {Component, Inject, Provide, Ref, Vue} from 'vue-property-decorator';
+import * as THREE from 'three';
+import GIF from '../../common/gif';
+import Util from '../../common/util';
 import World from '../../cuber/world';
 import CubeGroup from '../../cuber/group';
 import Cubelet from '../../cuber/cubelet';
@@ -22,6 +25,7 @@ import {normalizeCfopScramble} from './scramble';
 import {visiblePieceSignatures} from './visibility-targets';
 
 interface Candidate {target?: string; moves: string[]; completed_slots?: string[]; segments?: CfopStage['segments'];}
+interface GifCapture {renderer: THREE.WebGLRenderer; gif: GIF; pixels: Uint8Array; last: number;}
 const DEFAULT_ACTIONS = ['U', "U'", 'U2', 'D', "D'", 'D2', 'R', "R'", 'R2', 'L', "L'", 'L2',
   'F', "F'", 'F2', 'y', "y'"];
 const OPTIONAL_ACTIONS = ['S', "S'"];
@@ -60,6 +64,8 @@ export default class CfopLearning extends Vue {
   busy = false;
   playing = false;
   stepping = false;
+  gifRecording = false;
+  private gifCapture: GifCapture | null = null;
   status = '';
   error = '';
   follow: FollowState | null = null;
@@ -451,10 +457,72 @@ export default class CfopLearning extends Vue {
     this.refreshTracking();
   }
   private stopPlayback(): void {
+    this.stopGif();
     ++this.animationVersion;
     this.playing = false;
     this.cancelAnimation?.();
     tweener.finish();
+  }
+  async generateGif(): Promise<void> {
+    if (!this.route || !this.route.moves.length || this.follow || this.busy || this.stepping || this.playing || this.gifRecording) return;
+    this.seek(0);
+    this.error = '';
+    const route = this.route;
+    let capture: GifCapture | null = null;
+    try {
+      const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true, alpha:false});
+      capture = {renderer, gif:new GIF(COLORS), pixels:new Uint8Array(480 * 480 * 4), last:0};
+      this.gifCapture = capture;
+      renderer.setPixelRatio(1);
+      renderer.setSize(480, 480, true);
+      const background = this.viewport?.$el.parentElement;
+      renderer.setClearColor(background ? getComputedStyle(background).backgroundColor : '#eef1f7', 1);
+      capture.gif.start(480, 480, 8);
+      this.gifRecording = true;
+      this.recordGif();
+      await new Promise(resolve => window.setTimeout(resolve, 500));
+      if (this.gifCapture !== capture) return;
+      await this.togglePlay();
+      if (this.gifCapture !== capture || this.route !== route || this.cursor !== route.moves.length) return;
+      await new Promise(resolve => window.setTimeout(resolve, 500));
+      if (this.gifCapture !== capture) return;
+      this.recordGif();
+      capture.gif.finish();
+      const url = URL.createObjectURL(new Blob([capture.gif.out.getData()], {type:'image/gif'}));
+      try { Util.DOWNLOAD('cfop', 'gif', url); }
+      finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
+    } catch (error) {
+      this.error = `生成 GIF 失败：${String(error)}`;
+      if (this.gifCapture === capture) this.stopPlayback();
+    } finally {
+      if (this.gifCapture === capture) this.stopGif();
+    }
+  }
+  private recordGif(): void {
+    const capture = this.gifCapture;
+    if (!capture) return;
+    const {width, height} = this.world;
+    try {
+      this.world.width = 480;
+      this.world.height = 480;
+      this.world.resize();
+      capture.renderer.clear();
+      capture.renderer.render(this.world.scene, this.world.camera);
+      const context = capture.renderer.getContext();
+      context.readPixels(0, 0, 480, 480, context.RGBA, context.UNSIGNED_BYTE, capture.pixels);
+      capture.gif.add(capture.pixels);
+      capture.last = performance.now();
+    } finally {
+      this.world.width = width;
+      this.world.height = height;
+      this.world.resize();
+    }
+  }
+  private stopGif(): void {
+    this.gifRecording = false;
+    const capture = this.gifCapture;
+    this.gifCapture = null;
+    capture?.renderer.dispose();
   }
   private animateViewTurn(move: string): Promise<void> {
     const begin = this.world.scene.rotation.y;
@@ -592,5 +660,12 @@ export default class CfopLearning extends Vue {
     this.viewFrame = requestAnimationFrame(() => this.drawLoop());
     tickHighlights();
     this.viewport?.draw();
+    if (this.gifCapture && performance.now() - this.gifCapture.last >= 80) {
+      try { this.recordGif(); }
+      catch (error) {
+        this.error = `生成 GIF 失败：${String(error)}`;
+        this.stopPlayback();
+      }
+    }
   }
 }

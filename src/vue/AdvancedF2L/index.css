@@ -12,9 +12,9 @@
 .adv-f2l-details h2 small { font-size:13px; color:#657c8c; }
 .adv-f2l-details h3 { font-size:15px; margin:14px 0 6px; }
 .adv-f2l-directions,.adv-f2l-controls,.adv-f2l-groups { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-.adv-f2l-root button { cursor:pointer; border:1px solid #abc5ce; background:#fff; color:inherit; border-radius:7px; padding:7px 9px; font-size:14px; }
-.adv-f2l-root button.active { background:#087e87; color:#fff; border-color:#087e87; }
-.adv-f2l-root button:disabled { opacity:.5; cursor:default; }
+.adv-f2l-study button,.adv-f2l-browser button { cursor:pointer; border:1px solid #abc5ce; background:#fff; color:inherit; border-radius:7px; padding:7px 9px; font-size:14px; }
+.adv-f2l-study button.active,.adv-f2l-browser button.active { background:#087e87; color:#fff; border-color:#087e87; }
+.adv-f2l-study button:disabled,.adv-f2l-browser button:disabled { opacity:.5; cursor:default; }
 .adv-f2l-error { color:#b92d38; }
 .adv-f2l-source { margin:10px 0 6px; }
 .adv-f2l-steps { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0; font-family:monospace; font-size:16px; }
@@ -37,4 +37,4 @@
 .adv-f2l-preview-face.right { transform:rotateY(90deg) translateZ(26px); }
 .adv-f2l-attribution { display:block; margin-top:12px; }
 @media(max-width:820px) { .adv-f2l-layout { grid-template-columns:1fr; } .adv-f2l-cube { height:clamp(250px,35vh,400px); } .adv-f2l-cases { max-height:none; } }
-@media(max-width:480px) { .adv-f2l-root { padding:76px 8px 8px; } .adv-f2l-details,.adv-f2l-browser { padding:9px; } .adv-f2l-cases { gap:6px; grid-template-columns:repeat(3,minmax(0,1fr)); } .adv-f2l-cases button { padding:6px 2px; text-align:center; align-items:center; } .adv-f2l-cases strong { font-size:12px; white-space:nowrap; } .adv-f2l-cases small { font-size:10px; } .adv-f2l-root button { padding:7px; } .adv-f2l-cases button { padding:6px 2px; } }
+@media(max-width:480px) { .adv-f2l-root { padding:76px 8px 8px; } .adv-f2l-details,.adv-f2l-browser { padding:9px; } .adv-f2l-cases { gap:6px; grid-template-columns:repeat(3,minmax(0,1fr)); } .adv-f2l-cases button { padding:6px 2px; text-align:center; align-items:center; } .adv-f2l-cases strong { font-size:12px; white-space:nowrap; } .adv-f2l-cases small { font-size:10px; } .adv-f2l-study button,.adv-f2l-browser button { padding:7px; } .adv-f2l-cases button { padding:6px 2px; } }

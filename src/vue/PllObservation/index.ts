@@ -1,13 +1,16 @@
 import { Component, Inject, Provide, Ref, Vue } from 'vue-property-decorator';
 import World from '../../cuber/world';
+import Cube from '../../cuber/cube';
 import { TwistNode } from '../../cuber/twister';
 import { PreferanceData, PaletteData } from '../../data';
 import { SessionSnapshot } from '../../ble/cube-session';
 import { LinkEvent } from '../../ble/types';
-import { PllTraining, PllResult } from '../../ble/pll-training';
-import { matchPllSix, PllSixMatch, studyCellsForSix, studyRowDifferences } from '../../ble/pll-six-sticker';
+import { PllTraining, PllResult, displayPllPhysicalMove } from '../../ble/pll-training';
+import { describePllSix, matchPllSix, PllSixMatch, studyCellsForSix, studyRowDifferences } from '../../ble/pll-six-sticker';
 import { buildPllVisualClues, PllVisualClue } from '../../ble/pll-six-visual';
+import { pllEqualityPlan, pllEqualityStudyGroups, PllEqualityPlan, PllEqualityGroup } from '../../ble/pll-six-equality';
 import { projectPllSix, StickerPoint } from './visual-overlay';
+import { layoutPllLabels, PllLabelBox } from './label-layout';
 import Viewport from '../Viewport';
 import Setting from '../Setting';
 import './index.css';
@@ -32,6 +35,7 @@ function studyRows(markdown: string): StudyRow[] {
   return rows;
 }
 const STUDY_ROWS = studyRows(guide);
+const ALL_CHAPTERS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 @Component({ template: require('./index.html'), components: { viewport: Viewport, setting: Setting } })
 export default class PllObservation extends Vue {
@@ -41,13 +45,20 @@ export default class PllObservation extends Vue {
   @Inject('openConnection') openConnection: () => void;
   @Ref('viewport') viewport: Viewport;
 
+  private classificationCube = new Cube(3);
   training = new PllTraining(pllItems, Math.random, Date.now,
-    (origin) => new TwistNode(origin).parse(true).map(move => move.value).join(' '));
+    (origin) => new TwistNode(origin).parse(true).map(move => move.value).join(' '),
+    (scramble) => {
+      this.classificationCube.twister.setup(scramble);
+      return describePllSix(this.classificationCube.serialize())?.chapter || null;
+    });
   snapshot: SessionSnapshot | null = null;
   width = 0;
   height = 0;
   feedback = '';
   showStudy = false;
+  observationMode: 'equality' | 'legacy' = 'equality';
+  readonly equalityStudyGroups = pllEqualityStudyGroups();
   showCurrentFeatures = false;
   useZ2 = false;
   actualFeature: PllSixMatch | null = null;
@@ -60,6 +71,9 @@ export default class PllObservation extends Vue {
   replayRecord: PllResult | null = null;
   selectedNames: string[] = [];
   draftNames: string[] = [];
+  selectedChapters: number[] = [...ALL_CHAPTERS];
+  draftChapters: number[] = [];
+  pickerError = '';
   pickerOpen = false;
   helpOpen = false;
   readonly termShapes = [
@@ -74,8 +88,7 @@ export default class PllObservation extends Vue {
   private frame: number | null = null;
   private clock: number | null = null;
   private nextFeaturePoll = 0;
-  private caseFeatureFacelets: string | null = null;
-  private physicalPreviewMoved = false;
+  private lastFeatureFacelets: string | null = null;
   private touchStart: { x: number; y: number; name: string } | null = null;
   private touchTimer: number | null = null;
   private touchPainting = false;
@@ -95,7 +108,10 @@ export default class PllObservation extends Vue {
   }
   get displayScramble(): string { return this.replayRecord?.scramble || this.scramble; }
   get choices(): Array<{ name: string; origin: string }> { return pllItems; }
-  get pickerLabel(): string { return `选择公式 · ${this.selectedNames.length ? `${this.selectedNames.length} 条` : '全部'}`; }
+  get pickerLabel(): string { return `选择公式 · ${this.selectedNames.length ? `${this.selectedNames.length} 条` : '全部'} · ${this.selectedChapters.length === 9 ? '九类全部' : `${this.selectedChapters.length} 类`}`; }
+  get chapterChoices(): Array<{ id: number; label: string }> {
+    return this.chapters.map((chapter, index) => ({ id: index + 1, label: chapter.replace(/^第\s*\d+\s*章[：:]/, '') }));
+  }
   get pickerCountLabel(): string { return this.draftNames.length ? `已选 ${this.draftNames.length} 条` : '未选任何项 · 全部随机'; }
   get scramble(): string {
     return this.training.current.scramble;
@@ -105,7 +121,8 @@ export default class PllObservation extends Vue {
     return started === null ? '等待实体魔方转动' : `${((this.now - started) / 1000).toFixed(2)} 秒`;
   }
   get caseStudyRows(): StudyRow[] {
-    const name = this.displayCaseName;
+    const name = this.actualFeature?.name;
+    if (!name) return [];
     return STUDY_ROWS.filter(row => row.cells.some(cell => cell === name || cell.startsWith(`${name}（`)));
   }
   get actualStudyRows(): StudyRow[] {
@@ -115,12 +132,32 @@ export default class PllObservation extends Vue {
       row.cells.some(cell => cell === name || cell.startsWith(`${name}（`)) &&
       (name !== 'Z' || row.cells[row.cells.length - 1] === String(colorCount)));
   }
+  get equalityPlan(): PllEqualityPlan | null { return pllEqualityPlan(this.actualFeature); }
+  get equalityChapters(): Array<{ shape: string; groups: PllEqualityGroup[]; cases: number }> {
+    return ['团','眼','棒左','棒右','灯'].map(shape => {
+      const groups = this.equalityStudyGroups.filter(group => group.leftShape === shape);
+      return {shape, groups, cases:groups.reduce((total,group) => total + group.cases.length,0)};
+    });
+  }
   get visualClues(): PllVisualClue[] {
+    if (this.observationMode === 'equality') {
+      const plan = this.equalityPlan;
+      if (!this.showCurrentFeatures || !plan) return [];
+      const clues: PllVisualClue[] = plan.groups.filter(group => group.positions.length > 1).map((group,index) => ({
+        kind:'same', order:index + 1, stickers:group.positions,
+        segments:plan.sameSegments.filter(segment => group.positions.indexOf(segment.a) >= 0),
+        text:`${group.label} 组：第 ${group.positions.join('、')} 格同色`,
+      }));
+      if (plan.final) clues.push({kind:'relation', order:clues.length + 1, stickers:[plan.final.a,plan.final.b],
+        segments:[{...plan.final, label:`最后·${plan.final.relation}色`}],
+        text:`最后比较 ${plan.final.a}–${plan.final.b}：${plan.final.relation}色`});
+      return clues;
+    }
     return this.showCurrentFeatures && this.actualFeature && this.actualStudyRows.length === 1
       ? buildPllVisualClues(this.actualFeature, minimalGuide, this.actualStudyRows[0].cells) : [];
   }
   get shapeEdges(): Array<{ a: StickerPoint; b: StickerPoint; key: string; bridge: boolean }> {
-    if (!this.actualFeature || !this.visualClues.length) return [];
+    if (this.observationMode !== 'legacy' || !this.actualFeature || !this.visualClues.length) return [];
     const pairs = [[1, 2], [1, 3], [2, 3], [4, 5], [4, 6], [5, 6]];
     return pairs.filter(([a, b]) => this.actualFeature!.relations[a - 1][b - 1] === '同' &&
       (b - a !== 2 || this.actualFeature!.relations[a - 1][a] !== '同'))
@@ -132,7 +169,7 @@ export default class PllObservation extends Vue {
     const edges: Array<{ key: string; clue: PllVisualClue; relation: string; label: string; a: StickerPoint; b: StickerPoint }> = [];
     const seen = new Set<string>();
     for (const clue of this.visualClues) for (const segment of clue.segments) {
-      if (segment.relation === '同' && (segment.a <= 3) === (segment.b <= 3)) continue;
+      if (this.observationMode === 'legacy' && segment.relation === '同' && (segment.a <= 3) === (segment.b <= 3)) continue;
       const pair = `${Math.min(segment.a, segment.b)}-${Math.max(segment.a, segment.b)}:${segment.relation}`;
       if (seen.has(pair)) continue;
       const a = points[segment.a - 1], b = points[segment.b - 1];
@@ -151,6 +188,13 @@ export default class PllObservation extends Vue {
         x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
         y: Math.min(...points.map(point => point.y)) - 58 };
     }).filter((value): value is { key: number; clue: PllVisualClue; x: number; y: number } => value !== null);
+  }
+  get visualLabels(): PllLabelBox[] {
+    const anchors = this.visualEdges.map(edge => {
+      const arc = this.edgeArc(edge.a,edge.b);
+      return {key:`edge-${edge.key}`,text:edge.label,x:arc.x,y:arc.y - 4};
+    }).concat(this.visualCounts.map(count => ({key:`count-${count.key}`,text:count.clue.text,x:count.x,y:count.y})));
+    return layoutPllLabels(anchors,this.width,Math.max(200,Math.floor(this.height * .53)));
   }
   edgePoint(a: StickerPoint, b: StickerPoint, start: boolean): { x: number; y: number } {
     const dx = b.x - a.x, dy = b.y - a.y, distance = Math.hypot(dx, dy) || 1;
@@ -197,6 +241,11 @@ export default class PllObservation extends Vue {
   formatDate(record: PllResult): string { return new Date(record.at).toLocaleString(); }
 
   mounted(): void {
+    try {
+      const saved = localStorage.getItem('pll6ObservationMode');
+      this.observationMode = saved === 'legacy' ? 'legacy' : 'equality';
+      if (saved === 'scan') localStorage.setItem('pll6ObservationMode','equality');
+    } catch { this.observationMode = 'equality'; }
     try { this.showCurrentFeatures = localStorage.getItem('pll6ShowCurrentFeatures') === '1'; } catch { /* 忽略存储限制 */ }
     try { this.useZ2 = localStorage.getItem('pll6UseZ2') === '1'; } catch { /* 忽略存储限制 */ }
     this.training.setZ2(this.useZ2);
@@ -206,7 +255,18 @@ export default class PllObservation extends Vue {
         typeof name === 'string' && pllItems.some(item => item.name === name)))];
     } catch { this.selectedNames = []; }
     this.training.setAllowedNames(this.selectedNames);
-    if (this.selectedNames.length && this.selectedNames.indexOf(this.training.current.name) < 0) this.training.next();
+    try {
+      const saved = JSON.parse(localStorage.getItem('pll6AllowedChapters') || 'null');
+      if (Array.isArray(saved) && saved.length) {
+        const valid = saved.filter((chapter: unknown): chapter is number => typeof chapter === 'number' && ALL_CHAPTERS.indexOf(chapter) >= 0);
+        if (valid.length) this.selectedChapters = [...new Set(valid)];
+      }
+    } catch { /* 无效缓存视为全部分类 */ }
+    const chapters = this.selectedChapters.length === 9 ? [] : this.selectedChapters;
+    if (!this.training.canUseFilters(this.selectedNames, chapters)) this.selectedChapters = [...ALL_CHAPTERS];
+    else this.training.setAllowedChapters(chapters);
+    if ((this.selectedNames.length && this.selectedNames.indexOf(this.training.current.name) < 0) ||
+      (this.selectedChapters.length !== 9 && this.selectedChapters.indexOf(this.classifyCurrentCase()!) < 0)) this.training.next();
     try {
       const saved = JSON.parse(localStorage.getItem('pll6Records') || '[]');
       if (Array.isArray(saved)) this.records = saved.filter((item: any) => item && typeof item.name === 'string' &&
@@ -219,7 +279,7 @@ export default class PllObservation extends Vue {
     window.addEventListener('mouseup', this.onPickerMouseUp);
     this.clock = window.setInterval(() => {
       this.now = Date.now();
-      if (this.showCurrentFeatures && this.now >= this.nextFeaturePoll) {
+      if (this.active && this.now >= this.nextFeaturePoll) {
         this.nextFeaturePoll = this.now + 200;
         this.refreshActualFeature();
       }
@@ -239,7 +299,7 @@ export default class PllObservation extends Vue {
   private loop(): void {
     if (!this.active) return;
     const drew = this.viewport?.draw();
-    if (drew && this.showCurrentFeatures && this.actualFeature) this.updateVisualOverlay();
+    if (drew) this.refreshActualFeature();
     this.frame = requestAnimationFrame(() => this.loop());
   }
   resize(): void {
@@ -249,7 +309,8 @@ export default class PllObservation extends Vue {
     this.updateVisualOverlay();
   }
   private updateVisualOverlay(): void {
-    if (!this.active || this.physicalPreviewMoved || !this.showCurrentFeatures || !this.actualFeature || this.actualStudyRows.length !== 1 ||
+    const matched = this.observationMode === 'legacy' ? this.actualStudyRows.length === 1 : !!this.equalityPlan;
+    if (!this.active || !this.showCurrentFeatures || !this.actualFeature || !matched ||
       [...this.world.cube.locks.values()].some(lock => lock.size > 0)) {
       if (this.stickerPoints.length) this.stickerPoints = [];
       return;
@@ -261,23 +322,46 @@ export default class PllObservation extends Vue {
     this.showAnswer = false;
     this.feedback = '';
     this.world.cube.twister.setup(this.scramble);
-    this.caseFeatureFacelets = this.world.cube.serialize();
-    this.physicalPreviewMoved = false;
     this.refreshActualFeature();
   }
   private refreshActualFeature(): void {
-    const feature = matchPllSix(this.caseFeatureFacelets || this.world.cube.serialize());
-    if (this.actualFeature?.signature !== feature?.signature || this.actualFeature?.six !== feature?.six) this.actualFeature = feature;
+    if ([...this.world.cube.locks.values()].some(lock => lock.size > 0)) {
+      this.actualFeature = null;
+      this.lastFeatureFacelets = null;
+      this.stickerPoints = [];
+      return;
+    }
+    const facelets = this.world.cube.serialize();
+    if (facelets !== this.lastFeatureFacelets) {
+      this.lastFeatureFacelets = facelets;
+      this.actualFeature = matchPllSix(facelets);
+    }
     this.updateVisualOverlay();
   }
   saveFeaturePreference(): void {
     try { localStorage.setItem('pll6ShowCurrentFeatures', this.showCurrentFeatures ? '1' : '0'); } catch { /* 本次状态仍可用 */ }
     if (this.showCurrentFeatures) this.refreshActualFeature(); else this.stickerPoints = [];
   }
+  saveObservationMode(): void {
+    try { localStorage.setItem('pll6ObservationMode', this.observationMode); }
+    catch { this.feedback = '观察方式已切换，但浏览器未允许保存偏好'; }
+    this.refreshActualFeature();
+  }
   saveZ2Preference(): void {
     this.training.setZ2(this.useZ2);
+    const chapters = this.selectedChapters.length === 9 ? [] : this.selectedChapters;
+    if (!this.training.canUseFilters(this.selectedNames, chapters)) {
+      this.useZ2 = !this.useZ2;
+      this.training.setZ2(this.useZ2);
+      this.feedback = '当前公式与分类在该 z2 朝向下没有可用题目';
+      return;
+    }
     try { localStorage.setItem('pll6UseZ2', this.useZ2 ? '1' : '0'); } catch { /* 本次状态仍可用 */ }
-    if (!this.replayRecord) { this.training.retry(); this.loadCase(); }
+    if (!this.replayRecord) {
+      if (this.selectedChapters.length !== 9 && this.selectedChapters.indexOf(this.classifyCurrentCase()!) < 0) this.training.next();
+      else this.training.retry();
+      this.loadCase();
+    }
   }
   nextCase(): void { if (this.replayRecord) return; this.training.next(); this.loadCase(); }
   retry(): void { if (this.replayRecord) return; this.training.retry(); this.loadCase(); this.feedback = '已清除本次计时，继续尝试'; }
@@ -289,8 +373,6 @@ export default class PllObservation extends Vue {
     this.showAnswer = false;
     this.feedback = '';
     this.world.cube.twister.setup(record.scramble);
-    this.caseFeatureFacelets = this.world.cube.serialize();
-    this.physicalPreviewMoved = false;
     this.refreshActualFeature();
   }
   exitReplay(): void {
@@ -318,8 +400,14 @@ export default class PllObservation extends Vue {
   }
   openPicker(): void {
     this.draftNames = [...this.selectedNames];
+    this.draftChapters = [...this.selectedChapters];
+    this.pickerError = '';
     this.pickerOpen = true;
     this.$nextTick(() => (this.$refs.pickerClose as HTMLButtonElement | undefined)?.focus());
+  }
+  private classifyCurrentCase(): number | null {
+    this.classificationCube.twister.setup(this.training.current.scramble);
+    return describePllSix(this.classificationCube.serialize())?.chapter || null;
   }
   cancelPicker(): void {
     if (!this.pickerOpen) return;
@@ -327,14 +415,31 @@ export default class PllObservation extends Vue {
     this.clearPickerMouse();
     this.pickerOpen = false;
     this.draftNames = [];
+    this.draftChapters = [];
+    this.pickerError = '';
     this.$nextTick(() => (this.$refs.pickerTrigger as HTMLButtonElement | undefined)?.focus());
   }
   savePicker(): void {
-    this.selectedNames = pllItems.filter(item => this.draftNames.indexOf(item.name) >= 0).map(item => item.name);
+    if (!this.draftChapters.length) { this.pickerError = '至少选择一个六格分类'; return; }
+    const names = pllItems.filter(item => this.draftNames.indexOf(item.name) >= 0).map(item => item.name);
+    const chapters = this.draftChapters.length === 9 ? [] : this.draftChapters;
+    if (!this.training.canUseFilters(names, chapters)) {
+      this.pickerError = '所选公式与六格分类没有可用题目，请调整筛选'; return;
+    }
+    this.selectedNames = names;
+    this.selectedChapters = [...this.draftChapters];
     this.training.setAllowedNames(this.selectedNames);
+    this.training.setAllowedChapters(chapters);
     try { localStorage.setItem('pll6AllowedNames', JSON.stringify(this.selectedNames)); } catch { /* 无存储权限也可本次使用 */ }
+    try { localStorage.setItem('pll6AllowedChapters', JSON.stringify(this.selectedChapters)); } catch { /* 无存储权限也可本次使用 */ }
     this.cancelPicker();
   }
+  togglePickerChapter(chapter: number): void {
+    this.draftChapters = this.draftChapters.indexOf(chapter) >= 0
+      ? this.draftChapters.filter(value => value !== chapter) : [...this.draftChapters, chapter].sort((a, b) => a - b);
+    this.pickerError = '';
+  }
+  setPickerChaptersAll(): void { this.draftChapters = [...ALL_CHAPTERS]; this.pickerError = ''; }
   setPickerAll(): void { this.draftNames = pllItems.map(item => item.name); }
   clearPicker(): void { this.draftNames = []; }
   togglePickerName(name: string): void { this.setPickerName(name, this.draftNames.indexOf(name) < 0); }
@@ -443,9 +548,8 @@ export default class PllObservation extends Vue {
     if (event.type === 'move') {
       this.training.move(Date.now(), event.serial, event.recovered);
       if (followVisual && !event.recovered) {
-        this.physicalPreviewMoved = true;
-        this.updateVisualOverlay();
-        this.world.cube.twister.push(event.move);
+        this.world.cube.twister.push(displayPllPhysicalMove(event.move, this.useZ2));
+        this.refreshActualFeature();
       }
     }
     if (event.type === 'facelets' && this.training.facelets(event.facelets, Date.now(), event.serial)) {

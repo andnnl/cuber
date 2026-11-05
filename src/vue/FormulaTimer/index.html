@@ -9,8 +9,26 @@
         <button v-if="!statsOpen" type="button" @click="openPicker">选择公式</button>
         <button type="button" :class="{active:statsOpen}" @click="statsOpen ? closeStats() : openStats()">{{statsOpen ? '返回训练' : '统计'}}</button>
       </div>
+      <div v-if="!statsOpen && !replayRecord" class="formula-timer-preload-controls">
+        <label><input data-formula-preload type="checkbox" v-model="settings.preload" @change="changePreloadMode">预打乱模式</label>
+        <label v-if="settings.preload">布局
+          <select data-formula-preload-layout v-model="settings.preloadLayout" @change="changePreloadLayout">
+            <option value="alternate">左右轮流</option><option value="fixed-left">固定左侧操作</option>
+          </select>
+        </label>
+        <small v-if="settings.preload">成功后立即接入已预览题目，每题独立计时</small>
+      </div>
     </header>
-    <div ref="cubeArea" v-show="!statsOpen" class="formula-timer-cube"><viewport ref="viewport"></viewport></div>
+    <div v-show="!statsOpen" class="formula-timer-cubes" :class="{'formula-timer-dual':preloadActive}" :data-active-side="activeSide">
+      <section class="formula-timer-cube formula-timer-current" :style="{order:preloadActive ? activeSide : 0}" aria-label="当前训练">
+        <div v-if="preloadActive" class="formula-timer-cube-caption"><strong>当前训练 · {{current.name}}</strong><small>{{current.scramble}}</small></div>
+        <div ref="cubeArea" class="formula-timer-render" tabindex="0" aria-label="可操作的训练魔方" @mousedown.capture="prepareDirectInput" @touchstart.capture="prepareDirectInput" @keydown="onCubeKeydown"><viewport ref="viewport"></viewport></div>
+      </section>
+      <section v-if="preloadActive" class="formula-timer-cube formula-timer-next" :style="{order:1 - activeSide}" aria-label="下一题预览">
+        <div class="formula-timer-cube-caption"><strong>下一题{{queuedCase ? ' · ' + queuedCase.name : ''}}</strong><small>{{queuedCase ? queuedCase.scramble : '当前筛选下暂无可用的下一题'}}</small></div>
+        <div ref="nextCubeArea" class="formula-timer-render"><next-cube v-if="queuedCase" ref="nextCube" :facelets="queuedCase.initialFacelets" @ready="resize"></next-cube></div>
+      </section>
+    </div>
     <main v-show="!statsOpen" class="formula-timer-panel">
       <div v-if="focusIds" class="formula-stats-focus" role="status">
         <strong>临时重点训练 · {{focusTitle}} · {{focusIds.length}} 条</strong>
@@ -28,7 +46,7 @@
       <p v-if="warning" role="alert" class="formula-timer-warning">{{warning}}</p>
       <div class="formula-timer-actions"><button type="button" @click="nextCase">新题</button><button type="button" @click="resetCase">重试同题</button><label class="formula-timer-z2" title="开启后出题前先做 z2，并立即生成新题"><input type="checkbox" :checked="settings.beforeZ2" @change="toggleBeforeZ2">出题前 z2</label><label class="formula-timer-before-y">出题前 y <select v-model="settings.beforeY" @change="changeBeforeY"><option value="">无</option><option value="y">y</option><option value="y'">y'</option><option value="y2">y2</option></select></label><label class="formula-timer-random-u" title="公式逆操作后随机做无、U、U' 或 U2，并立即生成新题"><input type="checkbox" :checked="settings.randomU" @change="toggleRandomU">随机 U</label><button v-if="replayRecord" type="button" @click="leaveReplay">退出复盘</button></div>
       <details class="formula-timer-details"><summary>训练设置 · 慢公式 {{slowCount}} 条</summary>
-        <label>下一题 <select v-model="settings.nextMode" @change="save"><option value="random">随机下一条</option><option value="repeat">重复同一条</option></select></label>
+        <label>下一题 <select v-model="settings.nextMode" @change="changeNextMode"><option value="random">随机下一条</option><option value="repeat">重复同一条</option></select></label>
         <label>慢公式阈值 <input type="number" min="0.1" step="0.1" v-model.number="settings.slowSeconds" @change="changeSettings">秒</label>
         <label><input type="checkbox" v-model="settings.slowOnly" @change="changeSettings">仅练慢公式</label>
         <small>每条公式最近最多 5 次成功成绩的中位数超过阈值才进入慢公式池；失败次数另行统计。</small>
@@ -40,7 +58,7 @@
           <button type="button" @click="replay(record)">复盘题面</button>
         </div>
       </details>
-      <small>实体无需与题面同步；按屏幕 3D 魔方判定完成，实体转动带动画面。F2L 十字和前两层完成；PLL 六面还原；OLL 下两层还原且顶面同色。</small>
+      <small>支持实体魔方，也可用鼠标或触摸直接拖动屏幕魔方，无需连接蓝牙。点击魔方区域后可按 U/R/F/D/L/B、M/E/S 转层，Shift 为逆转，X/Y/Z 调整持方；整体转不计步。实体无需与题面同步，两种输入可在同题混用；按屏幕 3D 魔方判定完成。F2L 十字和前两层完成；PLL 六面还原；OLL 下两层还原且顶面同色。</small>
     </main>
     <main v-if="statsOpen" class="formula-timer-panel formula-stats" aria-label="公式训练统计">
       <div class="formula-stats-filters">

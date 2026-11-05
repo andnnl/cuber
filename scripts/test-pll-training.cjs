@@ -1,14 +1,99 @@
 const assert = require('node:assert/strict');
 global.requestAnimationFrame = () => 0;
-const { PllTraining, isSolvedFacelets } = require('../.tmp/ble/pll-training.js');
+const { PllTraining, isSolvedFacelets, displayPllPhysicalMove } = require('../.tmp/ble/pll-training.js');
 const { parseOpFormula } = require('../.tmp/ble/op-formula.js');
-const { matchPllSix } = require('../.tmp/ble/pll-six-sticker.js');
+const { matchPllSix, describePllSix } = require('../.tmp/ble/pll-six-sticker.js');
 const Cube = require('../.tmp/cuber/cube.js').default;
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
 const realPlls = require('../src/vue/Algs/algs.json').find(group => group.name === 'PLL').items;
 
 const items = Array.from({length: 21}, (_, i) => ({name: `PLL-${i}`, origin: 'R U R\''}));
 const solved = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const unsolved = 'RUUUUUUUURRRRRRRRUFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
+
+for (const move of ['U', "U'", 'U2', 'D', 'R', "L'", 'F', "B'"]) {
+  assert.equal(displayPllPhysicalMove(move, false), move, '普通题面实体转动保持原记号');
+}
+assert.equal(displayPllPhysicalMove('U', true), 'D', 'z2 题面实体 U 转到画面的下层');
+assert.equal(displayPllPhysicalMove("D'", true), "U'", 'z2 题面实体 D 转到画面的上层');
+assert.equal(displayPllPhysicalMove('R2', true), 'L2', 'z2 题面也要左右换名');
+assert.equal(displayPllPhysicalMove('F', true), 'F', 'z2 不改变前后面名称');
+
+{
+  const source = fs.readFileSync(path.join(__dirname, '../src/vue/PllObservation/index.ts'), 'utf8');
+  const method = source.match(/  handlePhysicalEvent\([\s\S]*?(?=  private saveResult\()/)?.[0];
+  assert.ok(method, '找不到六格实体转动入口');
+  const js = ts.transpileModule(`class PllFollowHarness {\n${method}\n}`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const Harness = new Function('displayPllPhysicalMove', `${js}\nreturn PllFollowHarness`)(displayPllPhysicalMove);
+  const moves = [];
+  const follow = new Harness();
+  follow.active = true;
+  follow.snapshot = { status: 'connected' };
+  follow.training = { move: () => {} };
+  let refreshed = 0;
+  follow.refreshActualFeature = () => { refreshed++; };
+  follow.world = { cube: { twister: { push: move => moves.push(move) } } };
+  follow.useZ2 = true;
+  follow.handlePhysicalEvent({ type: 'move', move: 'U' }, true);
+  follow.useZ2 = false;
+  follow.handlePhysicalEvent({ type: 'move', move: 'U' }, true);
+  assert.deepEqual(moves, ['D', 'U'], '六格实体跟随须使用当前题面的 z2 坐标');
+  assert.equal(refreshed,2,'实体跟随转动后须重算当前特征');
+}
+
+{
+  const source = fs.readFileSync(path.join(__dirname,'../src/vue/PllObservation/index.ts'),'utf8');
+  const method = source.match(/  private refreshActualFeature\([\s\S]*?(?=  saveFeaturePreference\()/)?.[0];
+  assert.ok(method,'找不到实时特征刷新入口');
+  const js = ts.transpileModule(`class PllFeatureHarness {\n${method}\n}`,{
+    compilerOptions:{target:ts.ScriptTarget.ES2020},
+  }).outputText;
+  let matched = 0;
+  const Harness = new Function('matchPllSix',`${js}\nreturn PllFeatureHarness`)(state => { matched++; return matchPllSix(state); });
+  const view = new Harness();
+  const cube = new Cube(3);
+  const aa = realPlls.find(item => item.name === 'PLL-Aa');
+  const ja = realPlls.find(item => item.name === 'PLL-Ja');
+  cube.twister.setup(parseOpFormula(aa.origin).inverse.join(' '));
+  let facelets = cube.serialize();
+  const busy = new Set();
+  view.world = {cube:{serialize:() => facelets,locks:new Map([['move',busy]])}};
+  view.updateVisualOverlay = () => {};
+  view.stickerPoints = [{number:1}];
+  view.refreshActualFeature();
+  assert.equal(view.actualFeature.name,'Aa');
+  const before = view.actualFeature.six;
+  view.refreshActualFeature();
+  assert.equal(matched,1,'相同题面不能每帧重复核验');
+  cube.twister.push('U');
+  cube.twister.finish();
+  facelets = cube.serialize();
+  view.refreshActualFeature();
+  assert.notEqual(view.actualFeature.six,before,'U 转动后应读取实时六格');
+  cube.twister.setup(parseOpFormula(ja.origin).inverse.join(' '));
+  facelets = cube.serialize();
+  view.refreshActualFeature();
+  assert.equal(view.actualFeature.name,'Ja','切换到其他 PLL 后应更新名称');
+  busy.add('R');
+  view.refreshActualFeature();
+  assert.equal(view.actualFeature,null,'动画过程中不能保留上一题线索');
+  assert.deepEqual(view.stickerPoints,[]);
+  busy.clear();
+  cube.twister.push('R');
+  cube.twister.finish();
+  facelets = cube.serialize();
+  view.refreshActualFeature();
+  assert.equal(view.actualFeature,null,'非 PLL 状态不能保留旧线索');
+  cube.twister.push("R'");
+  cube.twister.finish();
+  facelets = cube.serialize();
+  view.refreshActualFeature();
+  assert.equal(view.actualFeature.name,'Ja','恢复到 PLL 后应重新识别');
+}
 
 assert.equal(isSolvedFacelets(solved), true);
 assert.equal(isSolvedFacelets(unsolved), false);
@@ -67,6 +152,34 @@ assert.equal(filtered.next().name, 'PLL-0', '非法名称回退到完整公式�
 filtered.setAllowedNames([]);
 filteredPick = 0.99;
 assert.equal(filtered.next().name, 'PLL-20', '空选表示完整公式库');
+{
+  const preview = new Cube(3);
+  const classify = scramble => {
+    preview.twister.setup(scramble);
+    return describePllSix(preview.serialize())?.chapter || null;
+  };
+  const categorized = new PllTraining(realPlls, () => 0.75, Date.now,
+    origin => parseOpFormula(origin).inverse.join(' '), classify);
+  const original = categorized.current;
+  assert.equal(categorized.canUseFilters(['PLL-F'], [9]), true, 'F 的左灯右灯题面可出题');
+  assert.equal(categorized.canUseFilters(['PLL-H'], [1]), false, '不可能的公式与类别交集应被拒绝');
+  categorized.setAllowedNames(['PLL-F']);
+  categorized.setAllowedChapters([9]);
+  assert.equal(categorized.current, original, '改变分类不替换当前题');
+  for (let i = 0; i < 12; i++) {
+    const next = categorized.next();
+    assert.equal(next.name, 'PLL-F');
+    assert.equal(classify(next.scramble), 9, '每道新题都属于选定的实际六格分类');
+  }
+  categorized.setAllowedChapters([1, 9]);
+  for (let i = 0; i < 8; i++) assert.ok([1, 9].includes(classify(categorized.next().scramble)),
+    '多选分类只能出所选类别');
+  categorized.setAllowedChapters([9]);
+  categorized.setZ2(true);
+  for (let i = 0; i < 8; i++) assert.equal(classify(categorized.next().scramble), 9, 'z2 朝向也应按题面分类');
+  categorized.setAllowedChapters([]);
+  assert.equal(categorized.canUseFilters([], []), true, '分类清空表示全部随机');
+}
 for (const [choice, rotation] of [[0, ''], [0.26, 'U'], [0.51, "U'"], [0.76, 'U2']]) {
   const sample = new PllTraining(items, (() => { const values = [0, choice, 0]; return () => values.shift(); })(), Date.now, () => 'R');
   assert.equal(sample.current.preRotation, rotation);

@@ -3,6 +3,7 @@ import tweener from "./tweener";
 import CubeGroup from "./group";
 
 export class TwistAction {
+  source: 'user' | 'programmatic' = 'user';
   sign: string;
   reverse: boolean;
   times: number;
@@ -270,6 +271,7 @@ export default class Twister {
     const node = new TwistNode(exp, reverse, times);
     const list = node.parse();
     for (const action of list) {
+      action.source = 'programmatic';
       this.twist(action, true, true);
     }
     this.cube.dirty = true;
@@ -278,13 +280,14 @@ export default class Twister {
     this.cube.callback();
   }
 
-  push(exp: string, reverse = false, times = 1): void {
+  push(exp: string, reverse = false, times = 1, source: TwistAction['source'] = 'user'): void {
     const node = new TwistNode(exp, reverse, times);
     const list = node.parse();
     if (list.length == 0) {
       return;
     }
     for (const action of list) {
+      action.source = source;
       this.queue.push(action);
     }
     this.update();

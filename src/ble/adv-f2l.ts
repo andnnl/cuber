@@ -1,5 +1,6 @@
 import { parseOpFormula } from './op-formula';
 import Cube from '../cuber/cube';
+import { F2L_SLOTS } from '../cuber/f2l';
 
 export type AdvancedF2LVariant = { alg: string; altId: string };
 export type AdvancedF2LCase = {
@@ -25,11 +26,34 @@ function normalizeHalfTurns(formula: string): string {
   return formula.replace(/([URFDLBMESxyzurfdlb])2'/g, '$12');
 }
 
-/** U/F/R 的九格原色，供案例卡片的 CSS 立方体绘制；复用传入的模拟魔方。 */
-export function advancedF2LPreview(item: AdvancedF2LCase, z2: boolean, simulator: Cube): string[] {
-  simulator.twister.setup(`${z2 ? 'z2 ' : ''}${normalizeHalfTurns(item.setup)}`);
+const PREVIEW_YAW = ['', "y'", 'y2', 'y'];
+const PREVIEW_POSITIONS = [
+  Array.from({length:9}, (_, i) => Math.floor(i / 3) * 9 + 6 + i % 3), // U: z=row, y=2, x=col
+  Array.from({length:9}, (_, i) => 18 + (2 - Math.floor(i / 3)) * 3 + i % 3), // F
+  Array.from({length:9}, (_, i) => (2 - i % 3) * 9 + (2 - Math.floor(i / 3)) * 3 + 2), // R
+];
+
+/** 三面九格贴纸；X 表示其他槽位角棱的灰色块体，目标槽位始终朝向缩略图镜头。 */
+export function advancedF2LPreview(item: AdvancedF2LCase, z2: boolean, simulator: Cube, direction = 0): string[] {
+  if (!F2L_SLOTS[direction]) throw Error(`${item.name}：未知槽位 ${direction}`);
+  const yaw = PREVIEW_YAW[direction];
+  const selection = item.algs[direction].length ? selectAdvancedF2LCase(item, direction, 0) : null;
+  // 按还原态的实体块识别四个槽位；z2 只改变朝向，不能重新指定目标块。
+  const greyPieces = new Set(F2L_SLOTS.filter((_, index) => index !== direction)
+    .reduce<Cube['cubelets']>((pieces, other) => {
+      pieces.push(simulator.initials[other.cornerIndex], simulator.initials[other.edgeIndex]);
+      return pieces;
+    }, []));
+  const targetSlotPieces = [simulator.initials[F2L_SLOTS[direction].cornerIndex], simulator.initials[F2L_SLOTS[direction].edgeIndex]];
+  simulator.twister.setup([z2 ? 'z2' : '', yaw].filter(Boolean).join(' '));
+  const targetPositions = new Set(targetSlotPieces.map(piece => simulator.cubelets.indexOf(piece)));
+  simulator.twister.setup([z2 ? 'z2' : '', ...(selection ? selection.inverse : [normalizeHalfTurns(item.setup)]), yaw].filter(Boolean).join(' '));
   const facelets = simulator.serialize();
-  return [0, 18, 9].map(index => facelets.slice(index, index + 9));
+  return [0, 18, 9].map((offset, face) => Array.from({length:9}, (_, i) => {
+    const position = PREVIEW_POSITIONS[face][i];
+    const piece = simulator.cubelets[position];
+    return greyPieces.has(piece) && !targetPositions.has(position) ? 'X' : facelets[offset + i];
+  }).join(''));
 }
 
 export function selectAdvancedF2LCase(item: AdvancedF2LCase, direction: number, variant: number): AdvancedF2LSelection {

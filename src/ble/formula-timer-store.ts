@@ -13,13 +13,16 @@ export interface FormulaTimerSettings {
   randomU: boolean;
   slowOnly: boolean;
   slowSeconds: number;
+  preload: boolean;
+  preloadLayout: 'alternate' | 'fixed-left';
 }
 
 export interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void }
 
 function defaults(): FormulaTimerSettings {
   return { category: 'f2l', selectedIds: { f2l: [], oll: [], pll: [] }, nextMode: 'random',
-    beforeZ2: false, beforeY: '', randomU: true, slowOnly: false, slowSeconds: 3 };
+    beforeZ2: false, beforeY: '', randomU: true, slowOnly: false, slowSeconds: 3,
+    preload: false, preloadLayout: 'alternate' };
 }
 
 function validRecord(value: any): value is FormulaRecord {
@@ -45,13 +48,16 @@ export class FormulaTimerStore {
           (value.beforeZ2 !== undefined && typeof value.beforeZ2 !== 'boolean') ||
           (value.beforeY !== undefined && ['', 'y', "y'", 'y2'].indexOf(value.beforeY) < 0) ||
           (value.randomU !== undefined && typeof value.randomU !== 'boolean') ||
+          (value.preload !== undefined && typeof value.preload !== 'boolean') ||
+          (value.preloadLayout !== undefined && ['alternate', 'fixed-left'].indexOf(value.preloadLayout) < 0) ||
           typeof value.slowOnly !== 'boolean' || !Number.isFinite(value.slowSeconds) ||
           value.slowSeconds <= 0 || !value.selectedIds ||
           !CATEGORIES.every(category => Array.isArray(value.selectedIds[category]) &&
             value.selectedIds[category].every((id: unknown) => typeof id === 'string')) ||
           !data.records.every(validRecord)) throw Error('设置或记录格式无效');
       return { settings: { ...value, beforeZ2: value.beforeZ2 === true, beforeY: value.beforeY || '',
-        randomU: value.randomU !== false } as FormulaTimerSettings,
+        randomU: value.randomU !== false, preload: value.preload === true,
+        preloadLayout: value.preloadLayout || 'alternate' } as FormulaTimerSettings,
         records: data.records as FormulaRecord[], warning: '' };
     } catch {
       return { settings: defaults(), records: [], warning: '训练设置或记录读取失败，已使用默认值' };

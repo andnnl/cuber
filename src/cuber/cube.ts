@@ -14,6 +14,7 @@ export default class Cube extends THREE.Group {
   public table: GroupTable;
   public order: number;
   public callbacks: (()=>void)[] = [];
+  public recordCallbacks: ((action: TwistAction) => void)[] = [];
   public history: History;
   public twister: Twister = new Twister(this);
 
@@ -77,6 +78,7 @@ export default class Cube extends THREE.Group {
 
   record(action: TwistAction): void {
     this.history.record(action);
+    for (const callback of this.recordCallbacks) callback(action);
   }
 
   get complete(): boolean {

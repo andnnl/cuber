@@ -1,3 +1,4 @@
+<v-app>
 <div class="adv-f2l-root">
   <setting />
   <header class="adv-f2l-header">
@@ -50,10 +51,10 @@
           <strong>{{item.name}}</strong>
           <span v-if="previews[item.id]" class="adv-f2l-preview" aria-hidden="true">
             <span class="adv-f2l-preview-cube">
-              <span v-for="(face, faceIndex) in previews[item.id][z2On ? 1 : 0]" :key="faceIndex"
+              <span v-for="(face, faceIndex) in previews[item.id][direction][z2On ? 1 : 0]" :key="faceIndex"
                 class="adv-f2l-preview-face" :class="['top','front','right'][faceIndex]">
                 <i v-for="(sticker, cellIndex) in face.split('')" :key="cellIndex"
-                  :style="{backgroundColor:palette.getColor(sticker)}"></i>
+                  :style="{backgroundColor:sticker === 'X' ? '#858e95' : palette.getColor(sticker)}"></i>
               </span>
             </span>
           </span>
@@ -63,3 +64,4 @@
     </section>
   </div>
 </div>
+</v-app>

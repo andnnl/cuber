@@ -124,6 +124,27 @@ const prime = face => face + String.fromCharCode(39);
 
 {
   const source = fs.readFileSync(path.join(__dirname, '../src/vue/FormulaTimer/index.ts'), 'utf8');
+  const method = source.match(/  handlePhysicalEvent\([\s\S]*?(?=  private playRecoveredMoves\()/)?.[0];
+  assert.ok(method, '找不到公式计时的实体事件入口');
+  const js = ts.transpileModule(`class FirstMoveHarness {\n${method}\n}`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const Harness = new Function(`${js}\nreturn FirstMoveHarness`)();
+  const harness = new Harness();
+  harness.active = true;
+  harness.replayRecord = null;
+  harness.statsOpen = false;
+  harness.training = { startedAt: null, interrupt: () => {} };
+  harness.recovery = { move: () => ({ status: 'ready', moves: [{ move: 'U', at: null }] }) };
+  harness.playRecoveredMoves = () => {};
+  let retryIncomplete = 0;
+  harness.scheduleUnscoredNext = completed => { if (completed === false) retryIncomplete++; };
+  harness.handlePhysicalEvent({ type: 'move', move: 'U', recovered: true }, true);
+  assert.equal(retryIncomplete, 1, '首步时间不明且题面未还原时也应自动重试下一题');
+}
+
+{
+  const source = fs.readFileSync(path.join(__dirname, '../src/vue/FormulaTimer/index.ts'), 'utf8');
   const failMethod = source.match(/  private failVerification\([\s\S]*?(?=  private scheduleUnscoredNext\()/)?.[0];
   const advanceMethod = source.match(/  private scheduleUnscoredNext\([\s\S]*?(?=  private scheduleVerification\()/)?.[0];
   assert.ok(failMethod && advanceMethod, '缺少核验失败自动重试或无计分完成切题方法');
@@ -154,6 +175,10 @@ const prime = face => face + String.fromCharCode(39);
   assert.equal(retry.nextJob !== null, true);
   callbacks.shift()();
   assert.equal(resets, 2, '不计分完成仍遵守随机下一题配置');
+  retry.scheduleUnscoredNext(false);
+  assert.match(retry.feedback, /准备重试下一题/, '未还原而首步时间丢失时给出自动重试提示');
+  callbacks.shift()();
+  assert.equal(resets, 3, '未还原时也按随机下一题设置自动切题');
 }
 
 {

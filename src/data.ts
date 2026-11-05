@@ -276,7 +276,7 @@ export class PaletteData {
 
   constructor(world: World) {
     this.world = world;
-    this.default = JSON.stringify(COLORS);
+    this.default = JSON.stringify({ ...COLORS, ...PRESET_PALETTES["默认"] });
     this.load();
   }
 
@@ -302,9 +302,8 @@ export class PaletteData {
     this.save();
   }
 
-  // 当前生效颜色 (自定义色优先, 未自定义时回落原版 COLORS)
   getColor(key: string): string {
-    return this.values.colors[key] || COLORS[key];
+    return this.values.colors[key] || PRESET_PALETTES[this.preset][key] || COLORS[key];
   }
 
   load(): void {
@@ -324,9 +323,9 @@ export class PaletteData {
   }
 
   refresh(): void {
-    const colors = this.values.colors as { [key: string]: string };
+    const colors = { ...PRESET_PALETTES[this.preset], ...this.values.colors };
     for (const key in colors) {
-      const value = colors[key];
+      const value = this.getColor(key);
       if (value) {
         COLORS[key] = value;
         Cubelet.LAMBERS[key].color.set(value);
@@ -352,6 +351,7 @@ export class PaletteData {
   }
 
   reset(): void {
+    this.values.preset = "默认";
     this.values.colors = JSON.parse(this.default);
     this.refresh();
     this.values.colors = {};
