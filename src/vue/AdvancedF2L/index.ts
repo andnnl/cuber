@@ -1,8 +1,8 @@
 import { Component, Provide, Ref, Vue } from 'vue-property-decorator';
 import World from '../../cuber/world';
 import Cube from '../../cuber/cube';
-import { PaletteData, PreferanceData, PRESET_PALETTES } from '../../data';
-import { AdvancedF2LCase, AdvancedF2LSelection, selectAdvancedF2LCase } from '../../ble/adv-f2l';
+import { PaletteData, PreferanceData } from '../../data';
+import { AdvancedF2LCase, AdvancedF2LSelection, advancedF2LPreview, selectAdvancedF2LCase } from '../../ble/adv-f2l';
 import Viewport from '../Viewport';
 import Setting from '../Setting';
 import './index.css';
@@ -34,6 +34,7 @@ export default class AdvancedF2L extends Vue {
   playing = false;
   pauseRequested = false;
   error = '';
+  z2On = window.localStorage.getItem('advF2LZ2') === '1';
   previews: Record<number, string[][]> = {};
 
   private generation = 0;
@@ -50,10 +51,10 @@ export default class AdvancedF2L extends Vue {
     const previewCube = new Cube(3);
     const previews: Record<number, string[][]> = {};
     for (const item of this.cases) {
-      previewCube.twister.setup(item.setup.replace(/([URFDLBMESxyzurfdlb])2'/g, '$12'));
-      const facelets = previewCube.serialize();
-      previews[item.id] = [0, 18, 9].map(start => facelets.slice(start, start + 9)
-        .split('').map(face => PRESET_PALETTES['默认'][face] || '#888888'));
+      previews[item.id] = [
+        advancedF2LPreview(item, false, previewCube),
+        advancedF2LPreview(item, true, previewCube),
+      ];
     }
     this.previews = previews;
     this.$nextTick(() => {
@@ -129,6 +130,11 @@ export default class AdvancedF2L extends Vue {
     this.rebuild();
   }
 
+  toggleZ2(): void {
+    window.localStorage.setItem('advF2LZ2', this.z2On ? '1' : '0');
+    this.rebuild();
+  }
+
   private rebuild(): void {
     // 清掉排队的旧动作并结束在途转层，避免切公式后回调改写新题的步数。
     this.generation++;
@@ -139,10 +145,10 @@ export default class AdvancedF2L extends Vue {
     this.error = '';
     try {
       this.selection = selectAdvancedF2LCase(this.selected, this.direction, this.variant);
-      this.world.cube.twister.setup(this.selection.inverse.join(' '));
+      this.world.cube.twister.setup([...(this.z2On ? ['z2'] : []), ...this.selection.inverse].join(' '));
     } catch (error) {
       this.selection = null;
-      this.world.cube.twister.setup('');
+      this.world.cube.twister.setup(this.z2On ? 'z2' : '');
       this.error = error instanceof Error ? error.message : String(error);
     }
   }

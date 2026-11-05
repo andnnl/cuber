@@ -3,6 +3,7 @@
   <header class="adv-f2l-header">
     <h1>非标 F2L 公式库</h1>
     <span>54 个案例 · 四方向 · 多解法</span>
+    <label class="adv-f2l-z2"><input type="checkbox" aria-label="z2" v-model="z2On" @change="toggleZ2">z2 · 同步翻转全部案例</label>
   </header>
   <div class="adv-f2l-layout">
     <section class="adv-f2l-study" aria-label="公式动画学习">
@@ -48,8 +49,12 @@
           @click="selectCase(item)">
           <strong>{{item.name}}</strong>
           <span v-if="previews[item.id]" class="adv-f2l-preview" aria-hidden="true">
-            <span v-for="(face, faceIndex) in previews[item.id]" :key="faceIndex" class="adv-f2l-preview-face">
-              <i v-for="(color, cellIndex) in face" :key="cellIndex" :style="{backgroundColor:color}"></i>
+            <span class="adv-f2l-preview-cube">
+              <span v-for="(face, faceIndex) in previews[item.id][z2On ? 1 : 0]" :key="faceIndex"
+                class="adv-f2l-preview-face" :class="['top','front','right'][faceIndex]">
+                <i v-for="(sticker, cellIndex) in face.split('')" :key="cellIndex"
+                  :style="{backgroundColor:palette.getColor(sticker)}"></i>
+              </span>
             </span>
           </span>
           <small>四方向共 {{item.algs.reduce((n, group) => n + group.length, 0)}} 条</small></button>
