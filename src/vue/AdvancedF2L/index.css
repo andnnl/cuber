@@ -1,4 +1,4 @@
-.adv-f2l-root { min-height:100vh; padding:64px 12px 12px; color:#26394c; overflow:auto; }
+.adv-f2l-root { padding:64px 12px 12px; color:#26394c; }
 .adv-f2l-header { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px; margin:0 auto 12px; max-width:1400px; }
 .adv-f2l-header h1 { font-size:22px; margin:0; }
 .adv-f2l-header span,.adv-f2l-source,.adv-f2l-attribution { color:#566b7b; font-size:13px; }

@@ -1,7 +1,7 @@
 <v-app>
-  <div v-resize="onResize" style="user-select: none; touch-action: none; display: flex; flex-direction: column; height: 100vh;">
+  <div v-resize="onResize" class="scrollable-page" style="user-select: none; display: flex; flex-direction: column;">
     <setting />
-    <div style="flex: 1 1 auto; min-height: 0;">
+    <div ref="stage" style="flex: 1 0 200px; min-height: 200px;">
       <viewport ref="viewport"></viewport>
     </div>
     <v-container
@@ -9,7 +9,7 @@
       grid-list-md
       text-xs-center
       :style="{width:Math.min(size * 8, width) + 'px'}"
-      style="padding: 0%; touch-action: none; flex: 0 0 auto;"
+      style="padding: 0%; touch-action: pan-y; flex: 0 0 auto;"
     >
       <v-layout row wrap>
         <v-flex xs12>
@@ -39,7 +39,7 @@
             <v-card-text v-else>
               <div class="text-h6">加载中...</div>
             </v-card-text>
-            <v-card-actions>
+            <v-card-actions class="f2l-training-actions">
               <v-btn @click="randomCase">随机</v-btn>
               <v-btn @click="prevCase">上一题</v-btn>
               <v-btn @click="nextCase">下一题</v-btn>

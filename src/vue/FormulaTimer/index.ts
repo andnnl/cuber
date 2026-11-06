@@ -52,6 +52,7 @@ export default class FormulaTimerView extends Vue {
   current: FormulaCase | null = null;
   queuedCase: FormulaCase | null = null;
   activeSide = 0;
+  stackedCubes = window.matchMedia('(max-width:600px)').matches;
   get preloadActive(): boolean { return this.settings.preload && !!this.current && !this.replayRecord && !this.statsOpen; }
   snapshot: SessionSnapshot | null = null;
   feedback = '';
@@ -483,6 +484,7 @@ export default class FormulaTimerView extends Vue {
     this.frame = requestAnimationFrame(() => this.loop());
   }
   resize(): void {
+    this.stackedCubes = window.matchMedia('(max-width:600px)').matches;
     const box = this.$refs.cubeArea as HTMLElement | undefined;
     if (box) this.viewport?.resize(box.clientWidth, box.clientHeight);
     if (box) this.mirrorCube?.resize(box.clientWidth, box.clientHeight);

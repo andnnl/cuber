@@ -18,9 +18,10 @@ import { TwistNode } from "../../cuber/twister";
 export default class F2LTrainer extends Vue {
   private appActive = true;
   private viewFrame: number | null = null;
+  private resizeObserver: ResizeObserver | null = null;
   onAppDeactivate(): void { this.appActive = false; if (this.viewFrame !== null) cancelAnimationFrame(this.viewFrame); this.viewFrame = null; }
   onAppActivate(): void { if (this.appActive) return; this.appActive = true; this.resize(); this.loop(); }
-  beforeDestroy(): void { this.onAppDeactivate(); }
+  beforeDestroy(): void { this.resizeObserver?.disconnect(); this.onAppDeactivate(); }
   @Provide("world")
   world: World = new World();
 
@@ -44,6 +45,9 @@ export default class F2LTrainer extends Vue {
   @Ref("viewport")
   viewport: Viewport;
 
+  @Ref("stage")
+  stage: HTMLElement;
+
   width = 0;
   height = 0;
   size = 0;
@@ -66,6 +70,10 @@ export default class F2LTrainer extends Vue {
       console.error("[F2LTrainer] load algs.json failed", e);
     }
     this.resize();
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(() => this.resize());
+      this.resizeObserver.observe(this.stage);
+    }
     this.loop();
     this.world.callbacks.push(() => this.onAnimationEnd());
   }
@@ -240,7 +248,9 @@ export default class F2LTrainer extends Vue {
     this.width = document.documentElement.clientWidth;
     this.height = document.documentElement.clientHeight;
     this.size = Math.ceil(Math.min(this.width / 6, this.height / 12));
-    this.viewport?.resize(this.width, this.height - this.size * 1.5);
+    this.$nextTick(() => {
+      if (this.stage?.clientWidth && this.stage.clientHeight) this.viewport?.resize(this.stage.clientWidth, this.stage.clientHeight);
+    });
   }
 
   loop(): void {

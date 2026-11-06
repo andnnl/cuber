@@ -36,7 +36,7 @@ export default class Viewport extends Vue {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     const toucher = new Toucher();
     toucher.init(canvas, this.world.controller.touch);
-    document.addEventListener("wheel", this.wheel, false);
+    canvas.addEventListener("wheel", this.wheel, { passive: false });
   }
 
   wheel(e: WheelEvent): void {
@@ -70,7 +70,7 @@ export default class Viewport extends Vue {
   }
 
   beforeDestroy(): void {
-    document.removeEventListener("wheel", this.wheel, false);
+    this.renderer.domElement.removeEventListener("wheel", this.wheel);
     this.renderer.dispose();
   }
 

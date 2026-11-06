@@ -1,10 +1,10 @@
 <v-app>
-  <div v-resize="resize" style="user-select: none; touch-action: none;">
+  <div v-resize="resize" class="scrollable-page" style="user-select: none;">
     <setting v-on:order="order"></setting>
     <viewport ref="viewport"></viewport>
     <v-container v-show="!colord" fluid grid-list-md text-xs-center
       :style="{width:Math.min(size * 8, width) + 'px', height:size * 4.6 + 'px'}"
-      style="padding: 0%; touch-action: none;">
+      style="padding: 0%; touch-action: pan-y;">
       <v-layout row wrap>
         <v-flex xs12 style="display: flex;"
           :style="{'padding-left': size / 4 + 'px','padding-right': size / 4 + 'px','padding-bottom': size / 8 + 'px'}">

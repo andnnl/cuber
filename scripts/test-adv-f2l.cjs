@@ -177,7 +177,7 @@ for (const action of ['selectCase', 'selectDirection', 'selectVariant', 'toStart
   assert.match(page, new RegExp(`\\b${action}\\(`), `缺少 ${action} 播放操作`);
 }
 const template = fs.readFileSync(path.join(__dirname, '../src/vue/AdvancedF2L/index.html'), 'utf8');
-assert.match(template, /^<v-app>\s*<div class="adv-f2l-root">/, '页面须有 Vuetify 应用根以承载菜单弹层');
+assert.match(template, /^<v-app>\s*<div class="adv-f2l-root(?: [^"]*)?">/, '页面须有 Vuetify 应用根以承载菜单弹层');
 assert.match(template, /<viewport/, '常驻 3D 魔方');
 assert.match(template, /selected\.algs\[direction\]/, '每个方向保留多条公式');
 assert.match(template, /aria-label="z2"/, '可切换 z2 的复选框');

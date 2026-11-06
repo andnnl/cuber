@@ -1,5 +1,5 @@
 <v-app>
-  <div v-show="!listd" v-resize="resize" style="user-select: none; touch-action: none;">
+  <div v-show="!listd" v-resize="resize" class="scrollable-page" style="user-select: none;">
     <setting v-show="!listd" ref="setting"> </setting>
     <viewport ref="viewport"></viewport>
     <v-btn
@@ -19,7 +19,7 @@
       grid-list-md
       text-xs-center
       :style="{width:Math.min(size * 8, width) + 'px', height:size * 3.5 + 'px'}"
-      style="padding: 0%; touch-action: none;"
+      style="padding: 0%; touch-action: pan-y;"
     >
       <v-layout row wrap>
         <v-flex xs12>
@@ -60,7 +60,7 @@
   </div>
   <div
     v-show="listd"
-    style="margin: 0; display: flex; flex-flow: column; height: 100%; user-select: none; touch-action: none;"
+    style="margin: 0; display: flex; flex-flow: column; height: 100%; user-select: none; touch-action: pan-y;"
     :style="{height: height + 'px'}"
   >
     <div style="margin: auto; width: 100%;">
