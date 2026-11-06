@@ -1,7 +1,7 @@
 {
   "name": "cuber",
   "description": "Rubik's Cube toolbox using Javascript for 100% client side single page application using Vue and Vuetify.",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "author": "huazhechen",
   "license": "MIT",
   "private": true,
@@ -18,7 +18,8 @@
     "test:pll": "tsc -p tsconfig.ble.json && node scripts/test-pll-training.cjs && node scripts/test-pll-six-sticker.cjs",
     "test:adv-f2l": "tsc -p tsconfig.ble.json && node scripts/test-adv-f2l.cjs",
     "test:op": "tsc -p tsconfig.ble.json && node scripts/test-op-formula.cjs && node scripts/test-op-preview.cjs && node scripts/test-op-case.cjs && node scripts/test-op-trace.cjs && node scripts/test-op-top-net.cjs && node scripts/test-op-focus.cjs && node scripts/test-op-training.cjs && node scripts/test-op-custom-oll.cjs && node scripts/test-op-oll-library.cjs && node scripts/test-op-oll-transfer.cjs",
-    "test:formula-timer": "tsc -p tsconfig.ble.json && node scripts/test-formula-timer.cjs && node scripts/test-formula-timer-recovery.cjs && node scripts/test-formula-timer-input.cjs && node scripts/test-formula-timer-preload.cjs && node scripts/test-formula-timer-store.cjs && node scripts/test-formula-timer-formulas.cjs && node scripts/test-formula-timer-preview.cjs && node scripts/test-formula-timer-stats.cjs && node scripts/test-formula-timer-stats-preferences.cjs && node scripts/test-formula-timer-focus.cjs && node scripts/test-formula-timer-stats-view.cjs",
+    "test:formula-timer": "tsc -p tsconfig.ble.json && node scripts/test-formula-timer.cjs && node scripts/test-formula-timer-recovery.cjs && node scripts/test-formula-timer-slices.cjs && node scripts/test-formula-timer-input.cjs && node scripts/test-formula-timer-preload.cjs && node scripts/test-formula-timer-store.cjs && node scripts/test-formula-timer-formulas.cjs && node scripts/test-formula-timer-adv-f2l.cjs && node scripts/test-formula-timer-preview.cjs && node scripts/test-formula-timer-stats.cjs && node scripts/test-formula-timer-stats-preferences.cjs && node scripts/test-formula-timer-focus.cjs && node scripts/test-formula-timer-stats-view.cjs",
+    "test:formula-timer-mirror": "node scripts/test-formula-timer-mirror.cjs",
     "test:pll-scan": "tsc -p tsconfig.ble.json && node scripts/test-pll6-scan-analysis.cjs && node scripts/test-pll6-scan-optimize.cjs && node scripts/test-pll-six-scan.cjs",
     "generate:pll-scan": "tsc -p tsconfig.ble.json && node scripts/pll6-scan-optimize.cjs --catalog",
     "test:pll-equality": "tsc -p tsconfig.ble.json && node scripts/test-pll6-equality-first.cjs && node scripts/test-pll-six-equality.cjs",

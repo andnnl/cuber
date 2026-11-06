@@ -2,7 +2,8 @@ import { Component, Provide, Ref, Vue } from 'vue-property-decorator';
 import World from '../../cuber/world';
 import Cube from '../../cuber/cube';
 import { PaletteData, PreferanceData } from '../../data';
-import { AdvancedF2LCase, AdvancedF2LSelection, advancedF2LPreview, selectAdvancedF2LCase } from '../../ble/adv-f2l';
+import { AdvancedF2LCase, AdvancedF2LSelection, advancedF2LCapturePlan, applyAdvancedF2LMask, selectAdvancedF2LCase } from '../../ble/adv-f2l';
+import Capture from '../Algs/capture';
 import Viewport from '../Viewport';
 import Setting from '../Setting';
 import './index.css';
@@ -35,12 +36,17 @@ export default class AdvancedF2L extends Vue {
   pauseRequested = false;
   error = '';
   z2On = window.localStorage.getItem('advF2LZ2') === '1';
-  previews: Record<number, string[][][]> = {};
+  hideUnrelated = window.localStorage.getItem('advF2LHideUnrelated') === '1';
+  previews: Record<string, string> = {};
 
   private generation = 0;
   private frame: number | null = null;
   private active = true;
   private resizeObserver: ResizeObserver | null = null;
+  private capture: Capture | null = null;
+  private previewFrame: number | null = null;
+  private readonly previewCube = new Cube(3);
+  private displayPlan: ReturnType<typeof advancedF2LCapturePlan> | null = null;
 
   get filteredCases(): AdvancedF2LCase[] { return this.cases.filter(item => item.subgroup === this.group); }
   get currentMoves(): string[] { return this.selection ? this.selection.moves : []; }
@@ -48,19 +54,11 @@ export default class AdvancedF2L extends Vue {
   mounted(): void {
     // 案例公式只由按钮控制，拖动魔方可调整视角但不误转小层。
     this.world.controller.lock = true;
-    const previewCube = new Cube(3);
-    const previews: Record<number, string[][][]> = {};
-    for (const item of this.cases) {
-      previews[item.id] = this.directions.map((_, direction) => [
-        advancedF2LPreview(item, false, previewCube, direction),
-        advancedF2LPreview(item, true, previewCube, direction),
-      ]);
-    }
-    this.previews = previews;
     this.$nextTick(() => {
       // data.ts 的主题设置引用根 Vue 实例；首次挂载时需等实例构造完成。
       this.preferance.refresh();
       this.palette.refresh();
+      this.renderPreviews();
       this.resize();
       if (typeof ResizeObserver !== 'undefined') {
         this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -76,6 +74,7 @@ export default class AdvancedF2L extends Vue {
     this.resizeObserver?.disconnect();
     window.removeEventListener('resize', this.resize);
     this.world.controller.stop();
+    this.capture?.renderer.dispose();
   }
 
   onAppDeactivate(): void {
@@ -83,6 +82,8 @@ export default class AdvancedF2L extends Vue {
     this.pause();
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
+    if (this.previewFrame !== null) cancelAnimationFrame(this.previewFrame);
+    this.previewFrame = null;
   }
 
   onAppActivate(): void {
@@ -90,6 +91,28 @@ export default class AdvancedF2L extends Vue {
     this.active = true;
     this.resize();
     this.draw();
+    this.renderPreviews();
+  }
+
+  previewKey(item: AdvancedF2LCase): string { return `${item.id}:${this.direction}:${Number(this.z2On)}`; }
+
+  private renderPreviews(): void {
+    if (this.previewFrame !== null) cancelAnimationFrame(this.previewFrame);
+    this.previewFrame = null;
+    const pending = this.filteredCases.filter(item => !this.previews[this.previewKey(item)]);
+    if (!pending.length || !this.active) return;
+    try { if (!this.capture) this.capture = new Capture(); }
+    catch { this.error = '案例图标暂时无法渲染，请检查浏览器的 WebGL 支持。'; return; }
+    const renderBatch = (): void => {
+      this.previewFrame = null;
+      for (let count = 0; count < 2 && pending.length; count++) {
+        const item = pending.shift()!;
+        const plan = advancedF2LCapturePlan(item, this.z2On, this.direction, this.previewCube);
+        this.$set(this.previews, this.previewKey(item), this.capture!.snap(plan.strip, plan.exp, 3, plan.blackCubelets));
+      }
+      if (pending.length) this.previewFrame = requestAnimationFrame(renderBatch);
+    };
+    this.previewFrame = requestAnimationFrame(renderBatch);
   }
 
   resize(): void {
@@ -115,6 +138,7 @@ export default class AdvancedF2L extends Vue {
     this.direction = 0;
     this.variant = 0;
     this.rebuild();
+    this.renderPreviews();
   }
 
   selectDirection(index: number): void {
@@ -122,6 +146,7 @@ export default class AdvancedF2L extends Vue {
     this.direction = index;
     this.variant = 0;
     this.rebuild();
+    this.renderPreviews();
   }
 
   selectVariant(index: number): void {
@@ -133,6 +158,12 @@ export default class AdvancedF2L extends Vue {
   toggleZ2(): void {
     window.localStorage.setItem('advF2LZ2', this.z2On ? '1' : '0');
     this.rebuild();
+    this.renderPreviews();
+  }
+
+  toggleHideUnrelated(): void {
+    window.localStorage.setItem('advF2LHideUnrelated', this.hideUnrelated ? '1' : '0');
+    applyAdvancedF2LMask(this.world.cube, this.hideUnrelated ? this.displayPlan : null);
   }
 
   private rebuild(): void {
@@ -143,9 +174,13 @@ export default class AdvancedF2L extends Vue {
     this.world.cube.twister.discardPending();
     this.step = 0;
     this.error = '';
+    this.displayPlan = null;
+    applyAdvancedF2LMask(this.world.cube, null);
     try {
       this.selection = selectAdvancedF2LCase(this.selected, this.direction, this.variant);
-      this.world.cube.twister.setup([...(this.z2On ? ['z2'] : []), ...this.selection.inverse].join(' '));
+      this.displayPlan = advancedF2LCapturePlan(this.selected, this.z2On, this.direction, this.previewCube, this.variant);
+      this.world.cube.twister.setup(this.displayPlan.exp);
+      applyAdvancedF2LMask(this.world.cube, this.hideUnrelated ? this.displayPlan : null);
     } catch (error) {
       this.selection = null;
       this.world.cube.twister.setup(this.z2On ? 'z2' : '');

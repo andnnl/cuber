@@ -2,12 +2,14 @@ import Cube from '../cuber/cube';
 import { parseOpFormula } from './op-formula';
 import { FormulaCase, FormulaCategory, isFormulaGoal } from './formula-timer';
 import { validateOpCase } from './op-case';
+import { AdvancedF2LCase, selectAdvancedF2LCase } from './adv-f2l';
+import { AdvancedF2LSlot } from './formula-timer-goal';
 
-export interface FormulaItem { id: string; category: FormulaCategory; name: string; formula: string }
+export interface FormulaItem { id: string; category: FormulaCategory; name: string; formula: string; targetSlot?: AdvancedF2LSlot }
 interface FormulaGroup { name: string; items: Array<{ name: string; origin: string; exp?: string }> }
 interface CustomOll { id?: string; name: string; origin: string }
 
-export function buildFormulaPool(groups: FormulaGroup[], customOlls: CustomOll[]): FormulaItem[] {
+export function buildFormulaPool(groups: FormulaGroup[], customOlls: CustomOll[], advancedF2Ls: AdvancedF2LCase[] = []): FormulaItem[] {
   const categories: FormulaCategory[] = ['f2l', 'oll', 'pll'];
   const items: FormulaItem[] = [];
   categories.forEach((category, index) => {
@@ -17,6 +19,14 @@ export function buildFormulaPool(groups: FormulaGroup[], customOlls: CustomOll[]
   });
   customOlls.forEach((item, index) => items.push({ id: `oll:${item.id || `custom-${index}-${item.name}`}`,
     category: 'oll', name: item.name, formula: item.origin }));
+  const directions = ['前右', '前左', '后左', '后右'];
+  const slots: AdvancedF2LSlot[] = ['FR', 'FL', 'BL', 'BR'];
+  for (const item of advancedF2Ls) item.algs.forEach((variants, direction) => variants.forEach((variant, index) => {
+    const selected = selectAdvancedF2LCase(item, direction, index);
+    items.push({ id: `advf2l:${item.id}:${direction}:${variant.altId}`, category: 'advf2l',
+      name: `${item.name} · ${directions[direction]} · 解法 ${index + 1}`, formula: selected.moves.join(' '),
+      targetSlot: slots[direction] });
+  }));
   return items;
 }
 
@@ -64,8 +74,9 @@ export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], ran
   }
   cube.twister.setup(scramble);
   const initialFacelets = cube.serialize();
-  if (!/^[URFDLB]{54}$/.test(initialFacelets) || isFormulaGoal(item.category, initialFacelets)) {
+  const generated = { ...item, scramble, initialFacelets };
+  if (!/^[URFDLB]{54}$/.test(initialFacelets) || isFormulaGoal(item.category, initialFacelets, generated)) {
     throw Error(`${item.name} 生成的题面已完成或无效`);
   }
-  return { ...item, scramble, initialFacelets };
+  return generated;
 }

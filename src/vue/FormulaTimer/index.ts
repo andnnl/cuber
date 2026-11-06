@@ -16,16 +16,18 @@ import { LinkEvent } from '../../ble/types';
 import { advanceDisplayedCube } from '../../ble/formula-timer-follow';
 import { FormulaMoveRecovery, RecoveredMove } from '../../ble/formula-timer-recovery';
 import { topNetCells, TopNetCell } from '../../ble/op-top-net';
-import { algsPreviewExpression, cubeIconTiles, CubeIconTile, previewFormulaFacelets } from '../../ble/formula-timer-preview';
+import { algsPreviewExpression, cubeIconTiles, CubeIconTile, previewFormulaFacelets, formulaTimerMaskPlan, unmaskedFormulaFacelets } from '../../ble/formula-timer-preview';
+import { advancedF2LCapturePlan, applyAdvancedF2LMask } from '../../ble/adv-f2l';
 import Capture from '../Algs/capture';
 import { AlgsData, AlgGroup } from '../Algs';
 import Viewport from '../Viewport';
 import Setting from '../Setting';
 import NextCube from './NextCube';
-import { loadFormulaPool } from './formulas';
+import MirrorCube from './MirrorCube';
+import { advanced, loadFormulaPool } from './formulas';
 import './index.css';
 
-@Component({ template: require('./index.html'), components: { viewport: Viewport, setting: Setting, nextCube: NextCube } })
+@Component({ template: require('./index.html'), components: { viewport: Viewport, setting: Setting, nextCube: NextCube, mirrorCube: MirrorCube } })
 export default class FormulaTimerView extends Vue {
   @Provide('world') world: World = new World();
   @Provide('preferance') preferance: PreferanceData = new PreferanceData(this.world);
@@ -33,11 +35,12 @@ export default class FormulaTimerView extends Vue {
   @Inject('cubeSession') session: CubeSession;
   @Ref('viewport') viewport: Viewport;
   @Ref('nextCube') nextCube: NextCube;
+  @Ref('mirrorCube') mirrorCube: MirrorCube;
   private readonly displayCube = new Cube(3);
 
-  settings: FormulaTimerSettings = { category: 'f2l', selectedIds: { f2l: [], oll: [], pll: [] },
+  settings: FormulaTimerSettings = { category: 'f2l', selectedIds: { f2l: [], advf2l: [], oll: [], pll: [] },
     nextMode: 'random', beforeZ2: false, beforeY: '', randomU: true, slowOnly: false, slowSeconds: 3,
-    preload: false, preloadLayout: 'alternate' };
+    preload: false, mirrorCube: false, hideUnrelated: false, preloadLayout: 'alternate' };
   records: FormulaRecord[] = [];
   items: FormulaItem[] = [];
   invalidItems: string[] = [];
@@ -79,9 +82,12 @@ export default class FormulaTimerView extends Vue {
   private iconFrame: number | null = null;
   private capture: Capture | null = null;
   private captureUnavailable = false;
+  private readonly iconCube = new Cube(3);
   private lastMirrorAt = 0;
   private readonly recovery = new FormulaMoveRecovery();
+  private displayMask: ReturnType<typeof formulaTimerMaskPlan> = null;
   private recoveryRound = 0;
+  private verifyRequest = 0;
   private verifyJob: number | null = null;
   private verifyTimeout: number | null = null;
   private awaitingState = false;
@@ -290,8 +296,9 @@ export default class FormulaTimerView extends Vue {
         this.recovery.start(event.facelets, event.serial);
       }
       if (!this.awaitingState || !this.current) return;
-      const result = this.recovery.state(event.facelets, event.serial);
+      const result = this.recovery.state(event.facelets, event.serial, this.verifyRequest);
       if (result.status === 'stale') return;
+      if (result.status === 'confirm') { this.scheduleVerification(false); return; }
       this.clearVerification(false);
       if (result.status === 'uncertain') { this.failVerification('实体动作无法唯一核验，请重试同题'); return; }
       if (result.tail) {
@@ -317,11 +324,17 @@ export default class FormulaTimerView extends Vue {
     if (result.status === 'stale') return;
     this.physicalRound = true;
     if (result.status === 'pending') {
+      if (result.moves.length) this.playRecoveredMoves(result.moves, false);
       this.training.holdForVerification();
       this.scheduleVerification(true);
       return;
     }
     if (result.status === 'uncertain') { this.failVerification('实体转动序号无法核验，请重试同题'); return; }
+    if (!this.recovery.hasBaseline && !this.unscoredRound) {
+      this.unscoredRound = true;
+      this.training.interrupt(this.training.lastMoveAt || at);
+      this.feedback = '实体状态基线尚未同步；继续显示动作，本轮不计成绩';
+    }
     if (result.moves.some(item => item.at === null) && this.training.startedAt === null) {
       this.training.interrupt(at);
       this.playRecoveredMoves(result.moves, false);
@@ -356,7 +369,7 @@ export default class FormulaTimerView extends Vue {
       this.playPhysicalMove(item.move, at, item.at === null);
     }
     const last = moves[moves.length - 1];
-    if (allowCompletion && !this.unscoredRound && last && this.current && isFormulaGoal(this.current.category, this.displayCube.serialize()))
+    if (allowCompletion && !this.unscoredRound && last && this.current && isFormulaGoal(this.current.category, this.displayCube.serialize(), this.current))
       this.training.completeDisplayed(last.at ?? Date.now());
   }
   private playPhysicalMove(physicalMove: string, at: number, instant = false): void {
@@ -407,6 +420,7 @@ export default class FormulaTimerView extends Vue {
   }
   private failVerification(message: string): void {
     this.clearVerification(false);
+    this.recovery.start(null);
     this.training.interrupt(this.training.lastMoveAt || Date.now());
     this.feedback = message;
     // 序号与整幅状态均无法还原动作时，当前题面已不可靠，自动复位同题避免卡死。
@@ -440,6 +454,7 @@ export default class FormulaTimerView extends Vue {
     this.verifyJob = window.setTimeout(() => {
       if (round !== this.recoveryRound || !this.current) return;
       this.awaitingState = true;
+      this.verifyRequest++;
       this.verifyTimeout = window.setTimeout(() => {
         if (round === this.recoveryRound && this.awaitingState)
           this.failVerification('实体状态核验超时，请重试同题');
@@ -454,12 +469,13 @@ export default class FormulaTimerView extends Vue {
     if (!this.statsOpen) {
       const changed = this.viewport?.draw();
       this.nextCube?.draw(!!changed);
+      this.mirrorCube?.draw(!!changed);
     }
     // 逻辑账本可能早于动画（或鼠标转动）变化；可见魔方归位时以画面为准结算。
     if (this.current && !this.awaitingState && !this.recovery.needsState && this.verifyJob === null &&
       !this.world.cube.twister?.length && !this.world.controller?.rotating &&
       !Array.from(this.world.cube.locks?.values() || []).some(lock => lock.size > 0) &&
-      isFormulaGoal(this.current.category, this.world.cube.serialize())) {
+      isFormulaGoal(this.current.category, unmaskedFormulaFacelets(this.world.cube), this.current)) {
       if (this.unscoredRound) this.scheduleUnscoredNext();
       else if (this.training.startedAt !== null)
         this.training.completeDisplayed(this.training.lastMoveAt || Date.now());
@@ -469,6 +485,7 @@ export default class FormulaTimerView extends Vue {
   resize(): void {
     const box = this.$refs.cubeArea as HTMLElement | undefined;
     if (box) this.viewport?.resize(box.clientWidth, box.clientHeight);
+    if (box) this.mirrorCube?.resize(box.clientWidth, box.clientHeight);
     const preview = this.$refs.nextCubeArea as HTMLElement | undefined;
     if (preview) this.nextCube?.resize(preview.clientWidth, preview.clientHeight);
   }
@@ -529,6 +546,10 @@ export default class FormulaTimerView extends Vue {
     this.resetCase();
     this.$nextTick(() => this.resize());
   }
+  changeMirrorCube(): void {
+    this.save();
+    this.$nextTick(() => this.resize());
+  }
   changePreloadLayout(): void {
     this.save();
     this.activeSide = 0;
@@ -543,7 +564,7 @@ export default class FormulaTimerView extends Vue {
     this.unscoredRound = false;
     this.physicalRound = false;
     const entity = this.session.snapshot;
-    if (!keepRecovery) this.recovery.start(entity.facelets, entity.faceletsSerial ?? undefined);
+    if (!keepRecovery && !this.recovery.canContinue(entity.lastMoveSerial)) this.recovery.start(null);
     if (entity.status === 'connected' && !this.recovery.hasBaseline)
       void this.session.requestFacelets().catch(() => { /* 无状态时仍可实时跟随，断档时暂停。 */ });
     this.completedRecord = null;
@@ -556,8 +577,11 @@ export default class FormulaTimerView extends Vue {
       CubeGroup.durationScale = 1;
       this.lastMirrorAt = 0;
       const scramble = item.scramble || parseOpFormula(item.formula).inverse.join(' ');
+      this.displayMask = formulaTimerMaskPlan(item, advanced.cases);
+      applyAdvancedF2LMask(this.world.cube, null);
       this.world.cube.twister.setup(scramble);
       this.displayCube.twister.setup(scramble);
+      this.applyDisplayMask();
     } finally { this.preparing = false; }
     if (!keepQueued || !this.queuedCase) this.prepareQueuedCase();
     this.resize();
@@ -589,6 +613,13 @@ export default class FormulaTimerView extends Vue {
     this.feedback = '';
   }
   resetVisualCube(): void { this.resetCase(); }
+  get queuedMask(): ReturnType<typeof formulaTimerMaskPlan> {
+    return this.settings.hideUnrelated && this.queuedCase ? formulaTimerMaskPlan(this.queuedCase, advanced.cases) : null;
+  }
+  private applyDisplayMask(): void {
+    applyAdvancedF2LMask(this.world.cube, this.settings.hideUnrelated ? this.displayMask : null);
+  }
+  changeHideUnrelated(): void { this.save(); this.applyDisplayMask(); }
   changeCategory(category: FormulaCategory): void {
     this.clearStatsFocus();
     this.settings.category = category; this.save(); this.nextCase();
@@ -618,34 +649,44 @@ export default class FormulaTimerView extends Vue {
       if (this.ollPreviews[item.id] || this.f2lPreviews[item.id]) continue;
       try {
         const moves = parseOpFormula(item.formula).inverse.join(' ');
-        const facelets = previewFormulaFacelets(item.category === 'f2l' ? moves : `z2 ${moves}`);
-        if (item.category !== 'f2l') this.$set(this.ollPreviews, item.id, facelets);
+        const f2l = item.category === 'f2l' || item.category === 'advf2l';
+        const facelets = previewFormulaFacelets(f2l ? moves : `z2 ${moves}`);
+        if (!f2l) this.$set(this.ollPreviews, item.id, facelets);
         else this.$set(this.f2lPreviews, item.id, cubeIconTiles(facelets));
       } catch {
-        if (item.category !== 'f2l') this.$set(this.ollPreviews, item.id, '');
+        if (item.category !== 'f2l' && item.category !== 'advf2l') this.$set(this.ollPreviews, item.id, '');
         else this.$set(this.f2lPreviews, item.id, []);
       }
     }
     this.pickerOpen = true;
-    if (this.settings.category === 'f2l') this.startIconRendering();
+    if (this.settings.category === 'f2l' || this.settings.category === 'advf2l') this.startIconRendering();
   }
   private startIconRendering(): void {
     if (this.iconFrame !== null || this.captureUnavailable) return;
     const group: AlgGroup = new AlgsData().algs[0];
-    const pending = group.items.filter(item => this.categoryItems.some(choice => choice.name === item.name) &&
-      !Object.prototype.hasOwnProperty.call(this.f2lPictures, `f2l:${item.name}`));
+    const category = this.settings.category;
+    const pending = this.categoryItems.filter(item => !Object.prototype.hasOwnProperty.call(this.f2lPictures, item.id));
     if (!pending.length) return;
     try { if (!this.capture) this.capture = new Capture(); }
     catch { this.captureUnavailable = true; return; }
     const renderBatch = (): void => {
       this.iconFrame = null;
-      if (!this.pickerOpen || this.settings.category !== 'f2l') return;
+      if (!this.pickerOpen || this.settings.category !== category) return;
       for (let n = 0; n < 2 && pending.length; n++) {
-        const alg = pending.shift()!;
-        const id = `f2l:${alg.name}`;
+        const item = pending.shift()!;
         try {
-          this.$set(this.f2lPictures, id, this.capture!.snap(group.strip, algsPreviewExpression(alg), alg.order || 3));
-        } catch { this.$set(this.f2lPictures, id, ''); }
+          if (category === 'advf2l') {
+            const [, caseId, directionText, ...altId] = item.id.split(':');
+            const source = advanced.cases.find(candidate => candidate.id === Number(caseId))!;
+            const direction = Number(directionText);
+            const variant = source.algs[direction].findIndex(candidate => candidate.altId === altId.join(':'));
+            const plan = advancedF2LCapturePlan(source, false, direction, this.iconCube, variant);
+            this.$set(this.f2lPictures, item.id, this.capture!.snap(plan.strip, plan.exp, 3, plan.blackCubelets));
+          } else {
+            const alg = group.items.find(candidate => candidate.name === item.name)!;
+            this.$set(this.f2lPictures, item.id, this.capture!.snap(group.strip, algsPreviewExpression(alg), alg.order || 3));
+          }
+        } catch { this.$set(this.f2lPictures, item.id, ''); }
       }
       if (pending.length) this.iconFrame = requestAnimationFrame(renderBatch);
     };

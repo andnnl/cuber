@@ -3,15 +3,17 @@
   <setting />
   <header class="adv-f2l-header">
     <h1>非标 F2L 公式库</h1>
-    <span>54 个案例 · 四方向 · 多解法</span>
+    <span>54 个案例 · 四种角块位置 · 多解法</span>
     <label class="adv-f2l-z2"><input type="checkbox" aria-label="z2" v-model="z2On" @change="toggleZ2">z2 · 同步翻转全部案例</label>
   </header>
   <div class="adv-f2l-layout">
     <section class="adv-f2l-study" aria-label="公式动画学习">
       <div ref="cubeArea" class="adv-f2l-cube"><viewport ref="viewport"></viewport></div>
       <div class="adv-f2l-details">
+        <label class="adv-f2l-hide"><input type="checkbox" aria-label="大魔方隐藏无关块" v-model="hideUnrelated" @change="toggleHideUnrelated">大魔方隐藏无关块（变黑）</label>
         <h2>{{selected.name}} <small>· {{groups.find(item => item.key === selected.subgroup).label}}</small></h2>
-        <div class="adv-f2l-directions" aria-label="槽位方向">
+        <div class="adv-f2l-directions" aria-label="角块位置">
+          <span>角块位置：</span>
           <button v-for="(label, index) in directions" :key="label" type="button" :class="{active: direction === index}"
             @click="selectDirection(index)">{{label}} <small>({{selected.algs[index].length}})</small></button>
         </div>
@@ -30,14 +32,14 @@
             <span v-for="(move, index) in currentMoves" :key="index" :class="{'done': index < step, 'next': index === step}">{{move}}</span>
           </div>
         </template>
-        <h3>该方向的公式</h3>
+        <h3>该角块位置的公式</h3>
         <div class="adv-f2l-variants" v-if="selected.algs[direction].length">
           <button type="button" v-for="(item, index) in selected.algs[direction]" :key="item.altId"
             :class="{active: index === variant}" @click="selectVariant(index)">
             <b>{{index + 1}}.</b> {{item.alg}}
           </button>
         </div>
-        <p v-else>该方向在原始资料中暂无公式，请选择其他方向。</p>
+        <p v-else>该角块位置在原始资料中暂无公式，请选择其他位置。</p>
       </div>
     </section>
     <section class="adv-f2l-browser" aria-label="非标 F2L 案例">
@@ -49,16 +51,11 @@
         <button type="button" v-for="item in filteredCases" :key="item.id" :class="{active: selected.id === item.id}"
           @click="selectCase(item)">
           <strong>{{item.name}}</strong>
-          <span v-if="previews[item.id]" class="adv-f2l-preview" aria-hidden="true">
-            <span class="adv-f2l-preview-cube">
-              <span v-for="(face, faceIndex) in previews[item.id][direction][z2On ? 1 : 0]" :key="faceIndex"
-                class="adv-f2l-preview-face" :class="['top','front','right'][faceIndex]">
-                <i v-for="(sticker, cellIndex) in face.split('')" :key="cellIndex"
-                  :style="{backgroundColor:sticker === 'X' ? '#858e95' : palette.getColor(sticker)}"></i>
-              </span>
-            </span>
+          <span class="adv-f2l-preview" aria-hidden="true">
+            <img v-if="previews[previewKey(item)]" class="adv-f2l-preview-image"
+              :src="previews[previewKey(item)]" alt="" draggable="false">
           </span>
-          <small>四方向共 {{item.algs.reduce((n, group) => n + group.length, 0)}} 条</small></button>
+          <small>四种位置共 {{item.algs.reduce((n, group) => n + group.length, 0)}} 条</small></button>
       </div>
       <small class="adv-f2l-attribution">公式来自 CubeRoot 非标 F2L 快照；本页可离线浏览和播放。</small>
     </section>

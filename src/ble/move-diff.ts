@@ -9,11 +9,11 @@ const SOLVED = "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
 // 角块: URF=0 UFL=1 ULB=2 UBR=3 DFR=4 DLF=5 DBL=6 DRB=7 (与 vendor CORNER_FACELET_MAP 同序)
 // 棱块: UR=0 UF=1 UL=2 UB=3 DR=4 DF=5 DL=6 DB=7 FR=8 FL=9 BL=10 BR=11 (与 vendor EDGE_FACELET_MAP 同序)
 
-const CORNER_FACELET_MAP = [
+export const CORNER_FACELET_MAP = [
   [8, 9, 20], [6, 18, 38], [0, 36, 47], [2, 45, 11],
   [29, 26, 15], [27, 44, 24], [33, 53, 42], [35, 17, 51],
 ];
-const EDGE_FACELET_MAP = [
+export const EDGE_FACELET_MAP = [
   [5, 10], [7, 19], [3, 37], [1, 46],
   [32, 16], [28, 25], [30, 43], [34, 52],
   [23, 12], [21, 41], [50, 39], [48, 14],

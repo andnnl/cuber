@@ -7,6 +7,7 @@ const { TwistAction } = require('../.tmp/cuber/twister.js');
 const CubeGroup = require('../.tmp/cuber/group.js').default;
 const { FormulaTimer, isFormulaGoal } = require('../.tmp/ble/formula-timer.js');
 const { advanceDisplayedCube } = require('../.tmp/ble/formula-timer-follow.js');
+const { unmaskedFormulaFacelets } = require('../.tmp/ble/formula-timer-preview.js');
 const source = fs.readFileSync('src/vue/FormulaTimer/index.ts', 'utf8');
 const file = ts.createSourceFile('index.ts', source, ts.ScriptTarget.Latest, true);
 const component = file.statements.find(ts.isClassDeclaration);
@@ -17,8 +18,8 @@ assert.equal(members.length, names.length, '需要统一支持屏幕操作及实
 const code = ts.transpileModule(`class Harness {${members.map(member => member.getText(file)).join('\n')}}`,
   {compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText;
 let now = 1000;
-const Harness = new Function('TwistAction', 'CubeGroup', 'advanceDisplayedCube', 'isFormulaGoal', 'Date', 'requestAnimationFrame',
-  `${code}; return Harness;`)(TwistAction, CubeGroup, advanceDisplayedCube, isFormulaGoal, {now:() => now}, () => 0);
+const Harness = new Function('TwistAction', 'CubeGroup', 'advanceDisplayedCube', 'isFormulaGoal', 'Date', 'requestAnimationFrame', 'unmaskedFormulaFacelets',
+  `${code}; return Harness;`)(TwistAction, CubeGroup, advanceDisplayedCube, isFormulaGoal, {now:() => now}, () => 0, unmaskedFormulaFacelets);
 function page(scramble = "R'") {
   const vm = new Harness();
   const records = [];
@@ -120,5 +121,20 @@ function page(scramble = "R'") {
   vm.world.cube.twister.finish();
   assert.equal(prevented, true);
   assert.equal(vm.training.moveCount, 1, '键盘操作使用同一计步入口');
+}
+for (const input of ['screen', 'physical']) {
+  const {vm, records} = page("L' U' L R U R'");
+  vm.current = { ...vm.current, id:'advf2l:1:0:goal-input', category:'advf2l', targetSlot:'FR',
+    initialFacelets:vm.displayCube.serialize() };
+  vm.training.beginCase(vm.current, 0);
+  const moves = ['R', "U'", "R'"];
+  if (input === 'screen') {
+    for (const move of moves) vm.world.cube.twister.twist(new TwistAction(move), true, true);
+    vm.loop();
+  } else vm.playRecoveredMoves(moves.map((move, index) => ({move, at:1000 + index * 100})), true);
+  assert.equal(isFormulaGoal('f2l', vm.displayCube.serialize()), false, '其余未完成槽位仍未还原');
+  assert.equal(records.length, 1, `${input} 必须使用初始状态及目标槽位判定`);
+  assert.equal(records[0].result, 'success');
+  assert.equal(records[0].moveCount, 3);
 }
 console.log('公式计时屏幕输入、实体混用、整体转和计步去重：通过');

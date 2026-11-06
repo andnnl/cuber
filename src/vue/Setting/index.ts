@@ -94,6 +94,7 @@ export default class Setting extends Vue {
       case "helper":
       case "algs":
       case "f2l":
+      case "advf2l":
       case "crossf2l":
       case "blecross":
       case "cfop":

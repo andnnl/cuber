@@ -103,10 +103,10 @@ const prime = face => face + String.fromCharCode(39);
   assert.equal(next.unscoredRound, true, '保留本轮已无可靠起始时间的信息');
   const loopMethod = source.match(/  private loop\(\): void \{[\s\S]*?(?=  resize\()/)?.[0];
   assert.ok(loopMethod);
-  const LoopHarness = new Function('isFormulaGoal', 'requestAnimationFrame',
+  const LoopHarness = new Function('isFormulaGoal', 'requestAnimationFrame', 'unmaskedFormulaFacelets',
     `${ts.transpileModule(`class LoopHarness {\n${loopMethod}\n}`, {
       compilerOptions: { target: ts.ScriptTarget.ES2020 },
-    }).outputText}\nreturn LoopHarness`)(() => true, () => 1);
+    }).outputText}\nreturn LoopHarness`)(() => true, () => 1, cube => cube.serialize());
   const checking = new LoopHarness();
   checking.active = true;
   checking.statsOpen = true;
@@ -160,6 +160,7 @@ const prime = face => face + String.fromCharCode(39);
   retry.active = true;
   retry.nextJob = null;
   retry.training = { lastMoveAt: 200, interrupt: () => {} };
+  retry.recovery = { start: () => {} };
   retry.clearVerification = () => {};
   retry.clearNextJob = () => { retry.nextJob = null; };
   let resets = 0;
@@ -230,8 +231,9 @@ const prime = face => face + String.fromCharCode(39);
   const recovery = new FormulaMoveRecovery();
   recovery.start(solved, 40);
   const result = recovery.state(after('F', 'B'), 42);
-  assert.equal(result.status, 'uncertain', '两个可交换的漏步顺序不唯一时不得猜测');
-  assert.deepEqual(result.moves, []);
+  assert.equal(result.status, 'recovered', '相对两侧可交换的漏步属于同一等价序列');
+  assert.equal(after(...result.moves.map(item => item.move)), after('F', 'B'));
+  assert.ok(result.moves.every(item => item.at === null), '等价恢复仍不能伪造时间');
 }
 
 {

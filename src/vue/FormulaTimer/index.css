@@ -21,6 +21,8 @@
 .formula-timer-render > div,.formula-timer-next-render { width:100%; height:100%; }
 .formula-timer-render canvas { display:block; }
 .formula-timer-next-render { pointer-events:none; }
+.formula-timer-render .formula-timer-mirror { position:absolute; top:0; left:0; width:50%; height:50%; pointer-events:none; z-index:1; }
+.formula-timer-dual .formula-timer-mirror { left:-6%; }
 .formula-timer-panel { max-width:860px; width:100%; margin:0 auto; padding:8px 16px 28px; color:#193943; }
 .formula-timer-formula { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; align-items:baseline; }
 .formula-timer-formula strong { font-size:18px; }

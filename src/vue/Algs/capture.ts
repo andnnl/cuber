@@ -52,9 +52,14 @@ export default class Capture {
     return this.cube.order;
   }
 
-  snap(strip: { [face: string]: number[] | undefined }, exp: string, order: number): string {
+  snap(strip: { [face: string]: number[] | undefined }, exp: string, order: number, blackCubelets: number[] = []): string {
     this.order = order;
     this.cube.strip(strip);
+    for (const index of blackCubelets) {
+      for (let face = 0; face < 6; face++) {
+        this.cube.initials[index].stick(face, "remove");
+      }
+    }
     this.cube.reset();
 
     this.twist(exp);

@@ -204,13 +204,14 @@ async function advance(ms) {
     '公式计时视图必须以无动画逻辑题面映射实时转动');
   assert.match(view, /this\.training\.completeDisplayed\(last\.at \?\? Date\.now\(\)\)/,
     '公式计时视图必须在整批动作完成后按末步时间结算');
-  assert.match(view, /isFormulaGoal\(this\.current\.category, this\.world\.cube\.serialize\(\)\)/,
-    '动画结束后可见魔方已经还原时，也应立即结算而不是超时报失败');
+  assert.match(view, /isFormulaGoal\(this\.current\.category, unmaskedFormulaFacelets\(this\.world\.cube\), this\.current\)/,
+    '动画结束后以可见魔方实际状态判定完成，忽略贴纸遮罩');
   assert.match(view, /this\.world\.cube\.twister\.discardPending\(\)/,
     '下一题必须清理上一题积压的动画');
   assert.doesNotMatch(view, /this\.training\.facelets\(/,
     '实体状态不得直接覆盖随机题面');
   const html = fs.readFileSync(path.join(__dirname, '../src/vue/FormulaTimer/index.html'), 'utf8');
-  assert.match(html, /F2L 十字和前两层完成；PLL 六面还原/, '界面说明应反映 F2L 新完成条件');
+  assert.match(html, /标准 F2L 十字和前两层完成；非标 F2L 保留出题时已正确的十字棱块和已完成槽位，并完成目标槽位/,
+    '界面说明应区分标准与非标 F2L 完成条件');
   console.log('公式训练完成条件、慢公式与蓝牙超时：通过');
 })().catch(error => { console.error(error); process.exitCode = 1; });

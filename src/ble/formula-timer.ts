@@ -1,11 +1,13 @@
 import { isSolvedFacelets } from './pll-training';
+import { AdvancedF2LSlot, isAdvancedF2LGoal } from './formula-timer-goal';
 
-export type FormulaCategory = 'f2l' | 'oll' | 'pll';
+export type FormulaCategory = 'f2l' | 'advf2l' | 'oll' | 'pll';
 export type FormulaResult = 'success' | 'idle-failure' | 'interrupted';
-export interface FormulaCase { id: string; category: FormulaCategory; name: string; formula: string; initialFacelets: string; scramble?: string }
+export interface FormulaCase { id: string; category: FormulaCategory; name: string; formula: string; initialFacelets: string; scramble?: string; targetSlot?: AdvancedF2LSlot }
 export interface FormulaRecord extends FormulaCase { at: number; durationMs: number; reactionMs?: number; moveCount?: number; result: FormulaResult }
 
-export function isFormulaGoal(category: FormulaCategory, facelets: string): boolean {
+export function isFormulaGoal(category: FormulaCategory, facelets: string, context?: FormulaCase): boolean {
+  if (category === 'advf2l') return isAdvancedF2LGoal(facelets, context);
   if (category === 'pll') return isSolvedFacelets(facelets);
   if (category === 'f2l') {
     // 当前中心色为基准：D 面含十字与底角，四侧面下两排覆盖四组 F2L 槽位。

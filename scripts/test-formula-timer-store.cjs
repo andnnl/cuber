@@ -14,12 +14,26 @@ assert.equal(initial.settings.slowSeconds, 3);
 assert.equal(initial.settings.beforeZ2, false, '默认不开启出题前 z2');
 assert.equal(initial.settings.beforeY, '', '默认不做出题前 y');
 assert.equal(initial.settings.randomU, true, '默认开启随机 U');
-assert.deepEqual(initial.settings.selectedIds, { f2l: [], oll: [], pll: [] });
+assert.equal(initial.settings.mirrorCube, false, '默认关闭镜像小魔方');
+assert.equal(initial.settings.hideUnrelated, false, '默认关闭无关块隐藏');
+store.save({...initial.settings, hideUnrelated:true}, []);
+assert.equal(store.load().settings.hideUnrelated, true, '记住无关块隐藏开关');
+store.save({...initial.settings, hideUnrelated:undefined}, []);
+assert.equal(store.load().settings.hideUnrelated, false, '旧设置补齐无关块开关');
+store.save({...initial.settings, hideUnrelated:'yes'}, []);
+assert.match(store.load().warning, /设置|读取/, '拒绝无效的无关块开关');
+store.save({...initial.settings, mirrorCube:true}, []);
+assert.equal(store.load().settings.mirrorCube, true, '记住镜像小魔方开关');
+const legacy = {...initial.settings};
+delete legacy.mirrorCube;
+store.save(legacy, []);
+assert.equal(store.load().settings.mirrorCube, false, '旧设置补齐镜像开关而不丢记录');
+assert.deepEqual(initial.settings.selectedIds, { f2l: [], advf2l: [], oll: [], pll: [] });
 assert.deepEqual(initial.records, []);
 assert.equal(initial.warning, '');
 
 const settings = { ...initial.settings, category: 'oll', nextMode: 'repeat', slowOnly: true,
-  beforeZ2: true, beforeY: "y'", slowSeconds: 2.5, selectedIds: { f2l: ['f2l:01'], oll: ['oll:01'], pll: [] } };
+  beforeZ2: true, beforeY: "y'", slowSeconds: 2.5, selectedIds: { f2l: ['f2l:01'], advf2l: [], oll: ['oll:01'], pll: [] } };
 const records = [{ id: 'oll:01', category: 'oll', name: 'OLL-01', formula: 'R U',
   initialFacelets: 'U'.repeat(54), at: 1000, durationMs: 1900, result: 'success' }];
 assert.equal(store.save(settings, records), null);
@@ -49,6 +63,11 @@ values.set('formulaTimer.v1', JSON.stringify({ version: 1, settings: { ...settin
 assert.equal(store.load().settings.randomU, true, '旧设置迁移时保持 OLL/PLL 已有随机 U 行为');
 values.set('formulaTimer.v1', JSON.stringify({ version: 1, settings: { ...settings, randomU: 'off' }, records }));
 assert.match(store.load().warning, /设置|读取/, '拒绝无效的随机 U 选择');
+values.set('formulaTimer.v1', JSON.stringify({ version: 1, settings: { ...settings, mirrorCube: undefined }, records }));
+assert.equal(store.load().settings.mirrorCube, false, '旧记录默认关闭镜像小窗');
+assert.deepEqual(store.load().records, records, '补齐镜像设置时保留成绩');
+values.set('formulaTimer.v1', JSON.stringify({ version: 1, settings: { ...settings, mirrorCube: 'on' }, records }));
+assert.match(store.load().warning, /设置|读取/, '拒绝无效的镜像开关');
 values.set('formulaTimer.v1', JSON.stringify({ version: 1, settings: { ...settings, beforeY: 'x' }, records }));
 assert.match(store.load().warning, /设置|读取/, '拒绝无效的出题前 y 选择');
 values.set('formulaTimer.v1', JSON.stringify({ version: 1, settings, records }));

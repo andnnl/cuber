@@ -17,7 +17,7 @@ assert.match(ts, /this\.settings\.randomU/, '随机 U 需要参与题目生成')
 assert.match(html, /formatTps\(record\)/, '历史记录需显示 TPS');
 assert.match(html, /meanTps/, '统计详情需显示平均 TPS');
 assert.match(ts, /this\.settings\.beforeY/, '出题前 y 需要参与实际题目生成');
-assert.match(html, /v-for="category in \['f2l','oll','pll'\]"[^>]*v-if="!statsOpen"/,
+assert.match(html, /v-for="category in \['f2l','advf2l','oll','pll'\]"[^>]*v-if="!statsOpen"/,
   '统计页隐藏训练分类操作，避免生成暗中的新题');
 assert.match(html, /@click="startStatsFocus\(/);
 assert.match(html, /@click="leaveStatsFocus"/);

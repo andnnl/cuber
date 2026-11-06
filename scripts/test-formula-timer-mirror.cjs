@@ -1,0 +1,33 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const ts = require('typescript');
+const THREE = require('three');
+const source = fs.readFileSync('src/vue/FormulaTimer/mirror-camera.ts', 'utf8');
+const code = ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
+const compiled = {exports:{}};
+new Function('require', 'exports', code)(require, compiled.exports);
+const {syncMirrorCamera} = compiled.exports;
+const main = new THREE.PerspectiveCamera(40, 1.7, 100, 3000);
+main.position.set(0, 0, 1500);
+main.lookAt(0, 0, 0);
+const original = main.clone();
+const mirror = new THREE.PerspectiveCamera();
+syncMirrorCamera(mirror, main, new THREE.Vector3());
+assert.equal(mirror.aspect, main.aspect);
+assert.equal(mirror.fov, main.fov);
+assert.equal(mirror.near, main.near);
+assert.equal(mirror.far, main.far);
+assert.deepEqual(main.position.toArray(), original.position.toArray(), '不修改主视角');
+assert.deepEqual(main.quaternion.toArray(), original.quaternion.toArray());
+const sceneRotation = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(Math.PI/6, -Math.PI/4 + Math.PI/16, 0));
+for (const normal of [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)]) {
+  normal.transformDirection(sceneRotation);
+  assert.ok(normal.dot(main.position) > 0, '主视角看到上、右、前');
+  assert.ok(normal.dot(mirror.position) < 0, '小视角看到下、左、后');
+}
+assert.ok(mirror.getWorldDirection(new THREE.Vector3()).dot(mirror.position) < 0, '相机始终朝向魔方');
+main.position.set(200, 300, 1500);
+main.lookAt(0, 0, 0);
+syncMirrorCamera(mirror, main, new THREE.Vector3());
+assert.deepEqual(mirror.position.toArray(), [-200, -300, -1500], '更新主视角后仍显示相反方向');
+console.log('formula timer mirror camera passed');

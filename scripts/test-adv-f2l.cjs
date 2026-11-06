@@ -1,8 +1,9 @@
 const assert = require('node:assert/strict');
 const cases = require('../src/vue/AdvancedF2L/data.json').cases;
 global.requestAnimationFrame = () => 0;
-const { selectAdvancedF2LCase, advancedF2LPreview } = require('../.tmp/ble/adv-f2l.js');
+const { selectAdvancedF2LCase, advancedF2LPreview, advancedF2LCapturePlan, applyAdvancedF2LMask } = require('../.tmp/ble/adv-f2l.js');
 const Cube = require('../.tmp/cuber/cube.js').default;
+const { FACE } = require('../.tmp/cuber/define.js');
 const { parseAppRoute, routeUrl } = require('../.tmp/ble/app-route.js');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -24,6 +25,83 @@ assert.equal(first.id, cases[0].id);
 assert.equal(first.altId, cases[0].algs[0][0].altId);
 assert.equal(first.displayFormula, cases[0].algs[0][0].alg);
 assert.ok(first.moves.length && first.inverse.length);
+
+const displayCube = new Cube(3);
+for (const item of cases) for (let direction = 0; direction < 4; direction++) {
+  for (let variant = 0; variant < item.algs[direction].length; variant++) {
+    const selected = selectAdvancedF2LCase(item, direction, variant);
+    const plan = advancedF2LCapturePlan(item, false, direction, displayCube, variant);
+    assert.equal(plan.exp, selected.inverse.join(' '), '遮罩必须基于当前所选公式的初始状态');
+  }
+}
+const displayPlan = advancedF2LCapturePlan(cases[0], false);
+displayCube.twister.setup(`${displayPlan.exp} U`);
+const beforeMask = displayCube.serialize();
+const positions = displayCube.cubelets.map(piece => piece.initial);
+applyAdvancedF2LMask(displayCube, displayPlan);
+assert.ok(displayCube.initials[20].stickers.filter(Boolean).every(sticker => !sticker.visible));
+assert.ok(displayCube.initials[2].stickers.filter(Boolean).every(sticker => sticker.visible));
+assert.ok(displayCube.initials[5].stickers.filter(Boolean).every(sticker => sticker.visible));
+assert.ok([18, 21, 0, 3].every(index => displayCube.initials[index].stickers.filter(Boolean).every(sticker => sticker.visible)));
+assert.ok(displayCube.cubelets.every(piece => piece.visible), '只变黑，不移除块体');
+applyAdvancedF2LMask(displayCube, null);
+assert.equal(displayCube.serialize(), beforeMask, '关闭隐藏必须恢复贴纸，不改变魔方状态');
+assert.deepEqual(displayCube.cubelets.map(piece => piece.initial), positions);
+
+assert.deepEqual(advancedF2LCapturePlan(cases[0], false, 0).blackCubelets, [20, 23],
+  'AF2L 1 的前右指角块当前在前右：保护实际后右配色的目标角棱，而非前右配色的角棱');
+for (const index of [18, 36]) {
+  assert.deepEqual(advancedF2LCapturePlan(cases[index], false, 0).blackCubelets, [20, 23],
+    `${cases[index].subgroup} 同样按当前位置找到目标角棱`);
+}
+const flippedFirst = advancedF2LCapturePlan(cases[0], true, 0);
+assert.deepEqual(flippedFirst.blackCubelets, [24, 21], '翻转后保护当前前右位置实际角块和对应棱块');
+for (const index of [6, 3, 26, 23, 8, 5]) {
+  assert.ok(!Object.values(flippedFirst.strip).some(indices => indices.includes(index)),
+    `翻转后的目标块和已完成槽位 ${index} 不能被顶层去贴纸规则误伤`);
+}
+const captureSimulator = new Cube(3);
+const slotFaces = [
+  { indices: [20, 23], corner: ['D', 'F', 'R'], edge: ['F', 'R'] },
+  { indices: [18, 21], corner: ['D', 'L', 'F'], edge: ['L', 'F'] },
+  { indices: [0, 3], corner: ['D', 'B', 'L'], edge: ['B', 'L'] },
+  { indices: [2, 5], corner: ['D', 'R', 'B'], edge: ['R', 'B'] },
+];
+for (const item of cases) for (let direction = 0; direction < 4; direction++) for (const flipped of [false, true]) {
+  const plan = advancedF2LCapturePlan(item, flipped, direction, captureSimulator);
+  const selection = item.algs[direction].length ? selectAdvancedF2LCase(item, direction, 0) : null;
+  const expected = new Cube(3);
+  const initialExp = [flipped ? 'z2' : '', ...(selection ? selection.inverse : [item.setup]),
+    selection ? '' : ['', 'y', 'y2', "y'"][direction]].filter(Boolean).join(' ');
+  expected.twister.setup(initialExp);
+  const state = expected.serialize();
+  const centers = Object.fromEntries([...'URFDLB'].map((face, index) => [face, state[index * 9 + 4]]));
+  const cornerPosition = slotFaces[direction].indices[0] + (item.subgroup === 'Trapped Edge' ? 6 : 0);
+  const targetCorner = expected.cubelets[cornerPosition];
+  const targetColors = targetCorner.stickers.filter(Boolean).map(sticker => sticker.name);
+  assert.ok(targetColors.includes(centers.D), '分类位置上的角块应为当前底色的 F2L 角块');
+  const expectedBlack = [];
+  slotFaces.forEach((slot, index) => {
+    const done = [slot.corner, slot.edge].every((faces, piece) => faces.every(face =>
+      expected.cubelets[slot.indices[piece]].getColor(FACE[face]) === centers[face]));
+    for (const faces of [slot.corner, slot.edge]) {
+      const colors = faces.map(face => centers[face]).sort().join('');
+      const piece = expected.initials.find(cubelet => cubelet.stickers.filter(Boolean)
+        .map(sticker => sticker.name).sort().join('') === colors);
+      if (faces.length === 3 ? piece.initial === targetCorner.initial || done :
+        colors === targetColors.filter(color => color !== centers.D).sort().join('') || done) {
+        assert.ok(!plan.blackCubelets.includes(piece.initial), `${item.name}/${direction}/${flipped} 目标及已完成角棱不能变黑`);
+        for (const sticker of piece.stickers.filter(Boolean)) {
+          assert.ok(!(plan.strip[sticker.name] || []).includes(piece.initial), '保护块的任何贴纸都不能变黑');
+        }
+      } else expectedBlack.push(piece.initial);
+    }
+  });
+  assert.deepEqual(plan.blackCubelets, expectedBlack, '仅将无关且初始未完成的槽位角棱变黑');
+  captureSimulator.twister.setup(plan.exp);
+  assert.equal(captureSimulator.serialize(), expected.serialize(), '使用固定公式库视角，不能把各分类角块再次转到前右');
+}
+assert.throws(() => advancedF2LCapturePlan(cases[0], false, 4), /未知槽位/);
 assert.notEqual(selectAdvancedF2LCase(cases[0], 0, 1).altId, first.altId);
 assert.throws(() => selectAdvancedF2LCase(cases.find(item => item.name === 'AF2L 9a'), 1, 0), /暂无解法/);
 
@@ -103,12 +181,9 @@ assert.match(template, /^<v-app>\s*<div class="adv-f2l-root">/, '页面须有 Vu
 assert.match(template, /<viewport/, '常驻 3D 魔方');
 assert.match(template, /selected\.algs\[direction\]/, '每个方向保留多条公式');
 assert.match(template, /aria-label="z2"/, '可切换 z2 的复选框');
-assert.match(template, /adv-f2l-preview-cube/, '案例卡片使用三维立方体');
-assert.match(template, /getColor\(sticker\)/, '缩略图应遵循有效配色');
 assert.match(page, /advF2LZ2/, '独立记忆 z2 状态');
 const style = fs.readFileSync(path.join(__dirname, '../src/vue/AdvancedF2L/index.css'), 'utf8');
 assert.doesNotMatch(style, /\.adv-f2l-root button(?:\s|\.|:|\{)/, '页面按钮规则不得覆盖 Setting 的 Vuetify 菜单');
-assert.match(style, /transform-style:\s*preserve-3d/, '缩略图拥有立体透视');
 assert.match(style, /grid-template-columns:\s*repeat\(3,minmax\(0,1fr\)\)/, '手机也须三列');
 
 console.log('非标 F2L 数据完整性：通过');

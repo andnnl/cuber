@@ -4,13 +4,15 @@
     <header class="formula-timer-header">
       <h2>公式集训练计时</h2>
       <div class="formula-timer-tabs">
-        <button v-for="category in ['f2l','oll','pll']" v-if="!statsOpen" :key="category" type="button"
-          :class="{active:trainingCategory === category}" @click="changeCategory(category)">{{category.toUpperCase()}}</button>
+        <button v-for="category in ['f2l','advf2l','oll','pll']" v-if="!statsOpen" :key="category" type="button"
+          :class="{active:trainingCategory === category}" @click="changeCategory(category)">{{category === 'advf2l' ? 'F2L 非标' : category.toUpperCase()}}</button>
         <button v-if="!statsOpen" type="button" @click="openPicker">选择公式</button>
         <button type="button" :class="{active:statsOpen}" @click="statsOpen ? closeStats() : openStats()">{{statsOpen ? '返回训练' : '统计'}}</button>
       </div>
       <div v-if="!statsOpen && !replayRecord" class="formula-timer-preload-controls">
         <label><input data-formula-preload type="checkbox" v-model="settings.preload" @change="changePreloadMode">预打乱模式</label>
+        <label title="左上角以半尺寸显示当前魔方和下一题的背面、底面，不影响操作或计时"><input data-formula-mirror type="checkbox" v-model="settings.mirrorCube" @change="changeMirrorCube">镜像小3D魔方</label>
+        <label><input data-formula-hide-unrelated type="checkbox" aria-label="大魔方隐藏无关块（变黑）" v-model="settings.hideUnrelated" @change="changeHideUnrelated">大魔方隐藏无关块（变黑）</label>
         <label v-if="settings.preload">布局
           <select data-formula-preload-layout v-model="settings.preloadLayout" @change="changePreloadLayout">
             <option value="alternate">左右轮流</option><option value="fixed-left">固定左侧操作</option>
@@ -22,11 +24,11 @@
     <div v-show="!statsOpen" class="formula-timer-cubes" :class="{'formula-timer-dual':preloadActive}" :data-active-side="activeSide">
       <section class="formula-timer-cube formula-timer-current" :style="{order:preloadActive ? activeSide : 0}" aria-label="当前训练">
         <div v-if="preloadActive" class="formula-timer-cube-caption"><strong>当前训练 · {{current.name}}</strong><small>{{current.scramble}}</small></div>
-        <div ref="cubeArea" class="formula-timer-render" tabindex="0" aria-label="可操作的训练魔方" @mousedown.capture="prepareDirectInput" @touchstart.capture="prepareDirectInput" @keydown="onCubeKeydown"><viewport ref="viewport"></viewport></div>
+        <div ref="cubeArea" class="formula-timer-render" tabindex="0" aria-label="可操作的训练魔方" @mousedown.capture="prepareDirectInput" @touchstart.capture="prepareDirectInput" @keydown="onCubeKeydown"><viewport ref="viewport"></viewport><mirror-cube v-if="settings.mirrorCube" ref="mirrorCube" @ready="resize"></mirror-cube></div>
       </section>
       <section v-if="preloadActive" class="formula-timer-cube formula-timer-next" :style="{order:1 - activeSide}" aria-label="下一题预览">
         <div class="formula-timer-cube-caption"><strong>下一题{{queuedCase ? ' · ' + queuedCase.name : ''}}</strong><small>{{queuedCase ? queuedCase.scramble : '当前筛选下暂无可用的下一题'}}</small></div>
-        <div ref="nextCubeArea" class="formula-timer-render"><next-cube v-if="queuedCase" ref="nextCube" :facelets="queuedCase.initialFacelets" @ready="resize"></next-cube></div>
+        <div ref="nextCubeArea" class="formula-timer-render"><next-cube v-if="queuedCase" ref="nextCube" :facelets="queuedCase.initialFacelets" :scramble="queuedCase.scramble || ''" :mask="queuedMask" :mirror="settings.mirrorCube" @ready="resize"></next-cube></div>
       </section>
     </div>
     <main v-show="!statsOpen" class="formula-timer-panel">
@@ -58,12 +60,12 @@
           <button type="button" @click="replay(record)">复盘题面</button>
         </div>
       </details>
-      <small>支持实体魔方，也可用鼠标或触摸直接拖动屏幕魔方，无需连接蓝牙。点击魔方区域后可按 U/R/F/D/L/B、M/E/S 转层，Shift 为逆转，X/Y/Z 调整持方；整体转不计步。实体无需与题面同步，两种输入可在同题混用；按屏幕 3D 魔方判定完成。F2L 十字和前两层完成；PLL 六面还原；OLL 下两层还原且顶面同色。</small>
+      <small>支持实体魔方，也可用鼠标或触摸直接拖动屏幕魔方，无需连接蓝牙。点击魔方区域后可按 U/R/F/D/L/B、M/E/S 转层，Shift 为逆转，X/Y/Z 调整持方；整体转不计步。实体无需与题面同步，两种输入可在同题混用；按屏幕 3D 魔方判定完成。标准 F2L 十字和前两层完成；非标 F2L 保留出题时已正确的十字棱块和已完成槽位，并完成目标槽位；PLL 六面还原；OLL 下两层还原且顶面同色。</small>
     </main>
     <main v-if="statsOpen" class="formula-timer-panel formula-stats" aria-label="公式训练统计">
       <div class="formula-stats-filters">
         <label>分类 <select v-model="statsPreferences.category" @change="saveStatsPreferences">
-          <option value="f2l">F2L</option><option value="oll">OLL</option><option value="pll">PLL</option>
+          <option value="f2l">F2L</option><option value="advf2l">F2L 非标</option><option value="oll">OLL</option><option value="pll">PLL</option>
         </select></label>
         <label>取样 <select v-model="statsPreferences.mode" @change="saveStatsPreferences">
           <option value="per-formula">每个公式最近 N 条</option><option value="category">当前分类最近 N 条</option>
@@ -132,7 +134,7 @@
     </main>
     <div v-if="pickerOpen" class="formula-timer-overlay" @click.self="closePicker" @mouseup="stopPaint" @touchend="stopPaint">
       <section class="formula-timer-dialog" role="dialog" aria-modal="true" aria-label="选择训练公式">
-        <header><h3>选择 {{settings.category.toUpperCase()}} 公式</h3><button type="button" @click="closePicker">完成</button></header>
+        <header><h3>选择 {{settings.category === 'advf2l' ? 'F2L 非标' : settings.category.toUpperCase()}} 公式</h3><button type="button" @click="closePicker">完成</button></header>
         <p>鼠标按下拖动可批量选择；手机长按后划选。未指定公式时默认全部内置。</p>
         <div v-if="settings.category === 'oll'" class="formula-timer-picker-actions">
           <button type="button" :class="{active:pickerGroup === 'builtin'}" @click="pickerGroup = 'builtin'">内置 OLL</button>
@@ -145,7 +147,7 @@
             @mousedown.prevent="startPaint(item.id, $event)" @mouseenter="paintChoice(item.id)"
             @touchstart.passive="onTouchStart(item.id, $event)" @touchend.stop="onTouchEnd" @touchcancel="stopPaint">
               <strong>{{item.name.replace(/^OLL-/, 'OLL ').replace(/^PLL-/, 'PLL ')}}</strong>
-              <span v-if="settings.category !== 'f2l'" class="formula-timer-oll-preview" :aria-label="item.name + ' 黄顶绿前题面'">
+              <span v-if="settings.category !== 'f2l' && settings.category !== 'advf2l'" class="formula-timer-oll-preview" :aria-label="item.name + ' 黄顶绿前题面'">
                 <span v-for="cell in previewCells" :key="cell.index" class="formula-timer-oll-preview-cell" :style="previewStyle(cell, item)"></span>
               </span>
               <img v-else-if="f2lPictures[item.id]" class="formula-timer-f2l-picture" :src="f2lPictures[item.id]" :alt="item.name + ' 公式库题面'" draggable="false">
