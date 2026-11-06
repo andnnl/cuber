@@ -560,6 +560,10 @@ export default class FormulaTimerView extends Vue {
     if (this.settings.preload) { this.queuedCase = null; this.resetCase(); }
   }
   private showCase(item: FormulaCase, keepQueued = false, keepRecovery = false): void {
+    if (item.category === 'advf2l') {
+      const source = this.items.find(candidate => candidate.id === item.id && candidate.formula === item.formula);
+      if (source) item = {...item, targetSlot:source.targetSlot};
+    }
     this.clearVerification(false);
     this.unscoredRound = false;
     this.physicalRound = false;

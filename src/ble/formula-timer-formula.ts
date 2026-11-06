@@ -4,6 +4,8 @@ import { FormulaCase, FormulaCategory, isFormulaGoal } from './formula-timer';
 import { validateOpCase } from './op-case';
 import { AdvancedF2LCase, selectAdvancedF2LCase } from './adv-f2l';
 import { AdvancedF2LSlot } from './formula-timer-goal';
+import { F2L_SLOTS } from '../cuber/f2l';
+import { CORNER_FACELET_MAP } from './move-diff';
 
 export interface FormulaItem { id: string; category: FormulaCategory; name: string; formula: string; targetSlot?: AdvancedF2LSlot }
 interface FormulaGroup { name: string; items: Array<{ name: string; origin: string; exp?: string }> }
@@ -20,12 +22,19 @@ export function buildFormulaPool(groups: FormulaGroup[], customOlls: CustomOll[]
   customOlls.forEach((item, index) => items.push({ id: `oll:${item.id || `custom-${index}-${item.name}`}`,
     category: 'oll', name: item.name, formula: item.origin }));
   const directions = ['前右', '前左', '后左', '后右'];
-  const slots: AdvancedF2LSlot[] = ['FR', 'FL', 'BL', 'BR'];
+  const simulator = new Cube(3);
   for (const item of advancedF2Ls) item.algs.forEach((variants, direction) => variants.forEach((variant, index) => {
     const selected = selectAdvancedF2LCase(item, direction, index);
+    simulator.twister.setup(selected.inverse.join(' '));
+    const state = simulator.serialize();
+    const cornerPosition = item.subgroup === 'Trapped Edge' ? direction : F2L_SLOTS[direction].solverCorner;
+    const targetColors = CORNER_FACELET_MAP[cornerPosition].map(position => state[position]).sort().join('');
+    const targetSlot = F2L_SLOTS.find(slot => CORNER_FACELET_MAP[slot.solverCorner]
+      .map(position => state[Math.floor(position / 9) * 9 + 4]).sort().join('') === targetColors);
+    if (!targetSlot) throw Error(`${item.name}：无法根据目标角块配色确定归位槽位`);
     items.push({ id: `advf2l:${item.id}:${direction}:${variant.altId}`, category: 'advf2l',
       name: `${item.name} · ${directions[direction]} · 解法 ${index + 1}`, formula: selected.moves.join(' '),
-      targetSlot: slots[direction] });
+      targetSlot: targetSlot.name as AdvancedF2LSlot });
   }));
   return items;
 }

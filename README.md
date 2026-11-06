@@ -13,6 +13,14 @@
 
 npm run watch
 
+# 最新安装包
+
+- [GitHub 固定最新发布页](https://github.com/andnnl/cuber/releases/tag/latest)
+- [Gitee 固定最新发布页](https://gitee.com/andnnl/cuber/releases/tag/latest)
+- 两个发布页使用固定 `latest` 标签，后续版本更新到同一页面，仅保留当前版本安装包。
+- GitHub 提供 Windows、Linux、Android 正式安装包及 SHA-256 校验清单；Gitee 桌面包因附件大小限制采用分卷，附带合包脚本。
+- 当前版本与更新内容见 [最新发布说明](docs/releases/latest.md)。
+
 # 推送
 
 git push github HEAD:v2

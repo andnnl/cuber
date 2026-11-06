@@ -3,6 +3,7 @@ const fs = require('node:fs');
 globalThis.requestAnimationFrame = () => 0;
 const { buildFormulaPool, makeFormulaCase } = require('../.tmp/ble/formula-timer-formula.js');
 const { isFormulaGoal } = require('../.tmp/ble/formula-timer.js');
+const { createAdvancedF2LGoal } = require('../.tmp/ble/formula-timer-goal.js');
 const { FormulaTimerStore } = require('../.tmp/ble/formula-timer-store.js');
 const { FormulaStatsPreferencesStore } = require('../.tmp/ble/formula-timer-stats-preferences.js');
 const { summarizeFormulaRecords } = require('../.tmp/ble/formula-timer-stats.js');
@@ -23,7 +24,7 @@ test('全部非标案例的有效方向和备选公式进入独立题池，标�
   for (const item of cases) item.algs.forEach((variants, direction) => variants.forEach((variant, index) => {
     const formula = advanced.find(value => value.id === `advf2l:${item.id}:${direction}:${variant.altId}`);
     assert.ok(formula, `${item.name}/${direction}/${index}`);
-    assert.equal(formula.targetSlot, ['FR', 'FL', 'BL', 'BR'][direction]);
+    assert.ok(['FR', 'FL', 'BL', 'BR'].includes(formula.targetSlot));
     assert.ok(formula.name.includes(item.name));
     assert.ok(!/2'/.test(formula.formula), '兼容源数据的半转记法');
   }));
@@ -33,6 +34,39 @@ const stateAfter = moves => {
   cube.twister.setup(moves);
   return cube.serialize();
 };
+test('真实非标题按角块配色归槽，不把角块被困的位置当作目标槽位', () => {
+  for (const [caseId, expected] of [[3534, ['BR','FR','FL','BL']], [3535, ['BL','BR','FR','FL']],
+    [3536, ['FL','BL','BR','FR']], [3543, ['BR','FR','FL','BL']]]) {
+    expected.forEach((slot, direction) => {
+      const item = advanced.find(value => value.id.startsWith(`advf2l:${caseId}:${direction}:`));
+      assert.equal(item.targetSlot, slot, item.name);
+    });
+  }
+  const item = advanced.find(value => value.id === 'advf2l:3534:0:4069');
+  const context = makeFormulaCase(item, [], () => 0, false, '', false);
+  assert.equal(isFormulaGoal('advf2l', stateAfter("R U R'"), context), true,
+    'BR 目标已完成时允许原角块所在的 FR 槽未完成');
+  assert.equal(isFormulaGoal('advf2l', stateAfter("R' U' R"), context), false,
+    '仅完成 FR 而实际 BR 目标未完成时不得成功');
+});
+test('全部598条备选公式及出题转向都跟踪实际目标角块，而非它所在的位置', () => {
+  const simulator = new Cube(3);
+  const cornerIndices = [20, 18, 0, 2];
+  for (const item of advanced) {
+    const [, caseId, direction] = item.id.split(':');
+    const source = cases.find(value => value.id === Number(caseId));
+    for (const flipped of [false, true]) for (const yaw of ['', 'y', "y'", 'y2']) {
+      const generated = makeFormulaCase(item, [], () => 0.25, flipped, yaw, true);
+      simulator.twister.setup(generated.scramble.replace(/ U$/, ''));
+      const position = cornerIndices[Number(direction)] + (source.subgroup === 'Trapped Edge' ? 6 : 0);
+      const targetColors = simulator.cubelets[position].stickers.filter(Boolean)
+        .map(sticker => sticker.name).sort().join('');
+      const goal = createAdvancedF2LGoal(generated);
+      assert.ok(goal.slots.some(colors => colors.split('').sort().join('') === targetColors),
+        `${item.name}/${flipped}/${yaw} 必须检查目标实体块 ${targetColors}`);
+    }
+  }
+});
 const baseline = { id:'advf2l:1:0:goal-test', category:'advf2l', targetSlot:'FR',
   initialFacelets:stateAfter("R U R' L' U' L") };
 test('目标槽位完成且保留初始十字和已完成槽位即可，原本未完成的槽位不作要求', () => {
@@ -96,9 +130,9 @@ test('四个目标方向及出题转向分别绑定正确槽位，不混用前�
     }
   }
 });
-test('旧记录按稳定方向 ID 恢复目标，缺少初始状态或目标时不允许成功', () => {
+test('缺少目标时不能把旧方向 ID 当成目标归位槽位', () => {
   assert.equal(isFormulaGoal('advf2l', stateAfter("L' U' L"),
-    { id:baseline.id, initialFacelets:baseline.initialFacelets }), true);
+    { id:baseline.id, initialFacelets:baseline.initialFacelets }), false);
   assert.equal(isFormulaGoal('advf2l', stateAfter(''), { ...baseline, initialFacelets:'' }), false);
   assert.equal(isFormulaGoal('advf2l', stateAfter(''), { ...baseline, id:'unknown', targetSlot:undefined }), false);
   assert.equal(isFormulaGoal('advf2l', stateAfter('')), false);

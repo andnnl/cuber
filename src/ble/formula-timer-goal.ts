@@ -34,10 +34,7 @@ function slotDone(facelets: string, colors: string): boolean {
 
 export function createAdvancedF2LGoal(context: AdvancedF2LGoalContext): AdvancedF2LGoal | null {
   if (!validFacelets(context.initialFacelets)) return null;
-  const legacyDirection = /^advf2l:[^:]+:([0-3]):.+$/.exec(context.id)?.[1];
-  const target = context.targetSlot === undefined && legacyDirection !== undefined
-    ? F2L_SLOTS[Number(legacyDirection)].name : context.targetSlot;
-  const targetSlot = F2L_SLOTS.find(slot => slot.name === target);
+  const targetSlot = F2L_SLOTS.find(slot => slot.name === context.targetSlot);
   if (!targetSlot) return null;
   const initial = context.initialFacelets;
   const cross = EDGE_FACELET_MAP.slice(4, 8).map(piece => pieceColors(initial, piece))
