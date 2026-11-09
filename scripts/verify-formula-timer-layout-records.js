@@ -10,7 +10,7 @@ async page => {
     view.changePreloadMode();
     const at = new Date(2026, 0, 2, 12, 34, 56).getTime();
     view.records = ['success', 'idle-failure', 'interrupted'].map((result, index) => ({
-      ...view.current, at:at + index * 1000, result, reactionMs:560, durationMs:1234, moveCount:6
+      ...view.current, at:at - index * 1000, result, reactionMs:560, durationMs:1234, moveCount:6
     }));
     await view.$nextTick();
   });

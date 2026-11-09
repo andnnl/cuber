@@ -1,0 +1,25 @@
+<div>
+<div class="formula-timer-record-table-wrap" tabindex="0" role="region" aria-label="训练记录表格，可横向滚动">
+  <table class="formula-timer-record-table" aria-label="训练记录">
+    <thead><tr><th scope="col">时间</th><th scope="col">公式</th><th scope="col">结果</th><th scope="col">反应（秒）</th><th scope="col">拧公式（秒）</th><th scope="col">步数</th><th scope="col">TPS</th><th scope="col">操作</th></tr></thead>
+    <tbody>
+      <tr v-for="(record, index) in pageRecords" :key="record.at + '-' + index">
+        <td><time :datetime="new Date(record.at).toISOString()" :title="new Date(record.at).toLocaleString()">{{new Date(record.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}}</time></td>
+        <td>{{record.name}}</td>
+        <td>{{record.result === 'success' ? '成功' : record.result === 'idle-failure' ? '停转失败' : '中断'}}</td>
+        <td>{{formatReaction(record)}}</td>
+        <td>{{(record.durationMs/1000).toFixed(2)}}</td>
+        <td>{{record.moveCount === undefined ? '—' : record.moveCount}}</td>
+        <td>{{formatTps(record)}}</td>
+        <td><button type="button" @click="$emit('replay', record)">复盘题面</button></td>
+      </tr>
+      <tr v-if="!records.length"><td colspan="8" class="formula-timer-record-empty">暂无符合条件的训练记录</td></tr>
+    </tbody>
+  </table>
+</div>
+<nav class="formula-timer-record-pagination" aria-label="训练记录分页">
+  <button type="button" :disabled="page <= 1" @click="page--">上一页</button>
+  <span>第 {{page}} / {{pageCount}} 页 · {{records.length}} 条</span>
+  <button type="button" :disabled="page >= pageCount" @click="page++">下一页</button>
+</nav>
+</div>

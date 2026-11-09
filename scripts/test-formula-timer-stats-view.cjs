@@ -14,7 +14,9 @@ assert.match(html, /出题前 y[\s\S]*?<option value="y"/);
 assert.match(html, /出题前 y[\s\S]*?随机 U/, '随机 U 开关放在出题前 y 后面');
 assert.match(html, /settings\.randomU[\s\S]*?toggleRandomU/, '随机 U 开关响应交互');
 assert.match(ts, /this\.settings\.randomU/, '随机 U 需要参与题目生成');
-assert.match(html, /formatTps\(record\)/, '历史记录需显示 TPS');
+const recordTable = fs.readFileSync(path.join(__dirname, '../src/vue/FormulaTimer/RecordTable.html'), 'utf8');
+assert.match(recordTable, /formatTps\(record\)/, '历史记录需显示 TPS');
+assert.match(html, /<record-table :records="filteredRecords" @replay="replay"/, '历史记录需独立渲染，不随计时刷新重绘');
 assert.match(html, /meanTps/, '统计详情需显示平均 TPS');
 assert.match(ts, /this\.settings\.beforeY/, '出题前 y 需要参与实际题目生成');
 assert.match(html, /v-for="category in \['f2l','advf2l','oll','pll'\]"[^>]*v-if="!statsOpen"/,
@@ -29,4 +31,22 @@ assert.match(ts, /onAppActivate\(\): void \{ this\.active = true; if \(!this\.st
   '统计页恢复前台不应暗中生成训练题');
 assert.match(ts, /onAppDeactivate\(\): void \{[\s\S]*?this\.clearStatsFocus\(\);[\s\S]*?\n  \}/,
   '离开页面必须清理临时重点题池');
-console.log('公式统计视图结构：通过');
+const compiler = require('typescript');
+const parsed = compiler.createSourceFile('index.ts', ts, compiler.ScriptTarget.Latest, true);
+const component = parsed.statements.find(compiler.isClassDeclaration);
+const filtered = component.members.find(member => member.name?.getText(parsed) === 'filteredRecords');
+const harnessCode = compiler.transpileModule(`class RecordHarness {${filtered.getText(parsed)}}`,
+  {compilerOptions:{target:compiler.ScriptTarget.ES2020}}).outputText;
+const RecordHarness = new Function(`${harnessCode}; return RecordHarness;`)();
+const view = Object.assign(new RecordHarness(), {recordResult:'all', trainingCategory:'pll',
+  records:Array.from({length:2400}, (_, index) => ({at:index, category:index % 2 ? 'pll' : 'oll',
+    result:index < 1200 ? 'success' : 'idle-failure'}))});
+assert.equal(view.filteredRecords.length, 1000, '记录表最多显示 1000 条');
+assert.equal(view.filteredRecords[0].at, 2399, '优先显示最新记录');
+assert.equal(view.filteredRecords[999].at, 401);
+view.recordResult = 'success';
+assert.equal(view.filteredRecords.length, 600, '先筛选再限制条数，不能隐藏较早的符合条件记录');
+assert.equal(view.filteredRecords[0].at, 1199);
+assert.equal(view.records.length, 2400, '显示上限不删除统计或存储所用的历史记录');
+assert.equal(view.records[0].at, 0, '显示排序不得修改原始记录');
+console.log('公式统计视图结构与记录显示上限：通过');

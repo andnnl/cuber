@@ -55,24 +55,8 @@
       </details>
       <details class="formula-timer-details"><summary>训练记录 · {{records.length}} 条</summary>
         <label>结果 <select v-model="recordResult"><option value="all">全部</option><option value="success">成功</option><option value="idle-failure">停转失败</option><option value="interrupted">中断</option></select></label>
-        <div class="formula-timer-record-table-wrap" tabindex="0" role="region" aria-label="训练记录表格，可横向滚动">
-          <table class="formula-timer-record-table" aria-label="训练记录">
-            <thead><tr><th scope="col">时间</th><th scope="col">公式</th><th scope="col">结果</th><th scope="col">反应（秒）</th><th scope="col">拧公式（秒）</th><th scope="col">步数</th><th scope="col">TPS</th><th scope="col">操作</th></tr></thead>
-            <tbody>
-              <tr v-for="(record, index) in filteredRecords" :key="record.at + '-' + index">
-                <td><time :datetime="new Date(record.at).toISOString()" :title="new Date(record.at).toLocaleString()">{{new Date(record.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}}</time></td>
-                <td>{{record.name}}</td>
-                <td>{{record.result === 'success' ? '成功' : record.result === 'idle-failure' ? '停转失败' : '中断'}}</td>
-                <td>{{formatReaction(record)}}</td>
-                <td>{{(record.durationMs/1000).toFixed(2)}}</td>
-                <td>{{record.moveCount === undefined ? '—' : record.moveCount}}</td>
-                <td>{{formatTps(record)}}</td>
-                <td><button type="button" @click="replay(record)">复盘题面</button></td>
-              </tr>
-              <tr v-if="!filteredRecords.length"><td colspan="8" class="formula-timer-record-empty">暂无符合条件的训练记录</td></tr>
-            </tbody>
-          </table>
-        </div>
+        <small>最多浏览当前筛选的最近 1000 条，每页 50 条；完整历史保留用于统计。</small>
+        <record-table :records="filteredRecords" @replay="replay"></record-table>
       </details>
       <small>支持实体魔方，也可用鼠标或触摸直接拖动屏幕魔方，无需连接蓝牙。点击魔方区域后可按 U/R/F/D/L/B、M/E/S 转层，Shift 为逆转，X/Y/Z 调整持方；整体转不计步。实体无需与题面同步，两种输入可在同题混用；按屏幕 3D 魔方判定完成。标准 F2L 十字和前两层完成；非标 F2L 保留出题时已正确的十字棱块和已完成槽位，并完成目标槽位；PLL 六面还原；OLL 下两层还原且顶面同色。</small>
     </main>

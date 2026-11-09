@@ -24,10 +24,11 @@ import Viewport from '../Viewport';
 import Setting from '../Setting';
 import NextCube from './NextCube';
 import MirrorCube from './MirrorCube';
+import RecordTable from './RecordTable';
 import { advanced, loadFormulaPool } from './formulas';
 import './index.css';
 
-@Component({ template: require('./index.html'), components: { viewport: Viewport, setting: Setting, nextCube: NextCube, mirrorCube: MirrorCube } })
+@Component({ template: require('./index.html'), components: { viewport: Viewport, setting: Setting, nextCube: NextCube, mirrorCube: MirrorCube, recordTable: RecordTable } })
 export default class FormulaTimerView extends Vue {
   @Provide('world') world: World = new World();
   @Provide('preferance') preferance: PreferanceData = new PreferanceData(this.world);
@@ -119,7 +120,7 @@ export default class FormulaTimerView extends Vue {
   get selectedIds(): string[] { return this.settings.selectedIds[this.trainingCategory]; }
   get filteredRecords(): FormulaRecord[] {
     return this.records.filter(record => (this.recordResult === 'all' || record.result === this.recordResult) &&
-      record.category === this.trainingCategory);
+      record.category === this.trainingCategory).sort((left, right) => right.at - left.at).slice(0, 1000);
   }
   get statsResult(): StatsResult {
     return summarizeFormulaRecords(this.records, this.statsPreferences.category,

@@ -56,6 +56,8 @@
 .formula-timer-record-table th,.formula-timer-record-table td { border-bottom:1px solid #d9e4e5; padding:8px; text-align:left; }
 .formula-timer-record-table th { background:#eef7f6; }
 .formula-timer-record-table .formula-timer-record-empty { text-align:center; color:#405d65; }
+.formula-timer-record-pagination { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px; }
+.formula-timer-record-pagination button:disabled { opacity:0.5; cursor:default; }
 .formula-timer-overlay { position:fixed; inset:0; background:#132329a6; z-index:1050; display:flex; align-items:center; justify-content:center; padding:12px; }
 .formula-timer-dialog { width:min(600px,100%); max-height:85vh; overflow:auto; background:#fff; padding:18px; border-radius:12px; color:#163a40; }
 .formula-timer-dialog header { display:flex; justify-content:space-between; align-items:center; }
