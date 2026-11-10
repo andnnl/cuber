@@ -3,6 +3,16 @@
 // 本样式由组件 mounted 钩子注入 document.head
 
 export const TRAINER_THEME_CSS = `
+.prediction-settings { border: 1px solid #dbe1ed; border-radius: 6px; padding: 4px 8px; margin: 4px 0; font-size: 12px; min-width: 0; }
+.prediction-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin: 4px 0; }
+.prediction-controls label { display: inline-flex; align-items: center; gap: 4px; }
+.prediction-controls select, .prediction-controls button, .prediction-formula { border: 1px solid #bbc6d8; border-radius: 4px; padding: 3px 5px; background: white; color: #263449; min-height: 28px; }
+.prediction-controls button:disabled { opacity: .5; }
+.prediction-formula { flex: 1; min-width: 120px; }
+.prediction-color { display: inline-block; width: 15px; height: 15px; border: 1px solid #66728b; border-radius: 3px; vertical-align: middle; }
+.prediction-prompt { margin: 4px 0 !important; font-size: 12px; line-height: 1.5; color: #455a64; overflow-wrap: anywhere; }
+.prediction-custom-active { color: #673ab7; overflow-wrap: anywhere; }
+.trainer-overlay-card > .v-card__text { max-height: 55vh; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; }
 .recommendation-panel {
   position: absolute; bottom: 0; left: 0; right: 0; height: 42vh; z-index: 11;
   background: #fff; box-shadow: 0 -3px 16px #28345a30; display: flex; flex-direction: column;

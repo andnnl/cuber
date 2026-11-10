@@ -1,6 +1,6 @@
 async page => {
   let connected = false;
-  for (const port of [18645, 8080, 18081]) {
+  for (const port of [18120, 18645, 8080, 18081]) {
     try {
       await page.goto(`http://127.0.0.1:${port}/?mode=crossf2l`);
       await page.waitForFunction(() => window.__crossF2L, null, { timeout: 2500 });
@@ -57,13 +57,17 @@ async page => {
   if (!judged.includes('十字✓、3组F2L') || !judged.includes('未完成预判')) throw new Error(`XXXCross 判定异常: ${judged}`);
   const actual = await page.evaluate(() => {
     const vm = window.__crossF2L;
-    return [vm.world.cube.initials[vm.mappedCornerIndex].index, vm.world.cube.initials[vm.mappedEdgeIndex].index];
+    const corner = vm.world.cube.initials[vm.mappedCornerIndex];
+    const edge = vm.world.cube.initials[vm.mappedEdgeIndex];
+    return [corner.index, edge.index, vm.stickerFace(corner, vm.cornerSticker), vm.stickerFace(edge, vm.edgeSticker)];
   });
-  await page.evaluate(([corner, edge]) => {
+  await page.evaluate(([corner, edge, cornerFace, edgeFace]) => {
     const vm = window.__crossF2L;
     vm.reset();
     vm.predictedCornerIndex = corner;
     vm.predictedEdgeIndex = edge;
+    vm.predictedCornerFace = cornerFace;
+    vm.predictedEdgeFace = edgeFace;
     vm.predictTarget = null;
     vm.play();
   }, actual);

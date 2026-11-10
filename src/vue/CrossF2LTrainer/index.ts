@@ -2,6 +2,7 @@ import { Component, Provide, Ref, Vue, Watch } from "vue-property-decorator";
 import World from "../../cuber/world";
 import Cubelet from "../../cuber/cubelet";
 import tweener from "../../cuber/tweener";
+import { FACE } from "../../cuber/define";
 import { F2L_SLOTS } from "../../cuber/f2l";
 import Solver from "../../solver/Solver";
 import * as WasmSolver from "../../wasm/WasmSolver";
@@ -9,7 +10,7 @@ import { indexedDBStorage } from "../../util/IndexedDBStorage";
 import Viewport from "../Viewport";
 import Setting from "../Setting";
 import { PreferanceData, PaletteData } from "../../data";
-import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBaseOpsFacelets, BaseOp } from "./pieces";
+import { pieceName, pieceTypeOf, rotatePositionIndex, rotatePositionByOps, mapBaseOpsFacelets, baseOpsFaceCharMap, BaseOp } from "./pieces";
 import { HIGHLIGHT_COLORS, highlightPiece, restoreHighlight, restorePositionHighlight, highlightPosition, highlightAnchor, restoreAnchor, clearAllHighlights, tickHighlights } from "./highlight";
 import { TRAINER_THEME_CSS } from "./theme";
 import { CrossAnalysisClient } from "../../wasm/CrossAnalysisClient";
@@ -20,6 +21,10 @@ import { gripTokens, displayWideGripRoute } from "./wide-grip";
 import { applyFormulaFrom } from "../../ble/move-diff";
 import { Recommendation, relativeMove, physicalMove, simpleGripInstruction, FRONTS } from "./recommendations";
 import { remainingSlots, normalizeFixedSlots, trainingVerdict, verifySolvedTargets } from "./training-targets";
+import { CrossDifficulty, CROSS_DIFFICULTIES, parseCrossDifficulty, generateExactCrossScramble } from "../../ble/cross-difficulty";
+import { SOLVED_FACELETS } from "../../ble/facelets";
+import { paintCubeVisibility, pieceColorSignature } from "../BleCrossTrainer/visibility";
+import { positionFaces, rotateStickerFace, selectEdgeSticker, stickerVerdict, normalizePredictionFormula } from "./prediction";
 
 // 组件模板中的 <style> 标签会被 vue-template-compiler 剥离 (从未生效),
 // 样式统一定义在 theme.ts, mounted 时注入 document.head
@@ -44,8 +49,11 @@ export default class CrossF2LTrainer extends Vue {
   private appActive = true;
   private viewFrame: number | null = null;
   private pausedAt: number | null = null;
+  private panelObserver: ResizeObserver | null = null;
   onAppDeactivate(): void {
     this.appActive = false;
+    this.cancelAutoNext();
+    this.cancelDifficultyGeneration();
     this.invalidateAnalysis();
     this.basicAnalysisClient.cancel();
     this.solveRequestId++;
@@ -221,6 +229,24 @@ export default class CrossF2LTrainer extends Vue {
   private predictedEdgeIndex: number | null = null;
   private predictedCornerPiece: Cubelet | null = null;
   private predictedEdgePiece: Cubelet | null = null;
+  private predictCorner = window.localStorage.getItem("trainerPredictCorner") !== "0";
+  private predictEdge = window.localStorage.getItem("trainerPredictEdge") !== "0";
+  private predictedCornerFace = "";
+  private predictedEdgeFace = "";
+  private edgeSticker = "";
+  private edgeStickerTarget = -1;
+  private edgeStickerChoices: { color: string; face: string }[] = [];
+  private visGhost = window.localStorage.getItem("trainerVisGhost") === "1";
+  private visHide = window.localStorage.getItem("trainerVisHide") === "1";
+  private autoNext = window.localStorage.getItem("trainerAutoNext") === "1";
+  private autoNextTimer: number | null = null;
+  private difficulty: CrossDifficulty = parseCrossDifficulty(window.localStorage.getItem("trainerDifficulty"));
+  private difficulties = CROSS_DIFFICULTIES;
+  private generatingDifficulty = false;
+  private scrambleGenerationId = 0;
+  private customSolution = "";
+  private appliedCustomSolution = "";
+  private customSolutionActive = false;
   // 当前等待用户点选的块类型
   private predictTarget: "corner" | "edge" | null = "corner";
 
@@ -288,6 +314,9 @@ export default class CrossF2LTrainer extends Vue {
   // 注意: 整体转动的 group.twist(+times·90°) 绕的是负轴 (AXIS_VECTOR 为负向量),
   // 等效于绕正轴 -times 次 +90°, 因此映射时需传入 -times
   private followPrediction(axis: string, times: number): void {
+    const ops = [{ axis: axis[0] as "x" | "y" | "z", times: -times }];
+    this.predictedCornerFace = rotateStickerFace(this.predictedCornerFace, ops);
+    this.predictedEdgeFace = rotateStickerFace(this.predictedEdgeFace, ops);
     const corner = this.predictedCornerIndex;
     if (corner !== null) {
       this.predictedCornerIndex = rotatePositionIndex(corner, axis, -times);
@@ -338,7 +367,7 @@ export default class CrossF2LTrainer extends Vue {
   // z2 / y / y' 按钮: 整体旋转切换基准视角, 旋转动画结束后按新坐标系重新求解,
   // 得到当前视角下最顺手的十字解法。基准旋转不计入 pendingRestore (不会被「恢复视角」抵消)
   rotateBase(axis: "y" | "z", times: number): boolean {
-    if (this.phase !== "idle" || this.solving || this.pendingSolve) {
+    if (this.phase !== "idle" || this.solving || this.pendingSolve || this.generatingDifficulty) {
       return false;
     }
     // 排空 twister 队列 (如打乱动画未播完的剩余动作) 并完成在飞动画, 确保所有层已解锁:
@@ -363,6 +392,7 @@ export default class CrossF2LTrainer extends Vue {
     this.world.dirty = true;
     // 旧解法基于旋转前坐标系, 立即从列表移除防止误选; 动画结束后重新求解
     this.solutions = [];
+    this.customSolutionActive = false;
     this.solutionSlots = [];
     this.invalidateAnalysis();
     this.basicAnalysisClient.cancel();
@@ -455,15 +485,16 @@ export default class CrossF2LTrainer extends Vue {
     if (this.phase === "judged") {
       return "本回合结束, 点击「重置」可基于同一打乱重新训练";
     }
-    const cornerDone = this.predictedCornerIndex !== null;
-    const edgeDone = this.predictedEdgeIndex !== null;
+    if (!this.predictCorner && !this.predictEdge) return "请至少勾选角块或棱块";
+    const cornerDone = !this.predictCorner || (this.predictedCornerIndex !== null && !!this.predictedCornerFace);
+    const edgeDone = !this.predictEdge || (this.predictedEdgeIndex !== null && !!this.predictedEdgeFace);
     if (!cornerDone) {
-      return `请点击你预测 Cross 完成后 角块${this.targetCornerName} 会到达的位置 (点击该位置的角块; 可拖动空白处旋转魔方查看背面, 选块后视角自动还原)`;
+      return `点击角块${this.targetCornerName} 执行解法后底色色贴所在的位置和面；也可用下方位置、朝向选择器作答`;
     }
     if (!edgeDone) {
-      return `请点击你预测 Cross 完成后 棱块${this.targetEdgeName} 会到达的位置 (点击该位置的棱块; 可拖动空白处旋转魔方查看背面, 选块后视角自动还原)`;
+      return `点击棱块${this.targetEdgeName} 执行解法后指定色贴所在的位置和面；可拖动空白处观察背面`;
     }
-    return "预判完成, 可继续点击调整预判 (再次点击同一位置取消), 选择解法后即可播放 Cross";
+    return "预判完成；点击其他面可调整朝向，再次点击同一位置同一面取消";
   }
 
   // 计时展示文本 (响应式 data): 每帧由 loop 更新。
@@ -486,9 +517,10 @@ export default class CrossF2LTrainer extends Vue {
   get canPlay(): boolean {
     return (
       this.phase === "idle" &&
-      this.solutions.length > 0 &&
+      !this.generatingDifficulty && !this.solving && !this.pendingSolve &&
+      (this.customSolutionActive || (this.solutions.length > 0 &&
       this.selectedSolution >= 0 &&
-      this.selectedSolution < this.solutions.length
+      this.selectedSolution < this.solutions.length))
     );
   }
 
@@ -503,6 +535,13 @@ export default class CrossF2LTrainer extends Vue {
     (window as any).__crossF2L = this; // 临时调试
     this.resize();
     this.loop();
+    this.$nextTick(() => {
+      const panel = this.$el.querySelector(".trainer-overlay-card");
+      if (panel && typeof ResizeObserver !== "undefined") {
+        this.panelObserver = new ResizeObserver(() => this.resize());
+        this.panelObserver.observe(panel);
+      }
+    });
     // 计时显示兜底刷新 (切后台时 rAF 暂停, interval 仍触发)
     this.timerTick = window.setInterval(() => {
       if (this.appActive && this.running) {
@@ -515,7 +554,7 @@ export default class CrossF2LTrainer extends Vue {
     // 记录整体视角转动 (拖拽空白处): 记录待还原信息, 非播放时青色预判框跟随魔方旋转
     this.world.controller.wholeTurnCallbacks.push((axis, times) => this.onWholeTurn(axis, times));
     // 注册 3D 场景点击拾取, 用于预判选块
-    this.world.controller.taps.push((index) => this.onTap(index));
+    this.world.controller.taps.push((index, face) => this.onTap(index, face));
     // 初始化: localStorage 恢复的预判/求解槽位可能相同 (XCross 已还原该槽位, 不可预判), 程序性错开
     this.avoidSlotConflict();
     // 初始化 WASM 求解器 (失败时 Solver 内部自动回退到 TS 求解器)
@@ -528,6 +567,7 @@ export default class CrossF2LTrainer extends Vue {
   }
 
   beforeDestroy(): void {
+    this.panelObserver?.disconnect();
     this.wideClient.dispose();
     this.onAppDeactivate();
     this.analysisClient.dispose();
@@ -591,7 +631,51 @@ export default class CrossF2LTrainer extends Vue {
 
   // 随机打乱并开始新一轮训练
   async rescramble(): Promise<void> {
-    this.startRound(this.world.cube.twister.scrambler());
+    if (this.phase === "playing") return;
+    this.cancelAutoNext();
+    this.cancelDifficultyGeneration();
+    this.solveRequestId++;
+    this.solving = false;
+    const difficulty = parseCrossDifficulty(String(this.difficulty));
+    if (difficulty === "random") {
+      this.startRound(this.world.cube.twister.scrambler());
+      return;
+    }
+    const requestId = this.scrambleGenerationId;
+    const faceMap = baseOpsFaceCharMap(this.baseOps);
+    this.generatingDifficulty = true;
+    this.result = `正在生成最优 ${difficulty} 步十字…`;
+    this.stopTimer(true);
+    try {
+      const formula = await generateExactCrossScramble({
+        baseState: SOLVED_FACELETS, difficulty, z2On: false,
+        randomScramble: () => this.world.cube.twister.scrambler(),
+        solveCross: state => this.solver.solveCross(state, 5, 8),
+        isCurrent: () => requestId === this.scrambleGenerationId && this.appActive,
+      });
+      if (!formula || requestId !== this.scrambleGenerationId) return;
+      const physical = formula.split(/\s+/).map(move => {
+        const face = Object.keys(faceMap).find(key => faceMap[key] === move[0])!;
+        return face + move.slice(1);
+      }).join(" ");
+      this.startRound(physical);
+    } catch (error) {
+      if (requestId === this.scrambleGenerationId) this.result = `难度生成失败：${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      if (requestId === this.scrambleGenerationId) this.generatingDifficulty = false;
+    }
+  }
+
+  private cancelDifficultyGeneration(): void {
+    this.scrambleGenerationId++;
+    this.generatingDifficulty = false;
+  }
+
+  saveDifficulty(): void {
+    this.difficulty = parseCrossDifficulty(String(this.difficulty));
+    window.localStorage.setItem("trainerDifficulty", String(this.difficulty));
+    this.cancelDifficultyGeneration();
+    this.result = "✅ 十字难度已更新，下次打乱生效；自定义打乱不受限制";
   }
 
   // 应用用户输入的打乱公式并开始新一轮训练
@@ -613,6 +697,10 @@ export default class CrossF2LTrainer extends Vue {
   // 开始新一轮: 清空状态, 应用打乱公式 (随机或用户输入), 重放 baseOps 恢复基准视角并求解。
   // 打乱固定在标准姿态 (黄底绿前) 进行; baseOps 仅由 z2/y/y' 按钮产生且跨轮保留
   private startRound(exp: string): void {
+    this.cancelAutoNext();
+    this.cancelDifficultyGeneration();
+    this.customSolutionActive = false;
+    this.edgeStickerTarget = -1;
     this.invalidateAnalysis();
     this.basicAnalysisClient.cancel();
     this.solveRequestId++;
@@ -666,6 +754,7 @@ export default class CrossF2LTrainer extends Vue {
     if (this.phase === "playing") {
       return;
     }
+    this.customSolutionActive = false;
     // 求解槽位改变: 若与当前预判槽位冲突 (该槽位 F2L 已被还原), 先程序性错开
     this.avoidSlotConflict();
     this.invalidateAnalysis();
@@ -680,6 +769,7 @@ export default class CrossF2LTrainer extends Vue {
   onSolveSlotModeChange(): void {
     window.localStorage.setItem("trainerSolveSlotMode", this.solveSlotMode);
     if (this.phase === "playing") return;
+    this.customSolutionActive = false;
     if (this.solveSlotMode === "FIXED" && (this.solveMode === "xxcross" || this.solveMode === "xxxcross")) {
       this.selectedSolveSlots = normalizeFixedSlots(this.selectedSolveSlots, this.solveMode === "xxcross" ? 2 : 3);
       window.localStorage.setItem("trainerMultiSolveSlots", this.selectedSolveSlots.join(","));
@@ -700,6 +790,7 @@ export default class CrossF2LTrainer extends Vue {
     this.selectedSolveSlots = next;
     window.localStorage.setItem("trainerMultiSolveSlots", next.join(","));
     if (this.solveSlotMode === "FIXED") {
+      this.customSolutionActive = false;
       this.invalidateAnalysis();
       this.basicAnalysisClient.cancel();
       this.solutions = [];
@@ -714,6 +805,7 @@ export default class CrossF2LTrainer extends Vue {
     if (this.phase === "playing") {
       return;
     }
+    this.customSolutionActive = false;
     // 模式改变 = 解法语义改变 (xcross 含求解槽位 F2L): 冲突错开后清空解法/预判/判定并重算
     this.avoidSlotConflict();
     this.invalidateAnalysis();
@@ -732,6 +824,8 @@ export default class CrossF2LTrainer extends Vue {
   // 恢复打乱态后旧解法依然有效, 故保留解法列表与选中项复用, 不重算
   // (仅在解法为空时重试求解, 覆盖「上次求解失败后重置」场景)
   reset(): void {
+    this.cancelAutoNext();
+    this.cancelDifficultyGeneration();
     this.cancelWide();
     this.wideOpen = false;
     this.wideRecommendations = [];
@@ -754,7 +848,7 @@ export default class CrossF2LTrainer extends Vue {
     // 重置回打乱态后同样重放基准视角旋转
     this.applyBaseOrientation();
     this.markTargetSlot();
-    if (this.solutions.length === 0) {
+    if (this.solutions.length === 0 && !this.customSolutionActive) {
       this.solve();
     }
   }
@@ -813,13 +907,126 @@ export default class CrossF2LTrainer extends Vue {
     }
     this.predictedCornerIndex = null;
     this.predictedEdgeIndex = null;
-    this.predictTarget = "corner";
+    this.predictedCornerFace = "";
+    this.predictedEdgeFace = "";
+    this.predictTarget = this.predictCorner ? "corner" : this.predictEdge ? "edge" : null;
+  }
+
+  get cornerSticker(): string {
+    return rotateStickerFace("D", this.inverseBaseOps);
+  }
+
+  stickerColor(face: string): string {
+    return Cubelet.LAMBERS[face] ? "#" + Cubelet.LAMBERS[face].color.getHexString() : "transparent";
+  }
+
+  private stickerFace(piece: Cubelet, color: string): string {
+    for (const face of "URFDLB") {
+      if (piece.getFace(FACE[face as keyof typeof FACE]) === FACE[color as keyof typeof FACE]) return face;
+    }
+    return "";
+  }
+
+  private ensureEdgeSticker(): void {
+    if (this.edgeStickerTarget === this.mappedEdgeIndex) return;
+    const piece = this.world.cube.initials[this.mappedEdgeIndex];
+    this.edgeStickerChoices = pieceName(this.mappedEdgeIndex).split("").map(color => ({ color, face: this.stickerFace(piece, color) }));
+    this.edgeSticker = selectEdgeSticker(this.edgeStickerChoices);
+    this.edgeStickerTarget = this.mappedEdgeIndex;
+  }
+
+  changeEdgeSticker(): void {
+    if (this.phase === "playing") return;
+    this.clearPrediction();
+  }
+
+  savePredictionTargets(): void {
+    window.localStorage.setItem("trainerPredictCorner", this.predictCorner ? "1" : "0");
+    window.localStorage.setItem("trainerPredictEdge", this.predictEdge ? "1" : "0");
+    this.clearPrediction();
+  }
+
+  saveVisibility(): void {
+    window.localStorage.setItem("trainerVisGhost", this.visGhost ? "1" : "0");
+    window.localStorage.setItem("trainerVisHide", this.visHide ? "1" : "0");
+    this.applyVisibility();
+  }
+
+  saveAutoNext(): void {
+    window.localStorage.setItem("trainerAutoNext", this.autoNext ? "1" : "0");
+    this.cancelAutoNext();
+  }
+
+  private cancelAutoNext(): void {
+    if (this.autoNextTimer !== null) window.clearTimeout(this.autoNextTimer);
+    this.autoNextTimer = null;
+  }
+
+  private applyVisibility(): void {
+    const needed = new Set<string>();
+    for (const piece of this.world.cube.initials) {
+      const name = pieceName(piece.initial);
+      if (pieceTypeOf(piece.initial) === "edge" && name.indexOf(this.cornerSticker) >= 0) needed.add(pieceColorSignature(name.split("")));
+    }
+    if (this.predictCorner) needed.add(pieceColorSignature(pieceName(this.mappedCornerIndex).split("")));
+    if (this.predictEdge) needed.add(pieceColorSignature(pieceName(this.mappedEdgeIndex).split("")));
+    for (const name of this.activeSolvedSlots) {
+      const slot = F2L_SLOTS.find(item => item.name === name);
+      if (!slot) continue;
+      for (const index of [slot.cornerIndex, slot.edgeIndex]) {
+        needed.add(pieceColorSignature(pieceName(rotatePositionByOps(index, this.inverseBaseOps)).split("")));
+      }
+    }
+    paintCubeVisibility(this.world, needed, this.visGhost, this.visHide, this.preferance.hollow);
+  }
+
+  predictionPositions(type: "corner" | "edge"): { index: number; name: string }[] {
+    return Array.from({ length: 27 }, (_, index) => index)
+      .filter(index => pieceTypeOf(index) === type).map(index => ({ index, name: pieceName(index) }));
+  }
+
+  predictionFaces(type: "corner" | "edge"): string[] {
+    return positionFaces(type === "corner" ? this.predictedCornerIndex : this.predictedEdgeIndex);
+  }
+
+  changePrediction(type: "corner" | "edge", positionChanged = false): void {
+    if (this.phase !== "idle" || this.stepIndex > 0) return;
+    this.restoreView(true);
+    if (type === "corner") {
+      if (this.predictedCornerPiece) restoreAnchor(this.world, this.predictedCornerPiece);
+      if (positionChanged || this.predictionFaces(type).indexOf(this.predictedCornerFace) < 0) this.predictedCornerFace = "";
+      this.predictedCornerPiece = this.predictedCornerIndex === null ? null : highlightAnchor(this.world, this.predictedCornerIndex, HIGHLIGHT_COLORS.predict, this.faceNumber(this.predictedCornerFace));
+    } else {
+      if (this.predictedEdgePiece) restoreAnchor(this.world, this.predictedEdgePiece);
+      if (positionChanged || this.predictionFaces(type).indexOf(this.predictedEdgeFace) < 0) this.predictedEdgeFace = "";
+      this.predictedEdgePiece = this.predictedEdgeIndex === null ? null : highlightAnchor(this.world, this.predictedEdgeIndex, HIGHLIGHT_COLORS.predict, this.faceNumber(this.predictedEdgeFace));
+    }
+  }
+
+  private faceNumber(face: string): FACE | undefined {
+    return face ? FACE[face as keyof typeof FACE] : undefined;
+  }
+
+  applyCustomSolution(): void {
+    if (this.phase === "playing" || this.solving || this.generatingDifficulty || this.pendingSolve) return;
+    let formula: string;
+    try {
+      formula = normalizePredictionFormula(this.customSolution);
+    } catch (error) {
+      this.result = error instanceof Error ? error.message : String(error);
+      return;
+    }
+    this.appliedCustomSolution = formula;
+    this.customSolutionActive = true;
+    this.reset();
+    this.result = "✅ 已选用自定义解法，原预判已清除；请按此解法预判";
   }
 
   // 标记目标 F2L 块 (颜色 A): 槽位对应的角块+棱块 (按还原位置识别),
   // 高亮它们在当前打乱状态中的实际位置, 覆层随块移动
   // 基准视角非标准时: 目标块为基准视角还原态下位于槽位的块 (槽位索引经姿态逆映射, 见 mappedCornerIndex)
   private markTargetSlot(): void {
+    this.ensureEdgeSticker();
     for (const cubelet of this.world.cube.initials) restoreHighlight(cubelet);
     for (const name of this.activeSolvedSlots) {
       const target = F2L_SLOTS.find(item => item.name === name);
@@ -827,8 +1034,9 @@ export default class CrossF2LTrainer extends Vue {
       highlightPiece(this.world, rotatePositionByOps(target.cornerIndex, this.inverseBaseOps), HIGHLIGHT_COLORS.answer);
       highlightPiece(this.world, rotatePositionByOps(target.edgeIndex, this.inverseBaseOps), HIGHLIGHT_COLORS.answer);
     }
-    highlightPiece(this.world, this.mappedCornerIndex, HIGHLIGHT_COLORS.target);
-    highlightPiece(this.world, this.mappedEdgeIndex, HIGHLIGHT_COLORS.target);
+    if (this.predictCorner) highlightPiece(this.world, this.mappedCornerIndex, HIGHLIGHT_COLORS.target, this.faceNumber(this.cornerSticker));
+    if (this.predictEdge) highlightPiece(this.world, this.mappedEdgeIndex, HIGHLIGHT_COLORS.target, this.faceNumber(this.edgeSticker));
+    this.applyVisibility();
   }
 
   private cancelRecommendation(): void {
@@ -1082,6 +1290,7 @@ export default class CrossF2LTrainer extends Vue {
   //     世界层转与手动执行语义一致, 见 play 注释)。
   //     (底面十字颜色跟随配色: D 材质在默认配色显黄、白底配色显白)
   private async solve(): Promise<void> {
+    this.customSolutionActive = false;
     const requestId = ++this.solveRequestId;
     this.solving = true;
     try {
@@ -1142,6 +1351,12 @@ export default class CrossF2LTrainer extends Vue {
     if (this.phase !== "idle" || this.stepIndex > 0) {
       return;
     }
+    const changed = this.customSolutionActive || this.selectedSolution !== i;
+    this.customSolutionActive = false;
+    if (changed) {
+      this.clearSelection();
+      this.result = "";
+    }
     const oldSlot = this.slot;
     const oldPhysicalTarget = this.mappedCornerIndex;
     this.selectedSolution = i;
@@ -1153,7 +1368,7 @@ export default class CrossF2LTrainer extends Vue {
 
   // 当前选中解法的动作序列
   get currentSolutionSteps(): string[] {
-    return (this.solutions[this.selectedSolution] || "")
+    return (this.customSolutionActive ? this.appliedCustomSolution : this.solutions[this.selectedSolution] || "")
       .split(/\s+/)
       .filter((t) => t.length > 0);
   }
@@ -1166,14 +1381,14 @@ export default class CrossF2LTrainer extends Vue {
     if (this.predictedCornerPiece) {
       restoreAnchor(this.world, this.predictedCornerPiece);
       if (this.predictedCornerIndex !== null) {
-        highlightPosition(this.world, this.predictedCornerIndex, HIGHLIGHT_COLORS.predict);
+        highlightPosition(this.world, this.predictedCornerIndex, HIGHLIGHT_COLORS.predict, this.faceNumber(this.predictedCornerFace));
       }
       this.predictedCornerPiece = null;
     }
     if (this.predictedEdgePiece) {
       restoreAnchor(this.world, this.predictedEdgePiece);
       if (this.predictedEdgeIndex !== null) {
-        highlightPosition(this.world, this.predictedEdgeIndex, HIGHLIGHT_COLORS.predict);
+        highlightPosition(this.world, this.predictedEdgeIndex, HIGHLIGHT_COLORS.predict, this.faceNumber(this.predictedEdgeFace));
       }
       this.predictedEdgePiece = null;
     }
@@ -1182,6 +1397,7 @@ export default class CrossF2LTrainer extends Vue {
   // 播放前置准备: 排空队列/完成在飞动画/抵消临时拖拽
   private preparePlayback(): void {
     this.world.cube.twister.finish();
+    this.cancelAutoNext();
     this.restoreView(true);
   }
 
@@ -1212,7 +1428,7 @@ export default class CrossF2LTrainer extends Vue {
 
   // 单步播放: 执行选中解法的下一个动作 (带动画); 播完全部动作且预判完成时自动判定
   stepForward(): void {
-    if (this.phase !== "idle") {
+    if (!this.canStepForward) {
       return;
     }
     const tokens = this.currentSolutionSteps;
@@ -1250,12 +1466,12 @@ export default class CrossF2LTrainer extends Vue {
 
   // 单步前进可用性 (模板绑定): idle 且还有剩余动作
   get canStepForward(): boolean {
-    return this.phase === "idle" && this.stepIndex < this.currentSolutionSteps.length;
+    return this.phase === "idle" && !this.solving && !this.generatingDifficulty && !this.pendingSolve && this.stepIndex < this.currentSolutionSteps.length;
   }
 
   // 回退可用性 (模板绑定): 已有已执行动作且不在动画中
   get canStepBack(): boolean {
-    return (this.phase === "idle" || this.phase === "judged") && this.stepIndex > 0;
+    return !this.generatingDifficulty && (this.phase === "idle" || this.phase === "judged") && this.stepIndex > 0;
   }
 
   // 用户在 3D 场景中点击选块 (预判: 点击某个位置, 表示预测目标块 Cross 后会到达这里)
@@ -1264,13 +1480,13 @@ export default class CrossF2LTrainer extends Vue {
   //   - 点击已选中的同一位置 → 取消该预判
   //   - 点击其他同类型位置 → 改选为新位置
   //   - 预判完成后仍可继续点击调整 (点角块改角块, 点棱块改棱块)
-  private onTap(index: number): void {
-    if (index < 0 || this.phase !== "idle" || this.solutions.length === 0) {
+  private onTap(index: number, face: FACE | null = null): void {
+    if (index < 0 || this.phase !== "idle" || (!this.solutions.length && !this.customSolutionActive) || this.generatingDifficulty || this.stepIndex > 0 || face === null) {
       return;
     }
     // 整体转动不改变块的类型 (角/棱/中心), 可先用点击时的索引判断类型
     const type = pieceTypeOf(index, this.world.cube.order);
-    if (type === "center") {
+    if (type === "center" || (type === "corner" ? !this.predictCorner : !this.predictEdge)) {
       return;
     }
     const clicked = this.world.cube.cubelets[index];
@@ -1278,6 +1494,7 @@ export default class CrossF2LTrainer extends Vue {
     // 预判索引用基准视角坐标 (拖拽临时观察不改变预判语义, 见 toBaseIndex)
     const pos = clicked.index;
     const base = this.toBaseIndex(pos);
+    const baseFace = rotateStickerFace(FACE[face], [...this.pendingRestore].reverse().map(op => ({ axis: op.axis[0] as "x" | "y" | "z", times: op.times })));
     // 1 秒后平滑回放还原视角; 期间再次点击会重新计时
     if (this.restoreTimer !== null) {
       clearTimeout(this.restoreTimer);
@@ -1287,7 +1504,7 @@ export default class CrossF2LTrainer extends Vue {
       this.restoreView();
     }, 1000);
     if (type === "corner") {
-      if (this.predictedCornerIndex === base) {
+      if (this.predictedCornerIndex === base && this.predictedCornerFace === baseFace) {
         // 再次点击同一位置 (基准坐标) → 取消预判
         if (this.predictedCornerPiece) {
           restoreAnchor(this.world, this.predictedCornerPiece);
@@ -1295,6 +1512,7 @@ export default class CrossF2LTrainer extends Vue {
         }
         restorePositionHighlight(this.world, base);
         this.predictedCornerIndex = null;
+        this.predictedCornerFace = "";
         this.predictTarget = "corner";
       } else {
         // 选定或改选新位置: 覆层锚定点击的块 (物理位置), 索引记录基准坐标
@@ -1302,12 +1520,13 @@ export default class CrossF2LTrainer extends Vue {
           restoreAnchor(this.world, this.predictedCornerPiece);
         }
         this.predictedCornerIndex = base;
-        this.predictedCornerPiece = highlightAnchor(this.world, pos, HIGHLIGHT_COLORS.predict);
+        this.predictedCornerFace = baseFace;
+        this.predictedCornerPiece = highlightAnchor(this.world, pos, HIGHLIGHT_COLORS.predict, face);
         // 角块已定, 引导下一步选棱块 (若棱块也已选则保持完成态)
         this.predictTarget = this.predictedEdgeIndex !== null ? null : "edge";
       }
     } else {
-      if (this.predictedEdgeIndex === base) {
+      if (this.predictedEdgeIndex === base && this.predictedEdgeFace === baseFace) {
         // 再次点击同一位置 (基准坐标) → 取消预判
         if (this.predictedEdgePiece) {
           restoreAnchor(this.world, this.predictedEdgePiece);
@@ -1315,6 +1534,7 @@ export default class CrossF2LTrainer extends Vue {
         }
         restorePositionHighlight(this.world, base);
         this.predictedEdgeIndex = null;
+        this.predictedEdgeFace = "";
         this.predictTarget = "edge";
       } else {
         // 选定或改选新位置: 覆层锚定点击的块 (物理位置), 索引记录基准坐标
@@ -1322,7 +1542,8 @@ export default class CrossF2LTrainer extends Vue {
           restoreAnchor(this.world, this.predictedEdgePiece);
         }
         this.predictedEdgeIndex = base;
-        this.predictedEdgePiece = highlightAnchor(this.world, pos, HIGHLIGHT_COLORS.predict);
+        this.predictedEdgeFace = baseFace;
+        this.predictedEdgePiece = highlightAnchor(this.world, pos, HIGHLIGHT_COLORS.predict, face);
         this.predictTarget = this.predictedCornerIndex !== null ? null : "corner";
       }
     }
@@ -1343,6 +1564,7 @@ export default class CrossF2LTrainer extends Vue {
       this.handleAnimationEnd();
     } finally {
       this.inAnimationEnd = false;
+      this.applyVisibility();
     }
   }
 
@@ -1380,6 +1602,7 @@ export default class CrossF2LTrainer extends Vue {
 
   // 自动判定: 用户预判的目标块位置 vs Cross 后目标块的实际位置
   private judge(): void {
+    this.cancelAutoNext();
     this.phase = "judged";
     this.stopTimer(false); // 动画播放完毕停表, 保留用时显示
     // 目标 F2L 块 (按还原位置识别): initials 中还原位为槽位索引的块
@@ -1389,31 +1612,45 @@ export default class CrossF2LTrainer extends Vue {
     // cubelet.index 在转层后始终维护为当前位置索引 (group.ts 转层结束时回写)
     const actualCornerIndex = targetCorner.index;
     const actualEdgeIndex = targetEdge.index;
-    const cornerOk = actualCornerIndex === this.predictedCornerIndex;
-    const edgeOk = actualEdgeIndex === this.predictedEdgeIndex;
+    const actualCornerFace = this.stickerFace(targetCorner, this.cornerSticker);
+    const actualEdgeFace = this.stickerFace(targetEdge, this.edgeSticker);
+    const cornerVerdict = stickerVerdict({ enabled: this.predictCorner, index: this.predictedCornerIndex, face: this.predictedCornerFace, actualIndex: actualCornerIndex, actualFace: actualCornerFace });
+    const edgeVerdict = stickerVerdict({ enabled: this.predictEdge, index: this.predictedEdgeIndex, face: this.predictedEdgeFace, actualIndex: actualEdgeIndex, actualFace: actualEdgeFace });
+    const cornerOk = cornerVerdict === "correct" || cornerVerdict === "disabled";
+    const edgeOk = edgeVerdict === "correct" || edgeVerdict === "disabled";
     const state = mapBaseOpsFacelets(this.world.cube.serialize(), this.baseOps);
     const verdict = trainingVerdict(state, this.activeSolvedSlots,
-      this.predictedCornerIndex === null ? null : cornerOk,
-      this.predictedEdgeIndex === null ? null : edgeOk);
+      cornerVerdict === "incomplete" || (!this.predictCorner && !this.predictEdge) ? null : cornerOk,
+      edgeVerdict === "incomplete" ? null : edgeOk);
     const targets = `十字${verdict.targets.cross ? "✓" : "✗"}、${this.activeSolvedSlots.length}组F2L ${this.activeSolvedSlots.map(name => `${name}${verdict.targets.slots[name] ? "✓" : "✗"}`).join(" ")}`;
     if (verdict.prediction === "incomplete") {
       this.result = `${verdict.targets.ok ? "✅" : "❌"} ${targets}；未完成预判`;
     } else if (verdict.prediction === "correct") {
       this.result = `${verdict.targets.ok ? "✅" : "❌"} ${targets}；预判正确`;
     } else {
-      const cornerText = cornerOk ? "✓" : `实际位于 ${pieceName(actualCornerIndex)} 位置`;
-      const edgeText = edgeOk ? "✓" : `实际位于 ${pieceName(actualEdgeIndex)} 位置`;
-      this.result = `${verdict.targets.ok ? "✅" : "❌"} ${targets}；预判错误: 角块${this.targetCornerName} ${cornerText} , 棱块${this.targetEdgeName} ${edgeText}`;
+      const describe = (actualIndex: number, actualFace: string, predictedIndex: number | null, predictedFace: string) => `位置${actualIndex === predictedIndex ? "✓" : "✗"}、朝向${actualFace === predictedFace ? "✓" : "✗"}（实际 ${pieceName(actualIndex)}，色贴朝 ${actualFace}）`;
+      const details: string[] = [];
+      if (this.predictCorner) details.push(`角块${this.targetCornerName} ${describe(actualCornerIndex, actualCornerFace, this.predictedCornerIndex, this.predictedCornerFace)}`);
+      if (this.predictEdge) details.push(`棱块${this.targetEdgeName} ${describe(actualEdgeIndex, actualEdgeFace, this.predictedEdgeIndex, this.predictedEdgeFace)}`);
+      this.result = `❌ ${targets}；预判错误: ${details.join("；")}`;
     }
     // 播放已结束 (未播放态): 青色覆层从位置绑定转回块锚定,
     // 与紫色一致地跟随视角转动; 锚定在预判位置处的块上
     if (this.predictedCornerIndex !== null) {
       restorePositionHighlight(this.world, this.predictedCornerIndex);
-      this.predictedCornerPiece = highlightAnchor(this.world, this.predictedCornerIndex, HIGHLIGHT_COLORS.predict);
+      this.predictedCornerPiece = highlightAnchor(this.world, this.predictedCornerIndex, HIGHLIGHT_COLORS.predict, this.faceNumber(this.predictedCornerFace));
     }
     if (this.predictedEdgeIndex !== null) {
       restorePositionHighlight(this.world, this.predictedEdgeIndex);
-      this.predictedEdgePiece = highlightAnchor(this.world, this.predictedEdgeIndex, HIGHLIGHT_COLORS.predict);
+      this.predictedEdgePiece = highlightAnchor(this.world, this.predictedEdgeIndex, HIGHLIGHT_COLORS.predict, this.faceNumber(this.predictedEdgeFace));
+    }
+    if (this.autoNext && this.appActive && verdict.targets.ok && verdict.prediction === "correct") {
+      this.autoNextTimer = window.setTimeout(() => {
+        this.autoNextTimer = null;
+        if (this.autoNext && this.appActive && this.phase === "judged" && !this.generatingDifficulty && !this.solving && !this.pendingSolve) {
+          this.rescramble();
+        }
+      }, 800);
     }
   }
 
@@ -1432,7 +1669,9 @@ export default class CrossF2LTrainer extends Vue {
     this.height = document.documentElement.clientHeight;
     this.size = Math.ceil(Math.min(this.width / 6, this.height / 12));
     // 全屏 viewport, 仅预留底部面板高度, 魔方居中偏上不遮挡
-    this.viewport?.resize(this.width, this.height * (this.recommendationOpen && !this.recommendationFull ? 0.58 : 1) - this.size * 2.6);
+    const panel = this.$el?.querySelector(".trainer-overlay-card") as HTMLElement | null;
+    const panelHeight = panel?.offsetHeight || this.size * 2.6;
+    this.viewport?.resize(this.width, Math.max(120, this.height * (this.recommendationOpen && !this.recommendationFull ? 0.58 : 1) - panelHeight));
   }
 
   loop(): void {

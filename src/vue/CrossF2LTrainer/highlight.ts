@@ -17,6 +17,7 @@ export const HIGHLIGHT_COLORS = {
 
 interface HighlightEntry {
   color: number;
+  face?: number;
   overlays: THREE.Object3D[];
   disposables: (THREE.Material | THREE.BufferGeometry)[];
 }
@@ -103,11 +104,12 @@ function createOverlay(source: THREE.Mesh, color: number, lift: number, scale: n
 }
 
 // 遍历块的可见贴纸生成覆层并应用变换
-function buildOverlays(cubelet: Cubelet, color: number, place: (sticker: THREE.Mesh, overlay: THREE.Group) => void, scale: number = 1): { overlays: THREE.Object3D[]; disposables: (THREE.Material | THREE.BufferGeometry)[]; pulses: PulsingMaterial[] } {
+function buildOverlays(cubelet: Cubelet, color: number, place: (sticker: THREE.Mesh, overlay: THREE.Group) => void, scale: number = 1, face?: number): { overlays: THREE.Object3D[]; disposables: (THREE.Material | THREE.BufferGeometry)[]; pulses: PulsingMaterial[] } {
   const overlays: THREE.Object3D[] = [];
   const disposables: (THREE.Material | THREE.BufferGeometry)[] = [];
   const pulses: PulsingMaterial[] = [];
   for (let f = 0; f < 6; f++) {
+    if (face !== undefined && f !== face) continue;
     const sticker = cubelet.stickers[f];
     // 仅处理已加入场景的可见贴纸
     if (sticker && sticker.visible && cubelet.children.indexOf(sticker) >= 0) {
@@ -127,13 +129,13 @@ function registerPulses(entry: HighlightEntry, pulses: PulsingMaterial[]): void 
 }
 
 // 为指定块添加指定颜色覆层 (绑定块, 随块移动; 同一块同一时刻仅保留一种颜色)
-export function highlightPiece(world: World, initialIndex: number, color: number): void {
+export function highlightPiece(world: World, initialIndex: number, color: number, face?: number): void {
   const cubelet = world.cube.initials[initialIndex];
   if (!cubelet) {
     return;
   }
   const current = PIECE_HIGHLIGHTS.get(cubelet);
-  if (current && current.color === color) {
+  if (current && current.color === color && current.face === face) {
     return;
   }
   // 已有其他颜色覆层, 先移除再重新叠加
@@ -143,8 +145,8 @@ export function highlightPiece(world: World, initialIndex: number, color: number
     // 作为块的子节点, 跟随块变换; 沿贴纸位置向量略浮出表面
     overlay.position.copy(sticker.position).multiplyScalar(1.02);
     overlay.quaternion.copy(sticker.quaternion);
-  });
-  const entry: HighlightEntry = { color, overlays, disposables };
+  }, 1, face);
+  const entry: HighlightEntry = { color, face, overlays, disposables };
   for (const overlay of overlays) {
     cubelet.add(overlay);
   }
@@ -164,7 +166,7 @@ export function restoreHighlight(cubelet: Cubelet): void {
 }
 
 // 为指定位置添加颜色覆层 (绑定位置, 固定在魔方坐标系中, 不随层转动)
-export function highlightPosition(world: World, index: number, color: number): void {
+export function highlightPosition(world: World, index: number, color: number, face?: number): void {
   const cubelet = world.cube.cubelets[index];
   if (!cubelet) {
     return;
@@ -186,7 +188,7 @@ export function highlightPosition(world: World, index: number, color: number): v
     // 沿贴纸法向额外抬高, 当预判位置恰有紫色目标块时青色覆层绘制在其上方
     const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
     overlay.position.addScaledVector(normal, 0.1);
-  }, PREDICT_SCALE);
+  }, PREDICT_SCALE, face === undefined ? undefined : cubelet.getFace(face));
   const entry: HighlightEntry & { parent: THREE.Object3D } = { color, overlays, disposables, parent: world.cube };
   for (const overlay of overlays) {
     world.cube.add(overlay);
@@ -198,7 +200,7 @@ export function highlightPosition(world: World, index: number, color: number): v
 
 // 为指定位置添加预判锚定覆层 (挂在块上, 平滑跟随所有转动; 与紫块覆层可共存, 抬高避免 z-fighting)
 // 返回锚定的块 (用于后续移除/冻结)
-export function highlightAnchor(world: World, index: number, color: number): Cubelet | null {
+export function highlightAnchor(world: World, index: number, color: number, face?: number): Cubelet | null {
   const cubelet = world.cube.cubelets[index];
   if (!cubelet) {
     return null;
@@ -209,7 +211,7 @@ export function highlightAnchor(world: World, index: number, color: number): Cub
     const lift = new THREE.Vector3(0, 0, 0.11).applyQuaternion(sticker.quaternion);
     overlay.position.copy(sticker.position).multiplyScalar(1.02).add(lift);
     overlay.quaternion.copy(sticker.quaternion);
-  }, PREDICT_SCALE);
+  }, PREDICT_SCALE, face === undefined ? undefined : cubelet.getFace(face));
   const entry: HighlightEntry = { color, overlays, disposables };
   for (const overlay of overlays) {
     cubelet.add(overlay);

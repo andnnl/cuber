@@ -55,7 +55,8 @@
             </div>
             <!-- 第三行: 当前选中解法 (点击展开换解法) -->
             <div class="sum-r2" @click="setCollapsed(false)" title="展开面板选择解法">
-              <span v-if="solutions.length > 0 && selectedSolution >= 0">
+              <span v-if="customSolutionActive"><span class="sum-cnt">自定义解法</span><span class="sum-expr">{{appliedCustomSolution}}</span></span>
+              <span v-else-if="solutions.length > 0 && selectedSolution >= 0">
                 <span class="sum-cnt">解法 {{ selectedSolution + 1 }}/{{ solutions.length }}</span>
                 <span class="sum-expr">{{ solutions[selectedSolution] || '0 步' }} <small v-if="activeSolvedSlots.length">{{ activeSolvedSlots.join('+') }}</small></span>
               </span>
@@ -65,7 +66,7 @@
             <!-- 第四行: 预判 + 结果 -->
             <div class="sum-r3" :style="{fontSize: size * 0.24 + 'px'}">
               <span class="sum-pred" :style="{color: predictedCornerName || predictedEdgeName ? '#1976d2' : '#b0b6c0'}">
-                🖱 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
+                🖱 <span v-if="predictCorner">角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} {{predictedCornerFace}}</span><span v-if="predictEdge"> 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }} {{predictedEdgeFace}}</span>
               </span>
               <span v-if="elapsedText" class="sum-timer">⏱ {{ elapsedText }}</span>
               <v-btn v-if="predictedCornerName || predictedEdgeName" x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
@@ -140,7 +141,7 @@
               :key="n"
               @click="n <= solutions.length && selectSolution(n - 1)"
               class="solution-item"
-              :class="selectedSolution === n - 1 ? 'solution-selected' : ''"
+              :class="!customSolutionActive && selectedSolution === n - 1 ? 'solution-selected' : ''"
               :style="{
                 padding: size * 0.02 + 'px ' + size * 0.15 + 'px',
                 borderRadius: size * 0.08 + 'px',
@@ -150,7 +151,7 @@
                 visibility: n <= solutions.length ? 'visible' : 'hidden',
               }"
             >
-              {{ selectedSolution === n - 1 ? "●" : "○" }} {{ solutions[n - 1] || '0 步' }} <small v-if="solutionSlots[n - 1] && solutionSlots[n - 1].length">{{ solutionSlots[n - 1].join('+') }}</small>
+              {{ !customSolutionActive && selectedSolution === n - 1 ? "●" : "○" }} {{ solutions[n - 1] || '0 步' }} <small v-if="solutionSlots[n - 1] && solutionSlots[n - 1].length">{{ solutionSlots[n - 1].join('+') }}</small>
             </div>
           </div>
           <div v-else :style="{fontSize: size * 0.26 + 'px'}" style="color: #667;">{{ solving ? "📐 正在计算解法..." : "📐 暂无可用解法" }}</div>
@@ -158,13 +159,60 @@
           <!-- 预判状态行 (结果内联追加在同一行) -->
           <div :style="{fontSize: size * 0.24 + 'px'}" style="margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px;">
             <span style="color: #1976d2;">
-              🖱 预判: 角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} , 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }}
+              🖱 预判: <span v-if="predictCorner">角块{{ targetCornerName }}→{{ predictedCornerName || "未选" }} {{predictedCornerFace}}</span><span v-if="predictEdge"> 棱块{{ targetEdgeName }}→{{ predictedEdgeName || "未选" }} {{predictedEdgeFace}}</span>
               <span v-if="elapsedText" style="color: #673ab7; white-space: nowrap;">⏱ {{ elapsedText }}</span>
             </span>
             <v-btn x-small text color="primary" @click="clearPrediction" title="清除预判" style="padding: 0 4px; min-width: unset;">✕</v-btn>
             <span v-if="result" class="result-inline" :class="result.indexOf('✅') >= 0 ? 'success' : 'fail'" :title="result">{{ result }}</span>
           </div>
           </div><!-- /展开态 -->
+          <fieldset class="prediction-settings" :disabled="phase === 'playing'">
+            <legend>F2L 色贴预判</legend>
+            <div class="prediction-controls">
+              <label>十字难度
+                <select data-prediction-difficulty v-model="difficulty" @change="saveDifficulty" title="与蓝牙十字一致：当前底色十字的精确最优步数，XCross 不计 F2L 部分">
+                  <option v-for="value in difficulties" :key="value" :value="value">{{ value === 'random' ? '随机' : value + '步' }}</option>
+                </select>
+              </label>
+              <label><input type="checkbox" v-model="visGhost" @change="saveVisibility()" data-prediction-ghost />半透明</label>
+              <label><input type="checkbox" v-model="visHide" @change="saveVisibility()" data-prediction-hide />隐藏无关</label>
+              <label><input type="checkbox" v-model="autoNext" @change="saveAutoNext" data-prediction-auto-next />答对自动下一题</label>
+              <span v-if="generatingDifficulty" role="status">正在生成…</span>
+            </div>
+            <div class="prediction-controls">
+              <label><input type="checkbox" v-model="predictCorner" @change="savePredictionTargets" data-predict-corner />预判角块</label>
+              <label><input type="checkbox" v-model="predictEdge" @change="savePredictionTargets" data-predict-edge />预判棱块</label>
+              <small>同时判断位置和指定色贴朝向</small>
+            </div>
+            <div v-if="predictCorner" class="prediction-controls" data-corner-answer>
+              <span>角块 {{ targetCornerName }} 底色 <i class="prediction-color" :style="{backgroundColor: stickerColor(cornerSticker)}"></i></span>
+              <select v-model="predictedCornerIndex" @change="changePrediction('corner', true)" :disabled="phase !== 'idle' || stepIndex > 0 || generatingDifficulty" aria-label="角块预测位置">
+                <option :value="null">位置未选</option><option v-for="position in predictionPositions('corner')" :key="position.index" :value="position.index">{{position.name}}</option>
+              </select>
+              <select v-model="predictedCornerFace" @change="changePrediction('corner')" :disabled="phase !== 'idle' || stepIndex > 0 || generatingDifficulty || predictedCornerIndex === null" aria-label="角块底色预测朝向">
+                <option value="">朝向未选</option><option v-for="face in predictionFaces('corner')" :key="face" :value="face">朝 {{face}} 面</option>
+              </select>
+            </div>
+            <div v-if="predictEdge" class="prediction-controls" data-edge-answer>
+              <span>棱块 {{ targetEdgeName }}</span>
+              <label v-for="sticker in edgeStickerChoices" :key="sticker.color" :title="'出题时朝 ' + sticker.face + ' 面'">
+                <input type="radio" name="prediction-edge-sticker" v-model="edgeSticker" :value="sticker.color" @change="changeEdgeSticker" data-edge-sticker />
+                <i class="prediction-color" :style="{backgroundColor: stickerColor(sticker.color)}"></i>{{sticker.face}}面色
+              </label>
+              <select v-model="predictedEdgeIndex" @change="changePrediction('edge', true)" :disabled="phase !== 'idle' || stepIndex > 0 || generatingDifficulty" aria-label="棱块预测位置">
+                <option :value="null">位置未选</option><option v-for="position in predictionPositions('edge')" :key="position.index" :value="position.index">{{position.name}}</option>
+              </select>
+              <select v-model="predictedEdgeFace" @change="changePrediction('edge')" :disabled="phase !== 'idle' || stepIndex > 0 || generatingDifficulty || predictedEdgeIndex === null" aria-label="棱块指定色预测朝向">
+                <option value="">朝向未选</option><option v-for="face in predictionFaces('edge')" :key="face" :value="face">朝 {{face}} 面</option>
+              </select>
+            </div>
+            <div class="prediction-controls">
+              <input data-custom-solution class="prediction-formula" v-model="customSolution" placeholder="自定义解法，如 R U R'" aria-label="自定义解法" @keyup.enter="applyCustomSolution" />
+              <button type="button" data-apply-custom-solution @click="applyCustomSolution" :disabled="solving || pendingSolve || generatingDifficulty || !scramble">使用解法</button>
+            </div>
+            <div v-if="customSolutionActive" class="prediction-custom-active">当前自定义解法：{{appliedCustomSolution}}</div>
+            <p class="prediction-prompt" role="status">{{predictPrompt}}</p>
+          </fieldset>
         </v-card-text>
       </v-card>
     </div>
@@ -293,17 +341,21 @@
         <v-card-title class="help-title">使用说明</v-card-title>
         <v-card-text class="help-body" style="font-size: 13px; line-height: 1.8;">
           <div><b>训练流程</b></div>
-          <div>1. 点「打乱」生成随机打乱 (或输入自定义公式后点「应用」)</div>
-          <div>2. 观察紫色目标块 (F2L 槽位的角块+棱块), 从解法列表选一条 Cross 解法</div>
-          <div>3. 点击你预测的目标块在 Cross 完成后会到达的位置 (先角块后棱块)</div>
-          <div>4. 点「▶ 播放」验证预判; 再次点击同一位置可取消预判</div>
+          <div>1. 选择十字难度后点「打乱」，或应用自定义打乱；难度与蓝牙十字一致，为随机或精确最优 2～7 步，XCross 不计 F2L 部分。</div>
+          <div>2. 勾选预判角块／棱块（默认都选），从列表选解法，或输入自定义解法后点「使用解法」。换解法会清除旧预判。</div>
+          <div>3. 紫色框标记要追踪的色贴：角块为底色；棱块优先选出题时 U/B/F 面色贴，也可点色块切换。播放时始终追踪同一张色贴。</div>
+          <div>4. 点击预测落点的指定面，同时回答位置和朝向；也可用下拉框选择。再次点击同位置同一面取消，点击另一面修改朝向。</div>
+          <div>5. 点「▶ 播放」验证预判；只有已勾选目标的位置、朝向均正确才通过。单步、回退和重置可用于复盘。</div>
+          <div>· 半透明／隐藏无关可同时勾选、独立开关，只改变显示，不改变求解或判定。保留十字、求解槽位和已勾选预判目标。</div>
+          <div>· 勾选“答对自动下一题”后，目标还原且预判正确会在 0.8 秒后自动生成下一题；答错或未完成预判不会切题。</div>
+          <div>· 自定义解法支持空格分隔的 U R F D L B、M E S、小写双层转动和 ' / 2 后缀；重置保留当前解法，新打乱恢复自动解法。</div>
           <div style="margin-top: 8px;"><b>视角操作</b></div>
           <div>· 拖动空白处: 临时旋转观察魔方 (不影响预判), 点「恢复视角」还原</div>
           <div>· z2 / y / y': 切换基准视角, 解法按新视角重新生成, 预判块联动跟随</div>
           <div>· 播放与判定始终在当前基准视角下进行</div>
           <div style="margin-top: 8px;"><b>标记说明</b></div>
-          <div><span style="color: #9c27b0;">紫色框</span>: F2L 目标块当前位置 (角块+棱块)</div>
-          <div><span style="color: #00acc1;">青色框</span>: 你的预判位置 (锚定块, 跟随转动)</div>
+          <div><span style="color: #9c27b0;">紫色框</span>: 目标色贴当前位置，随实体块移动。</div>
+          <div><span style="color: #00acc1;">青色框</span>: 预测位置及朝向；播放时固定在预测位置，不随转层移动。</div>
           <div style="margin-top: 8px;"><b>求解模式</b></div>
           <div>· Cross: 只求底面十字解法</div>
           <div>· XCross: 十字 + 求解槽位一组 F2L 一步到位 (切换求解槽位会重新求解)</div>
