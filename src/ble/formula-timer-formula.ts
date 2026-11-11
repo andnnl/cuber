@@ -40,6 +40,30 @@ export function buildFormulaPool(groups: FormulaGroup[], customOlls: CustomOll[]
 }
 
 const PRE_AUF = ['', 'U', "U'", 'U2'];
+const ORIENTATION_SETUPS = new Map<string, string>();
+
+function advancedF2LOrientationSetup(inverse: string, simulator: Cube): string {
+  simulator.twister.setup(inverse);
+  const faces = 'URFDLB';
+  const centers = [4, 13, 22, 31, 40, 49];
+  const initial = simulator.serialize();
+  const signature = centers.map(index => initial[index]).join('');
+  if (signature === faces) return '';
+  if (!ORIENTATION_SETUPS.size) {
+    for (const pitch of ['', 'x', "x'", 'x2', 'z', "z'"]) {
+      for (const yaw of ['', 'y', "y'", 'y2']) {
+        const moves = [pitch, yaw].filter(Boolean).join(' ');
+        simulator.twister.setup(moves);
+        const state = simulator.serialize();
+        ORIENTATION_SETUPS.set(centers.map(index => state[index]).join(''), moves);
+      }
+    }
+  }
+  const required = faces.split('').map(face => faces[signature.indexOf(face)]).join('');
+  const setup = ORIENTATION_SETUPS.get(required);
+  if (setup === undefined) throw Error('非标 F2L 公式的中心朝向无效');
+  return setup;
+}
 
 function randomIndex(length: number, random: () => number): number {
   return Math.min(length - 1, Math.max(0, Math.floor(random() * length)));
@@ -48,7 +72,11 @@ function randomIndex(length: number, random: () => number): number {
 export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], random: () => number = Math.random,
   beforeZ2 = false, beforeY: '' | 'y' | "y'" | 'y2' = '', randomU = true): FormulaCase {
   const parsed = parseOpFormula(item.formula);
+  const cube = new Cube(3);
   let scramble = parsed.inverse.join(' ');
+  if (item.category === 'advf2l') {
+    scramble = [advancedF2LOrientationSetup(scramble, cube), scramble].filter(Boolean).join(' ');
+  }
   if (item.category === 'oll') {
     if (!plls.length) throw Error('OLL 出题缺少 PLL 公式池');
     const start = randomIndex(plls.length, random);
@@ -76,7 +104,6 @@ export function makeFormulaCase(item: FormulaItem, plls: FormulaItem[] = [], ran
   // 随机 U 只在逆公式之后执行；关闭时不消耗随机值。
   const afterAuf = randomU ? PRE_AUF[randomIndex(PRE_AUF.length, random)] : '';
   scramble = [beforeZ2 ? 'z2' : '', beforeY, scramble, afterAuf].filter(Boolean).join(' ');
-  const cube = new Cube(3);
   if (item.category === 'pll') {
     cube.twister.setup(parsed.inverse.join(' '));
     if (isFormulaGoal('pll', cube.serialize())) throw Error(`${item.name} 的 PLL 公式无效`);

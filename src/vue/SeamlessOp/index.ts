@@ -26,8 +26,8 @@ const simulate = (moves: string[]): string => {
 };
 const SETTINGS = 'seamlessOpSettings';
 const DESTINATION_FACES: OpDestinationFace[] = ['L', 'F', 'R', 'B'];
-type Settings = { mode: OpCaseMode; pllNames: string[]; ollNames: string[]; customOll: string; useCustom: boolean; customOlls: CustomOll[]; z2: boolean; showHints: boolean; hidePrediction: boolean; allTrajectories: boolean; focusLevel: FocusLevel; destinationFaces: OpDestinationFace[] };
-const defaults = (): Settings => ({ mode: 'pll', pllNames: [], ollNames: [], customOll: '', useCustom: false, customOlls: [], z2: false, showHints: false, hidePrediction: false, allTrajectories: false, focusLevel: 'beginner', destinationFaces: DESTINATION_FACES.slice() });
+type Settings = { mode: OpCaseMode; pllNames: string[]; ollNames: string[]; customOll: string; useCustom: boolean; customOlls: CustomOll[]; z2: boolean; showHints: boolean; showBack: boolean; hidePrediction: boolean; allTrajectories: boolean; focusLevel: FocusLevel; destinationFaces: OpDestinationFace[] };
+const defaults = (): Settings => ({ mode: 'pll', pllNames: [], ollNames: [], customOll: '', useCustom: false, customOlls: [], z2: false, showHints: false, showBack: false, hidePrediction: false, allTrajectories: false, focusLevel: 'beginner', destinationFaces: DESTINATION_FACES.slice() });
 
 @Component({ template: require('./index.html'), components: { viewport: Viewport, setting: Setting } })
 export default class SeamlessOp extends Vue {
@@ -38,7 +38,7 @@ export default class SeamlessOp extends Vue {
     previews[item.name] = previewOllFacelets(item, simulate);
     return previews;
   }, {} as Record<string, string>);
-  readonly beforeCells = topNetCells('before');
+  get beforeCells(): TopNetCell[] { return topNetCells('before', this.settings.showBack); }
   readonly afterCells = topNetCells('after');
   readonly destinationFaces = DESTINATION_FACES;
   @Provide('world') world: World = new World();
@@ -95,7 +95,15 @@ export default class SeamlessOp extends Vue {
   }
   get allNetArrows(): TopNetArrow[] {
     if (!this.hintsVisible || !this.trace) return [];
-    return topObservationArrows(this.netBefore, this.trace.positions, this.step);
+    return topObservationArrows(this.netBefore, this.trace.positions, this.step, this.settings.showBack);
+  }
+  toggleBack(): void {
+    if (this.trace) {
+      this.coverage = opWindowCoverage(this.trace, this.settings.showBack);
+      this.focus = this.coverage.find(item => item.view === this.focus?.view) || this.coverage[0] || null;
+    }
+    this.selectedArrowId = null;
+    this.saveSettings();
   }
   get netArrows(): TopNetArrow[] {
     const arrows = this.settings.allTrajectories || !this.focus ? this.allNetArrows :
@@ -160,6 +168,7 @@ export default class SeamlessOp extends Vue {
           typeof saved.customOll === 'string' ? saved.customOll : '',
         z2: saved.z2 === true,
         showHints: saved.showHints === true,
+        showBack: saved.showBack === true,
         hidePrediction: saved.hidePrediction === true,
         allTrajectories: saved.allTrajectories === true,
         focusLevel: ['beginner', 'intermediate', 'all'].indexOf(saved.focusLevel) >= 0 ? saved.focusLevel : 'beginner',
@@ -218,8 +227,8 @@ export default class SeamlessOp extends Vue {
     this.selectedArrowId = null;
     this.world.cube.twister.setup(this.current.scramble);
     this.trace = traceOpStickers(this.current.moves);
-    this.coverage = opWindowCoverage(this.trace);
-    try { this.focus = calculateOpFocus(this.trace); }
+    this.coverage = opWindowCoverage(this.trace, this.settings.showBack);
+    try { this.focus = calculateOpFocus(this.trace, this.settings.showBack); }
     catch (error) { this.focus = null; this.feedback = `观察窗口不可用：${(error as Error).message}`; }
   }
   saveSettings(): void {

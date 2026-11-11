@@ -8,6 +8,7 @@
     <section v-if="current" class="op-nets" aria-label="OLL 前后顶层展开图">
       <div class="op-net-panel op-net-before">
         <header><h3>当前 · {{step ? '第 ' + step + ' 步' : '题面'}}</h3>
+          <label><input type="checkbox" v-model="settings.showBack" @change="toggleBack" aria-label="显示 B 面">显示 B 面</label>
           <label><input type="checkbox" v-model="settings.showHints" @change="toggleHints" aria-label="显示线索">线索</label>
         </header>
         <div class="op-net" aria-label="当前顶层与可见侧面">
@@ -134,9 +135,9 @@
     <div v-if="helpOpen" class="op-backdrop" @click.self="helpOpen = false"><section class="op-dialog" role="dialog" aria-label="无缝 OP 帮助">
       <header><h3>无缝 OP 如何观察</h3><button @click="helpOpen = false">关闭</button></header>
       <p>先观察 OLL 前的顶层贴纸；通过公式中的移动，推断 OLL 完成后顶面与周围侧面顶层的颜色关系，并判断 PLL。</p>
-      <p>只用 OLL 贴纸轨迹检查 F/R、R/B、B/L、L/F 四个窗口：6/6 表示六个目标格的来源均在当前可见的 U/L/F/R，暂不判断是哪一种 PLL。可点击窗口切换，也可点左图来源或右图目标色块单独查看箭头；来自当前 B 面的贴纸不画箭头。勾选「查看全部轨迹」可复盘全部可见非顶色贴纸。起手 U 转先做 AUF；播放仍执行完整公式。</p>
+      <p>只用 OLL 贴纸轨迹检查 F/R、R/B、B/L、L/F 四个窗口：6/6 表示六个目标格的来源均在当前可见面，暂不判断是哪一种 PLL。可点击窗口切换，也可点左图来源或右图目标色块单独查看箭头；默认不画 B 面来源，勾选「显示 B 面」后补齐背面三格及对应轨迹。勾选「查看全部轨迹」可复盘全部可见非顶色贴纸。起手 U 转先做 AUF；播放仍执行完整公式。</p>
       <p>练习难度在所选公式池中抽样：入门优先有满窗且移动较少的 OLL，进阶选中等，全部随机保留原出题方式。</p>
-      <p>左图为当前顶层与 L/F/R 顶层，单条箭头指向做完 OLL 的位置；背面 B 不可见时文字提示。右图展示 OLL 后 U 与 L/F/R/B 顶层。</p>
+      <p>左图为当前顶层与 L/F/R 顶层，可勾选显示 B 面；箭头指向做完 OLL 的位置，背面 B 不可见时文字提示。箭头随「线索」开关显示，并保留观察窗口和终点筛选。右图展示 OLL 后 U 与 L/F/R/B 顶层。</p>
       <p>可选择不含 PLL，此时 OLL 后直接还原，答案选择「无 PLL」。出题前 z2 会对同一题重新构造并校验，重试保留当前题，新题重新抽取。</p>
       <p>在「选择 OLL」中切换至自定义分组，可保存、编辑、删除并多选公式。空选仅使用内置 57 条；旧版单条自定义公式会自动迁入自定义分组。</p>
     </section></div>

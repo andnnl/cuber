@@ -6,7 +6,7 @@
 .op-cube canvas { max-width:100%; }
 .op-nets { --op-cell:clamp(18px,3.8vw,52px); display:grid; grid-template-columns:repeat(2,minmax(0,calc(4 * var(--op-cell) + 32px))); align-items:start; justify-content:start; gap:10px; min-width:0; margin-top:24px; }
 .op-net-panel { min-width:0; padding:9px; border:1px solid #c7d5e4; border-radius:12px; background:#ffffffdc; }
-.op-net-panel header { display:flex; align-items:center; justify-content:space-between; gap:4px; min-height:24px; margin-bottom:4px; }
+.op-net-panel header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px; min-height:24px; margin-bottom:4px; }
 .op-net-panel h3 { margin:0; font-size:15px; white-space:nowrap; }
 .op-net-panel label { font-size:12px; white-space:nowrap; }
 .op-net-panel input[type=checkbox] { vertical-align:middle; }

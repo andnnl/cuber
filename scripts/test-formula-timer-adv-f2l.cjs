@@ -34,6 +34,18 @@ const stateAfter = moves => {
   cube.twister.setup(moves);
   return cube.serialize();
 };
+test('非标公式的逆打乱不得改变统一的中心朝向，包含切层和双层转动', () => {
+  const centers = state => [4, 13, 22, 31, 40, 49].map(index => state[index]).join('');
+  for (const flipped of [false, true]) for (const yaw of ['', 'y', "y'", 'y2']) {
+    const expected = centers(stateAfter(`${flipped ? 'z2' : ''} ${yaw}`));
+    for (const item of advanced) {
+      const generated = makeFormulaCase(item, [], () => 0.25, flipped, yaw, true);
+      assert.equal(centers(generated.initialFacelets), expected, `${item.id} / ${item.formula} / ${flipped}/${yaw}`);
+      assert.equal(generated.formula, item.formula, '朝向补偿不得改写原训练公式');
+      assert.equal(stateAfter(generated.scramble), generated.initialFacelets, '打乱文本和实际题面必须一致');
+    }
+  }
+});
 test('真实非标题按角块配色归槽，不把角块被困的位置当作目标槽位', () => {
   for (const [caseId, expected] of [[3534, ['BR','FR','FL','BL']], [3535, ['BL','BR','FR','FL']],
     [3536, ['FL','BL','BR','FR']], [3543, ['BR','FR','FL','BL']]]) {

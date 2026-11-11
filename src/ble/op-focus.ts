@@ -10,10 +10,9 @@ export type OpFocus = OpCoverage;
 export type FocusLevel = 'beginner' | 'intermediate' | 'all';
 export const OP_VIEWS: OpView[] = ['FR', 'RB', 'BL', 'LF'];
 
-const VISIBLE = new Set(topNetCells('before').map(cell => cell.index));
-
 /** OLL sticker permutation alone decides which six-cell windows have all sources visible. */
-export function opWindowCoverage(trace: OpTrace): OpCoverage[] {
+export function opWindowCoverage(trace: OpTrace, showBack = false): OpCoverage[] {
+  const visible = new Set(topNetCells('before', showBack).map(cell => cell.index));
   const initial = trace.positions[0];
   const final = trace.positions[trace.positions.length - 1];
   if (!initial || !final || initial.length !== 54 || final.length !== 54) return [];
@@ -21,8 +20,8 @@ export function opWindowCoverage(trace: OpTrace): OpCoverage[] {
     const indices = opWindowIndices(view);
     const sources = indices.map(index => final.indexOf(index));
     if (sources.some(id => id < 0)) throw Error('OLL 轨迹中六格贴纸身份不完整');
-    const visibleSources = indices.filter((_, i) => VISIBLE.has(initial[sources[i]]));
-    const arrowIds = sources.filter(id => VISIBLE.has(initial[id]));
+    const visibleSources = indices.filter((_, i) => visible.has(initial[sources[i]]));
+    const arrowIds = sources.filter(id => visible.has(initial[id]));
     const changed = indices.filter((index, i) => initial[sources[i]] !== index);
     const missing = 6 - visibleSources.length;
     return { view, indices, sources, visibleSources, arrowIds, changed,
@@ -41,8 +40,8 @@ export function selectFocusedCase<T extends { focus: OpFocus }>(candidates: T[],
   return sorted[level === 'beginner' ? 0 : Math.floor((sorted.length - 1) / 2)];
 }
 
-export function calculateOpFocus(trace: OpTrace): OpFocus {
-  const coverage = opWindowCoverage(trace);
+export function calculateOpFocus(trace: OpTrace, showBack = false): OpFocus {
+  const coverage = opWindowCoverage(trace, showBack);
   if (!coverage.length) throw Error('OLL 轨迹为空');
   return coverage.slice().sort((a, b) => focusDifficulty(a) - focusDifficulty(b))[0];
 }

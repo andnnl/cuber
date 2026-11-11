@@ -20,13 +20,13 @@ const CELLS: TopNetCell[] = [
   ...[18, 19, 20].map((index, col): TopNetCell => ({ index, side: 'F', row: 4, col: col + 1 })),
 ];
 
-export function topNetCells(panel: 'before' | 'after'): TopNetCell[] {
-  return CELLS.filter(cell => panel === 'after' || cell.side !== 'B');
+export function topNetCells(panel: 'before' | 'after', showBack = false): TopNetCell[] {
+  return CELLS.filter(cell => panel === 'after' || showBack || cell.side !== 'B');
 }
 
 /** Positions are identity → serialized slot for every OLL step. */
-export function topNetArrows(positions: number[][], step: number, identities?: number[]): TopNetArrow[] {
-  const visible = new Set(topNetCells('before').map(cell => cell.index));
+export function topNetArrows(positions: number[][], step: number, identities?: number[], showBack = false): TopNetArrow[] {
+  const visible = new Set(topNetCells('before', showBack).map(cell => cell.index));
   const target = visible;
   const final = positions[positions.length - 1];
   const current = positions[Math.max(0, Math.min(step, positions.length - 1))];
@@ -37,13 +37,13 @@ export function topNetArrows(positions: number[][], step: number, identities?: n
 }
 
 /** Follow visible U/L/F/R stickers unlike the current U centre (including z2). */
-export function topObservationArrows(facelets: string, positions: number[][], step: number): TopNetArrow[] {
+export function topObservationArrows(facelets: string, positions: number[][], step: number, showBack = false): TopNetArrow[] {
   if (facelets.length !== 54) return [];
   const current = positions[Math.max(0, Math.min(step, positions.length - 1))];
   const final = positions[positions.length - 1];
   const initial = positions[0];
   if (!current || !final || !initial || current === final) return [];
-  const visible = new Set(topNetCells('before').map(cell => cell.index));
+  const visible = new Set(topNetCells('before', showBack).map(cell => cell.index));
   return current.reduce<TopNetArrow[]>((arrows, from, id) => {
     if (visible.has(initial[id]) && visible.has(from) && facelets[from] !== facelets[4]) {
       arrows.push({ id, from, to: final[id], targetVisible: visible.has(final[id]) });
